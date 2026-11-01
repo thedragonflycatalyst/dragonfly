@@ -51,12 +51,30 @@ export type Exercise = {
 /** Timer spec a timed block hands to Lapis: rounds of work/rest in seconds. */
 export type TimerSpec = { rounds: number; work: number; rest: number; label?: string };
 
+/** What a block points at: a built-in library exercise or one of the trainer's own (copied in so it still shows if edited later) */
+export type ExerciseRef = { src: 'lib' | 'my'; id: string; name: string; img?: string | null; video?: string | null };
+/** How a set is measured */
+export type SetMetric = 'reps' | 'time' | 'distance';
+/** One planned set. Text fields allow ranges like "8-10" or "RPE 8". rest/time are seconds. */
+export type SetSpec = { weight?: string; reps?: string; tempo?: string; rest?: number; time?: number; distance?: string };
+
 export type WorkoutBlock =
-  | { id: string; kind: 'strength'; exercise_id: string | null; name?: string; sets: number; reps: string; load?: string; rest?: number; note?: string; group?: string }
+  | { id: string; kind: 'exercise'; ex: ExerciseRef; metric: SetMetric; sets: SetSpec[]; note?: string; group?: string | null }
   | { id: string; kind: 'timed'; name: string; exercise_ids: string[]; timer: TimerSpec; note?: string }
   | { id: string; kind: 'note'; text: string };
+export type ExerciseBlock = Extract<WorkoutBlock, { kind: 'exercise' }>;
 
-export type Workout = { id: string; trainer_id: string; name: string; description: string | null; blocks: WorkoutBlock[]; archived: boolean; updated_at: string };
+export type Workout = {
+  id: string; trainer_id: string; name: string; description: string | null; blocks: WorkoutBlock[]; archived: boolean;
+  folder_id: string | null; cover: string | null; last_used_at: string | null; created_at: string; updated_at: string;
+};
+export type Folder = { id: string; trainer_id: string; name: string };
+export type ProgramDay = { week: number; day: number; workout_id: string };
+export type Program = { id: string; trainer_id: string; name: string; description: string | null; weeks: number; schedule: ProgramDay[]; archived: boolean; folder_id: string | null; updated_at: string };
+export type MyExercise = {
+  id: string; trainer_id: string; name: string; instructions: string | null; video_url: string | null;
+  equipment: string[]; muscles: string[]; tags: string[]; default_metric: SetMetric; archived: boolean;
+};
 
 export type Assignment = {
   id: string; trainer_id: string; client_id: string; workout_id: string | null; program_id: string | null;
@@ -64,8 +82,9 @@ export type Assignment = {
   status: 'scheduled' | 'done' | 'skipped'; completed_at: string | null;
 };
 
-export type SetLog = { reps?: number; load?: number; unit?: 'kg' | 'lb'; seconds?: number; done: boolean };
-export type LogEntry = { block_id: string; exercise_id?: string | null; sets: SetLog[] };
+/** What was actually done in one set (weight in the trainer's display unit, recorded in `unit`) */
+export type SetLog = { weight?: number | null; reps?: number | null; time?: number | null; distance?: string | null; done: boolean };
+export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg' };
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
   duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
@@ -81,6 +100,9 @@ const FRIENDLY: Record<string, string> = {
   form_already_submitted: 'This form was already submitted.',
   coach_groups_trainer_id_name_key: 'You already have a group with that name.',
   'path does not match': 'That file couldn’t be saved to this client.',
+  workout_already_done: 'That workout is already logged.',
+  coach_workout_folders_trainer_id_name_key: 'You already have a folder with that name.',
+  coach_logs_one_per_assignment: 'This workout was already logged.',
   own_email: 'That’s your own email. Use your client’s email address.',
   client_archived: 'Restore this client before sending them an email.',
   dragonfly_username_taken: 'That username is taken. Try another.',

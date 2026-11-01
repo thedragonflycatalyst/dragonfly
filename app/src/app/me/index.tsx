@@ -3,7 +3,8 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { Row, SectionLabel } from '@/components/bits';
 import { Badge, Screen } from '@/components/shell';
-import { Card, Empty, Txt, useToast } from '@/components/ui';
+import { Card, Empty, Press, Txt, useToast } from '@/components/ui';
+import { ResumeBanner } from '@/features/resume';
 import { SECTIONS, type SectionKey } from '@/features/common';
 import { useApp } from '@/lib/app-state';
 import { addDays, dayKey, relDay } from '@/lib/dates';
@@ -62,6 +63,7 @@ export default function Me() {
                 last={i === forms.length - 1} onPress={() => router.push({ pathname: '/forms/[rid]', params: { rid: f.id } })} />)}
             </Card>
           )}
+          <ResumeBanner />
           <Txt v="h2">Today</Txt>
           {todays.length ? todays.map((a) => <WorkoutCard key={a.id} a={a} />) : (
             <Empty emoji="🌿" title="Rest day" body={upcoming.length ? `Next up: ${upcoming[0].title}, ${relDay(upcoming[0].scheduled_on).toLowerCase()}.` : 'Nothing is scheduled yet. Your trainer will add your program here.'} />
@@ -83,6 +85,7 @@ function WorkoutCard({ a }: { a: Assignment }) {
   const p = usePalette();
   const blocks = a.snapshot.filter((b) => b.kind !== 'note').length;
   return (
+    <Press accessibilityRole="button" accessibilityLabel={`${a.title}, ${relDay(a.scheduled_on)}`} onPress={() => router.push({ pathname: '/workout/[aid]', params: { aid: a.id } })}>
     <Card style={{ gap: 6 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <Txt v="kicker" color={p.focus}>{relDay(a.scheduled_on)}</Txt>
@@ -91,5 +94,6 @@ function WorkoutCard({ a }: { a: Assignment }) {
       <Txt v="h3">{a.title}</Txt>
       <Txt v="small">{blocks} {blocks === 1 ? 'exercise block' : 'exercise blocks'}{a.trainer_note ? ` · ${a.trainer_note}` : ''}</Txt>
     </Card>
+    </Press>
   );
 }

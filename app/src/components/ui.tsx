@@ -26,6 +26,8 @@ const SF: Partial<Record<AndroidSymbol, SFSymbol>> = {
   document_scanner: 'doc.viewfinder', flash_on: 'bolt.fill', flash_off: 'bolt.slash', photo_library: 'photo.on.rectangle',
   group_add: 'person.2.badge.plus', person_add: 'person.badge.plus', content_copy: 'doc.on.doc', fitness_center: 'dumbbell', swap_horiz: 'arrow.left.arrow.right',
   sports_gymnastics: 'figure.strengthtraining.traditional', link: 'link', pause: 'pause.circle', archive: 'archivebox', badge: 'person.text.rectangle',
+  play_arrow: 'play.fill', star: 'star.fill', star_outline: 'star', video_library: 'play.rectangle.on.rectangle', arrow_upward: 'arrow.up', arrow_downward: 'arrow.down',
+  timer: 'timer', folder: 'folder', drive_file_move: 'folder.badge.plus', remove: 'minus', stop_circle: 'stop.circle', skip_next: 'forward.end', bolt: 'bolt',
   home: 'house', menu: 'line.3.horizontal', ac_unit: 'snowflake', filter_list: 'line.3.horizontal.decrease', sort: 'arrow.up.arrow.down',
   description: 'doc.text', attach_file: 'paperclip', sticky_note_2: 'note.text', checklist: 'checklist', health_and_safety: 'cross.case', straighten: 'ruler',
   timeline: 'chart.xyaxis.line', settings: 'gearshape', payments: 'creditcard', event: 'calendar', groups: 'person.3', inbox: 'tray', link_off: 'personalhotspot.slash',
