@@ -1,0 +1,116 @@
+name: Android app
+
+# Builds an installable test APK of Dragonfly Coach and publishes it
+# as the "android-preview" release. Free on public repos; no Expo account needed.
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck and unit tests
+        run: |
+          npx tsc --noEmit
+          npm test
+
+      - name: Stamp version number
+        # Every build gets the next number: version 1.0.N, shown in the app and in the download's file name
+        run: |
+          node -e "const f='app.json';const j=require('./'+f);j.expo.version='1.0.${{ github.run_number }}';j.expo.android.versionCode=${{ github.run_number }};require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+          echo "APP_VERSION=1.0.${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - name: Generate native project
+        run: npx expo prebuild --platform android --no-install
+        env:
+          CI: 1
+
+      - name: Build APK
+        working-directory: app/android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,x86_64 --no-daemon
+
+      - name: Keep APK for the smoke test
+        run: cp android/app/build/outputs/apk/release/app-release.apk dragonfly-coach.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: app/dragonfly-coach.apk
+          retention-days: 7
+
+      - name: Publish test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          N=${{ github.run_number }}
+          cp dragonfly-coach.apk "dragonfly-coach-v$N.apk"
+          NOTES="Version $APP_VERSION, built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M UTC'). Open this page on your Android phone, download the .apk, and tap it to install (allow installing from your browser if asked)."
+          # Numbered release for this build, kept so every version has its own link
+          gh release create "android-v$N" "dragonfly-coach-v$N.apk" --prerelease --target "$GITHUB_SHA" \
+            --title "Dragonfly Coach – Android version $N" --notes "$NOTES"
+          # Rolling "latest" release whose link never changes
+          gh release delete android-preview --yes --cleanup-tag || true
+          gh release create android-preview dragonfly-coach.apk "dragonfly-coach-v$N.apk" --prerelease --target "$GITHUB_SHA" \
+            --title "Dragonfly Coach – Android test build (latest: version $N)" --notes "$NOTES"
+          # Keep only the 10 newest numbered releases
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^android-v' | sort -t v -k2 -n -r | tail -n +11 | xargs -r -I{} gh release delete {} --yes --cleanup-tag
+
+  # Boots an Android emulator, opens every screen and publishes screenshots + log as the "ci-screens" release
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash app/scripts/smoke.sh
+      - name: Publish screenshots
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ci-screens --yes --cleanup-tag || true
+          gh release create ci-screens $(find screens -type f -size +0 | sort) --prerelease --target "$GITHUB_SHA" --title "CI screenshots" --notes "Automated emulator screenshots for ${GITHUB_SHA::7}. Not an app download."
