@@ -73,7 +73,7 @@ export default function Account() {
         <Txt v="h1" style={{ marginTop: 12 }}>{hasUsername ? app.username : 'Your account'}</Txt>
         <Txt v="small" style={{ fontSize: 15 }}>{email}</Txt>
         <Txt v="small" center style={{ marginTop: 6 }}>One Dragonfly account for every Dragonfly app. Changes here apply everywhere.</Txt>
-        <Txt v="small" center style={{ marginTop: 2 }}>Dragonfly Coach version {Constants.expoConfig?.version ?? 'dev'}</Txt>
+        <Txt v="small" center style={{ marginTop: 2 }}>Dragonfly version {Constants.expoConfig?.version ?? 'dev'}</Txt>
       </View>
 
       {!verified && (

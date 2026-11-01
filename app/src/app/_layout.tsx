@@ -29,7 +29,6 @@ function Shell() {
     <>
       <StatusBar style={p.scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ ...header, headerShown: false }}>
-        <Stack.Screen name="sign-in" options={{ headerShown: true, title: '', presentation: 'formSheet', sheetAllowedDetents: [0.92], sheetGrabberVisible: true }} />
         <Stack.Screen name="account" options={{ headerShown: true, title: 'Account' }} />
         <Stack.Screen name="coach/client/[id]" options={{ headerShown: true, title: '' }} />
       </Stack>

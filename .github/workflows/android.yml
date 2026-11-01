@@ -1,6 +1,6 @@
 name: Android app
 
-# Builds an installable test APK of Dragonfly Coach and publishes it
+# Builds an installable test APK of Dragonfly and publishes it
 # as the "android-preview" release. Free on public repos; no Expo account needed.
 on:
   push:
@@ -59,11 +59,11 @@ jobs:
         run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,x86_64 --no-daemon
 
       - name: Keep APK for the smoke test
-        run: cp android/app/build/outputs/apk/release/app-release.apk dragonfly-coach.apk
+        run: cp android/app/build/outputs/apk/release/app-release.apk dragonfly.apk
       - uses: actions/upload-artifact@v4
         with:
           name: apk
-          path: app/dragonfly-coach.apk
+          path: app/dragonfly.apk
           retention-days: 7
 
       - name: Publish test release
@@ -71,15 +71,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           N=${{ github.run_number }}
-          cp dragonfly-coach.apk "dragonfly-coach-v$N.apk"
+          cp dragonfly.apk "dragonfly-v$N.apk"
           NOTES="Version $APP_VERSION, built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M UTC'). Open this page on your Android phone, download the .apk, and tap it to install (allow installing from your browser if asked)."
           # Numbered release for this build, kept so every version has its own link
-          gh release create "android-v$N" "dragonfly-coach-v$N.apk" --prerelease --target "$GITHUB_SHA" \
-            --title "Dragonfly Coach – Android version $N" --notes "$NOTES"
+          gh release create "android-v$N" "dragonfly-v$N.apk" --prerelease --target "$GITHUB_SHA" \
+            --title "Dragonfly – Android version $N" --notes "$NOTES"
           # Rolling "latest" release whose link never changes
           gh release delete android-preview --yes --cleanup-tag || true
-          gh release create android-preview dragonfly-coach.apk "dragonfly-coach-v$N.apk" --prerelease --target "$GITHUB_SHA" \
-            --title "Dragonfly Coach – Android test build (latest: version $N)" --notes "$NOTES"
+          gh release create android-preview dragonfly.apk "dragonfly-v$N.apk" --prerelease --target "$GITHUB_SHA" \
+            --title "Dragonfly – Android test build (latest: version $N)" --notes "$NOTES"
           # Keep only the 10 newest numbered releases
           gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^android-v' | sort -t v -k2 -n -r | tail -n +11 | xargs -r -I{} gh release delete {} --yes --cleanup-tag
 

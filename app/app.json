@@ -1,19 +1,19 @@
 {
   "expo": {
-    "name": "Dragonfly Coach",
-    "slug": "dragonfly-coach",
+    "name": "Dragonfly",
+    "slug": "dragonfly",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
-    "scheme": "dragonflycoach",
+    "scheme": "dragonfly",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0a1214",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.thedragonflycatalyst.coach"
+      "bundleIdentifier": "com.thedragonflycatalyst.dragonfly"
     },
     "android": {
-      "package": "com.thedragonflycatalyst.coach",
+      "package": "com.thedragonflycatalyst.dragonfly",
       "adaptiveIcon": {
         "backgroundColor": "#0a1214",
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -21,29 +21,12 @@
       },
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
-      ],
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": false,
-          "data": [
-            {
-              "scheme": "https",
-              "host": "thedragonflycatalyst.github.io",
-              "pathPrefix": "/dragonfly-coach/join"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
       "output": "single",
-      "name": "Dragonfly Coach",
+      "name": "Dragonfly",
       "themeColor": "#0a1214"
     },
     "plugins": [
@@ -74,20 +57,20 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Dragonfly Coach uses your photos for your profile picture and progress photos.",
-          "cameraPermission": "Dragonfly Coach uses your camera for progress photos.",
+          "photosPermission": "Dragonfly uses your photos for your profile picture and progress photos.",
+          "cameraPermission": "Dragonfly uses your camera for progress photos.",
           "microphonePermission": false
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
-      "baseUrl": "/dragonfly-coach"
+      "baseUrl": "/dragonfly"
     },
     "extra": {
       "supabaseUrl": "https://fkksaivdznqbfsfsagsj.supabase.co",
       "supabaseKey": "sb_publishable_ME6Xg1mtUBA4994aC0n6Uw_LKsJDTXu",
-      "webUrl": "https://thedragonflycatalyst.github.io/dragonfly-coach/"
+      "webUrl": "https://thedragonflycatalyst.github.io/dragonfly/"
     }
   }
 }

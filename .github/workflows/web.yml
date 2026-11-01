@@ -1,7 +1,7 @@
 name: Web dashboard
 
 # Publishes the web version (trainer dashboard + client web app) to GitHub Pages:
-# https://thedragonflycatalyst.github.io/dragonfly-coach/
+# https://thedragonflycatalyst.github.io/dragonfly/
 on:
   push:
     branches: [main]

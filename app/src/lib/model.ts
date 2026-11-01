@@ -40,10 +40,11 @@ export type WorkoutLog = {
 export type Person = { user_id: string; username: string; relation: 'client' | 'trainer' };
 
 const FRIENDLY: Record<string, string> = {
-  'invite code is invalid': 'That invite code is invalid or has expired. Ask your trainer for a new one.',
-  'already this trainer': 'You’re already this trainer’s client.',
-  'own client': 'You can’t be your own client.',
-  'already used by another': 'This invite was already used by another account. Ask your trainer for a new one.',
+  coach_clients_trainer_email: 'You already have a client with that email.',
+  'linked to an account': 'This client has already set up their account, so their email can’t be changed here.',
+  rate_limited: 'Too many emails were sent just now. Wait a minute and try again.',
+  own_email: 'That’s your own email. Use your client’s email address.',
+  client_archived: 'Restore this client before sending them an email.',
   dragonfly_username_taken: 'That username is taken. Try another.',
   dragonfly_username_invalid: 'Usernames can’t have spaces. Use 3–30 letters, numbers, dots, dashes or underscores.',
   invalid_credentials: 'That username or password didn’t match.',
@@ -61,11 +62,4 @@ export function errText(err: unknown): string {
   return m || 'Something went wrong. Try again.';
 }
 
-/** Pulls an invite code out of whatever the client pasted: the code itself or the whole link. */
-export function parseInviteCode(input: string): string | null {
-  const s = input.trim();
-  // Codes are 8 characters, 0-9 and A-F (made by coach_create_invite)
-  const fromLink = s.match(/[?&]code=([A-Fa-f0-9]{8})\b/);
-  const raw = fromLink ? fromLink[1] : s.replace(/[\s-]/g, '');
-  return /^[A-Fa-f0-9]{8}$/.test(raw) ? raw.toUpperCase() : null;
-}
+export const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.trim());

@@ -1,4 +1,4 @@
--- Dragonfly Coach, phase 0/1 core: trainers, clients, invites, exercise library,
+-- Dragonfly (coaching), phase 0/1 core: trainers, clients, exercise library,
 -- workouts, programs, assignments and workout logs.
 -- Every table is coach_-prefixed, keyed to the shared Dragonfly account (auth.users),
 -- and locked down with row-level security:
@@ -19,16 +19,19 @@ create table public.coach_trainers (
 create table public.coach_clients (
   id uuid primary key default gen_random_uuid(),
   trainer_id uuid not null references public.coach_trainers(user_id) on delete cascade,
-  user_id uuid references auth.users(id) on delete set null,  -- set when the client accepts the invite
+  -- Linked to the Dragonfly account with this email the first time that person signs in (coach_link_me)
+  user_id uuid references auth.users(id) on delete set null,
   name text not null check (char_length(name) between 1 and 120),
-  email text check (char_length(email) <= 254),
-  status text not null default 'active' check (status in ('invited', 'active', 'paused', 'archived')),
+  email text not null check (char_length(email) <= 254 and email ~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
+  status text not null default 'invited' check (status in ('invited', 'active', 'paused', 'archived')),
   goals text check (char_length(goals) <= 4000),
   started_on date,
   created_at timestamptz not null default now(),
   unique (trainer_id, user_id)
 );
 create index coach_clients_user_idx on public.coach_clients (user_id);
+create unique index coach_clients_trainer_email on public.coach_clients (trainer_id, lower(email));
+create index coach_clients_email_idx on public.coach_clients (lower(email)) where user_id is null;
 
 -- Trainer-only notes about a client (never visible to the client)
 create table public.coach_client_notes (
@@ -37,17 +40,6 @@ create table public.coach_client_notes (
   notes text not null default '' check (char_length(notes) <= 20000),
   updated_at timestamptz not null default now()
 );
-
-create table public.coach_invites (
-  code text primary key,
-  client_id uuid not null references public.coach_clients(id) on delete cascade,
-  trainer_id uuid not null references public.coach_trainers(user_id) on delete cascade,
-  created_at timestamptz not null default now(),
-  expires_at timestamptz not null default now() + interval '14 days',
-  used_at timestamptz,
-  used_by uuid references auth.users(id) on delete set null
-);
-create index coach_invites_client_idx on public.coach_invites (client_id);
 
 create table public.coach_exercises (
   id uuid primary key default gen_random_uuid(),
@@ -192,8 +184,31 @@ end
 $$;
 create trigger coach_notes_guard before insert or update on public.coach_client_notes
   for each row execute function public.coach_child_guard();
-create trigger coach_invites_guard before insert or update on public.coach_invites
-  for each row execute function public.coach_child_guard();
+
+-- Only coach_link_me may attach a Dragonfly account to a client row; a trainer can't point a
+-- client record at someone else's account. Once linked, the email can't be changed under them.
+create function public.coach_client_guard() returns trigger
+language plpgsql set search_path = '' as
+$$
+begin
+  if coalesce(current_setting('coach.linking', true), '') <> 'on' then
+    if tg_op = 'INSERT' then
+      new.user_id := null;
+      if new.status = 'active' then new.status := 'invited'; end if;
+    else
+      new.user_id := old.user_id;
+      if old.user_id is not null and lower(new.email) <> lower(old.email) then
+        raise exception 'this client is already linked to an account' using errcode = '42501';
+      end if;
+      if new.trainer_id <> old.trainer_id then raise exception 'a client cannot move between trainers' using errcode = '42501'; end if;
+      if old.user_id is null and new.status = 'active' then new.status := 'invited'; end if;
+    end if;
+  end if;
+  return new;
+end
+$$;
+create trigger coach_clients_guard before insert or update on public.coach_clients
+  for each row execute function public.coach_client_guard();
 
 -- A client logging a workout: the log must be theirs and the assignment theirs.
 -- Logging an assignment marks it done.
@@ -230,43 +245,29 @@ create trigger coach_logs_complete after insert on public.coach_logs
 
 -- ---------------------------------------------------------------- RPCs
 
--- Trainer: create (or refresh) an invite code for one of their clients. Returns the code.
-create function public.coach_create_invite(p_client uuid) returns text
+-- Client, on every sign-in: attach any client records a trainer created for this person's
+-- confirmed email address. Returns how many were linked.
+create function public.coach_link_me() returns int
 language plpgsql security definer set search_path = '' as
 $$
-declare v_code text;
+declare v_email text; v_n int;
 begin
-  if not public.coach_owns_client(p_client) then
-    raise exception 'not your client' using errcode = '42501';
-  end if;
-  delete from public.coach_invites where client_id = p_client and used_at is null;
-  v_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8));
-  insert into public.coach_invites (code, client_id, trainer_id) values (v_code, p_client, auth.uid());
-  return v_code;
+  select u.email into v_email from auth.users u where u.id = auth.uid() and u.email_confirmed_at is not null;
+  if v_email is null then return 0; end if;
+  perform set_config('coach.linking', 'on', true);
+  update public.coach_clients c set user_id = auth.uid(), status = case when c.status = 'invited' then 'active' else c.status end,
+         started_on = coalesce(c.started_on, current_date)
+   where c.user_id is null and lower(c.email) = lower(v_email) and c.status <> 'archived' and c.trainer_id <> auth.uid();
+  get diagnostics v_n = row_count;
+  perform set_config('coach.linking', '', true);
+  return v_n;
 end
 $$;
 
--- Client: accept an invite with the signed-in Dragonfly account. Returns the client row id.
-create function public.coach_accept_invite(p_code text) returns uuid
-language plpgsql security definer set search_path = '' as
-$$
-declare v_inv public.coach_invites%rowtype;
-begin
-  if auth.uid() is null then raise exception 'sign in first' using errcode = '42501'; end if;
-  select * into v_inv from public.coach_invites
-    where code = upper(trim(p_code)) and used_at is null and expires_at > now() for update;
-  if not found then raise exception 'That invite code is invalid or has expired.' using errcode = 'P0002'; end if;
-  if v_inv.trainer_id = auth.uid() then raise exception 'You can''t be your own client.' using errcode = '42501'; end if;
-  if exists (select 1 from public.coach_clients c where c.trainer_id = v_inv.trainer_id and c.user_id = auth.uid() and c.id <> v_inv.client_id) then
-    raise exception 'You are already this trainer''s client.' using errcode = '23505';
-  end if;
-  update public.coach_clients set user_id = auth.uid(), status = 'active', started_on = coalesce(started_on, current_date)
-    where id = v_inv.client_id and (user_id is null or user_id = auth.uid());
-  if not found then raise exception 'This invite was already used by another account.' using errcode = '42501'; end if;
-  update public.coach_invites set used_at = now(), used_by = auth.uid() where code = v_inv.code;
-  return v_inv.client_id;
-end
-$$;
+-- Server only (coach-invite function): does a Dragonfly account exist for this email, and has it ever signed in?
+create function public.coach_account_for_email(p_email text) returns table (user_id uuid, signed_in boolean)
+language sql stable security definer set search_path = '' as
+$$ select u.id, u.last_sign_in_at is not null from auth.users u where lower(u.email) = lower(trim(p_email)) limit 1 $$;
 
 -- Trainer: copy a program's schedule onto a client's calendar from a start date (a Monday or any day).
 create function public.coach_assign_program(p_program uuid, p_client uuid, p_start date) returns int
@@ -302,20 +303,21 @@ $$
 $$;
 
 revoke execute on function public.coach_is_trainer(), public.coach_owns_client(uuid), public.coach_is_client(uuid),
-  public.coach_my_trainer_ids(), public.coach_create_invite(uuid), public.coach_accept_invite(text),
-  public.coach_assign_program(uuid, uuid, date), public.coach_people() from public, anon;
+  public.coach_my_trainer_ids(), public.coach_link_me(), public.coach_assign_program(uuid, uuid, date),
+  public.coach_people() from public, anon;
 grant execute on function public.coach_is_trainer(), public.coach_owns_client(uuid), public.coach_is_client(uuid),
-  public.coach_my_trainer_ids(), public.coach_create_invite(uuid), public.coach_accept_invite(text),
-  public.coach_assign_program(uuid, uuid, date), public.coach_people() to authenticated;
+  public.coach_my_trainer_ids(), public.coach_link_me(), public.coach_assign_program(uuid, uuid, date),
+  public.coach_people() to authenticated;
+revoke execute on function public.coach_account_for_email(text) from public, anon, authenticated;
+grant execute on function public.coach_account_for_email(text) to service_role;
 revoke execute on function public.coach_touch(), public.coach_assignment_guard(), public.coach_child_guard(),
-  public.coach_log_guard(), public.coach_log_completes() from public, anon, authenticated;
+  public.coach_client_guard(), public.coach_log_guard(), public.coach_log_completes() from public, anon, authenticated;
 
 -- ---------------------------------------------------------------- row-level security
 
 alter table public.coach_trainers enable row level security;
 alter table public.coach_clients enable row level security;
 alter table public.coach_client_notes enable row level security;
-alter table public.coach_invites enable row level security;
 alter table public.coach_exercises enable row level security;
 alter table public.coach_workouts enable row level security;
 alter table public.coach_programs enable row level security;
@@ -323,11 +325,10 @@ alter table public.coach_assignments enable row level security;
 alter table public.coach_logs enable row level security;
 
 -- Nothing for anonymous visitors
-revoke all on public.coach_trainers, public.coach_clients, public.coach_client_notes, public.coach_invites,
+revoke all on public.coach_trainers, public.coach_clients, public.coach_client_notes,
   public.coach_exercises, public.coach_workouts, public.coach_programs, public.coach_assignments, public.coach_logs from anon;
 grant select, insert, update, delete on public.coach_trainers, public.coach_clients, public.coach_client_notes,
   public.coach_exercises, public.coach_workouts, public.coach_programs, public.coach_assignments, public.coach_logs to authenticated;
-grant select on public.coach_invites to authenticated;  -- created/used only through the RPCs
 
 -- Trainers: anyone signed in can set up their own trainer profile; clients can read their trainer's profile
 create policy coach_trainers_read on public.coach_trainers for select to authenticated
@@ -347,9 +348,6 @@ create policy coach_clients_self on public.coach_clients for select to authentic
 
 create policy coach_notes_trainer on public.coach_client_notes for all to authenticated
   using (trainer_id = (select auth.uid())) with check (trainer_id = (select auth.uid()));
-
-create policy coach_invites_trainer on public.coach_invites for select to authenticated
-  using (trainer_id = (select auth.uid()));
 
 -- Library (exercises, workouts, programs): the trainer owns it; their clients can read it
 create policy coach_exercises_trainer on public.coach_exercises for all to authenticated

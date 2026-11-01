@@ -1,8 +1,8 @@
-import { Redirect, router, useFocusEffect } from 'expo-router';
+import { Redirect, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { Badge, Screen } from '@/components/shell';
-import { Button, Card, Empty, Txt, useToast } from '@/components/ui';
+import { Card, Empty, Txt, useToast } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
 import { addDays, dayKey, relDay } from '@/lib/dates';
 import { errText, type Assignment, type Person } from '@/lib/model';
@@ -34,7 +34,7 @@ export default function Me() {
   }, [toast]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  if (!app.user) return <Redirect href="/welcome" />;
+  if (!app.user) return <Redirect href="/sign-in" />;
   if (!app.memberships.length) return <Redirect href="/" />;
 
   const today = dayKey(new Date());
@@ -70,7 +70,6 @@ export default function Me() {
               {app.memberships.filter((m) => m.goals).map((m) => <Txt key={m.id}>{m.goals}</Txt>)}
             </Card>
           )}
-          <Button kind="quiet" small title="Join another trainer" icon="link" style={{ alignSelf: 'flex-start' }} onPress={() => router.push('/join')} />
         </View>
       )}
     </Screen>

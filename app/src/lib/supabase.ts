@@ -8,6 +8,7 @@ export const SUPABASE_URL = extra.supabaseUrl;
 export const SUPABASE_KEY = extra.supabaseKey;
 export const WEB_URL = extra.webUrl;
 export const USERNAME_LOGIN_FN = `${SUPABASE_URL}/functions/v1/dragonfly-username-login`;
+const COACH_INVITE_FN = `${SUPABASE_URL}/functions/v1/coach-invite`;
 
 // Shared Dragonfly account system (same project as the Uploader, Lapis and Phoenix).
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -21,8 +22,25 @@ if (Platform.OS !== 'web') {
   });
 }
 
-/** Link a client opens to join their trainer (web page, or the app when installed). */
-export const inviteLink = (code: string) => `${WEB_URL}join?code=${encodeURIComponent(code)}`;
+export type InviteResult = 'sent' | 'existing' | 'linked';
+export const INVITE_MESSAGE: Record<InviteResult, (firstName: string) => string> = {
+  sent: (n) => `We emailed ${n} a code to set their password`,
+  existing: (n) => `${n} already has a Dragonfly account. They’ll see you when they sign in.`,
+  linked: (n) => `${n} is already connected`,
+};
+/** Creates the client's Dragonfly account if needed and emails them a code to set their password. */
+export async function inviteClient(clientId: string): Promise<InviteResult> {
+  const { data } = await sb.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error('Sign in first.');
+  const res = await fetch(COACH_INVITE_FN, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: clientId }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || 'The email couldn’t be sent right now. Try again.');
+  return body.status as InviteResult;
+}
 
 export function store<T>(key: string, val: T) { try { storage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ } }
 export function recall<T>(key: string, fallback: T): T {

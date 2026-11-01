@@ -19,7 +19,8 @@ type Ctx = {
   signIn: (id: string, password: string) => Promise<void>;
   signUp: (email: string, username: string, password: string) => Promise<'signed-in' | 'confirm-email'>;
   signOut: () => Promise<void>;
-  reloadMe: () => Promise<void>;
+  /** Reloads profile, trainer and client links; returns how many trainers this person trains with */
+  reloadMe: () => Promise<number>;
 };
 const AppCtx = createContext<Ctx | null>(null);
 export const useApp = () => { const c = useContext(AppCtx); if (!c) throw new Error('AppProvider missing'); return c; };
@@ -34,10 +35,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [modeChoice, setModeChoice] = useState<Mode | null>(() => recall<Mode | null>('coach.mode', null));
   const lastUid = useRef<string | null | undefined>(undefined);
 
-  const loadFor = useCallback(async (u: User | null) => {
+  const loadFor = useCallback(async (u: User | null): Promise<number> => {
     setUser(u);
-    if (!u) { setUsername(null); setAvatar(null); setTrainer(null); setMemberships([]); return; }
+    if (!u) { setUsername(null); setAvatar(null); setTrainer(null); setMemberships([]); return 0; }
     avatarUrl(u.id).then(setAvatar).catch(() => setAvatar(null));
+    // Attach any client records a trainer made for this email (My PT Hub-style onboarding)
+    await sb.rpc('coach_link_me').then(() => {}, () => {});
     const [p, t, m] = await Promise.all([
       sb.from('dragonfly_profiles').select('username').eq('user_id', u.id).maybeSingle(),
       sb.from('coach_trainers').select('*').eq('user_id', u.id).maybeSingle(),
@@ -46,6 +49,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUsername(p.data?.username ?? u.email ?? null);
     setTrainer((t.data as Trainer) ?? null);
     setMemberships((m.data as Client[]) ?? []);
+    return m.data?.length ?? 0;
   }, []);
 
   useEffect(() => {
@@ -96,7 +100,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshAvatar: async () => { setAvatar(user ? await avatarUrl(user.id) : null); },
     signIn, signUp,
     signOut: async () => { await sb.auth.signOut(); },
-    reloadMe: async () => { const { data } = await sb.auth.getUser(); await loadFor(data.user ?? null); },
+    reloadMe: async () => { const { data } = await sb.auth.getUser(); return loadFor(data.user ?? null); },
   }), [ready, user, username, avatar, trainer, memberships, mode, signIn, signUp, loadFor]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

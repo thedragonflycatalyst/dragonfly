@@ -1,46 +1,38 @@
-import * as Clipboard from 'expo-clipboard';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, Share, View } from 'react-native';
+import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { Badge } from '@/components/shell';
 import { Button, Card, Empty, Field, Txt, useToast } from '@/components/ui';
 import { ask } from '@/lib/ask';
 import { errText, type Client, type ClientStatus } from '@/lib/model';
-import { inviteLink, sb } from '@/lib/supabase';
+import { inviteClient, INVITE_MESSAGE, sb, WEB_URL } from '@/lib/supabase';
 import { MAX_W, usePalette } from '@/lib/theme';
 
-/** One client: invite, status, goals and private notes. Workouts and progress arrive in Phase 1–2. */
+/** One client: sign-in status, goals and private notes. Workouts and progress arrive in Phase 1–2. */
 export default function ClientScreen() {
   const p = usePalette();
   const toast = useToast();
-  const { id, invite } = useLocalSearchParams<{ id: string; invite?: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const [c, setC] = useState<Client | null | undefined>(undefined);
-  const [code, setCode] = useState<string | null>(null);
   const [goals, setGoals] = useState('');
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [cl, n, inv] = await Promise.all([
+    const [cl, n] = await Promise.all([
       sb.from('coach_clients').select('*').eq('id', id).maybeSingle(),
       sb.from('coach_client_notes').select('notes').eq('client_id', id).maybeSingle(),
-      sb.from('coach_invites').select('code').eq('client_id', id).is('used_at', null).gt('expires_at', new Date().toISOString()).maybeSingle(),
     ]);
     const row = (cl.data as Client) ?? null;
-    setC(row); setGoals(row?.goals ?? ''); setNotes(n.data?.notes ?? ''); setCode(inv.data?.code ?? null);
+    setC(row); setGoals(row?.goals ?? ''); setNotes(n.data?.notes ?? '');
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  const makeInvite = useCallback(async () => {
+  const resend = async () => {
     setBusy('invite');
-    try {
-      const { data, error } = await sb.rpc('coach_create_invite', { p_client: id });
-      if (error) throw error;
-      setCode(data as string);
-    } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
-  }, [id, toast]);
-  // Coming straight from "Add and invite": make the code right away
-  useEffect(() => { if (invite && c && c.status === 'invited' && !code) makeInvite(); }, [invite, c, code, makeInvite]);
+    try { const r = await inviteClient(id); toast(INVITE_MESSAGE[r](c?.name.split(' ')[0] ?? 'Your client')); await load(); }
+    catch (e) { toast(errText(e), false); } finally { setBusy(null); }
+  };
 
   if (c === undefined) return <View style={{ flex: 1, backgroundColor: p.bg, justifyContent: 'center' }}><ActivityIndicator color={p.ink} /></View>;
   if (!c) return <View style={{ flex: 1, backgroundColor: p.bg, padding: 16 }}><Empty emoji="🔎" title="Client not found" /></View>;
@@ -50,8 +42,6 @@ export default function ClientScreen() {
     try { const { error } = await fn(); if (error) throw error; toast(ok); await load(); } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
   };
   const setStatus = (s: ClientStatus, ok: string) => run(s, () => sb.from('coach_clients').update({ status: s }).eq('id', c.id), ok);
-  const link = code ? inviteLink(code) : '';
-  const message = `Hi ${c.name.split(' ')[0]}! Here’s your invite to Dragonfly Coach, where you’ll find your workouts and check-ins: ${link} (code ${code})`;
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 48, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
@@ -66,23 +56,14 @@ export default function ClientScreen() {
           </View>
         </View>
 
-        {!c.user_id && (
+        {!c.user_id && c.status !== 'archived' && (
           <Card style={{ gap: 10 }}>
-            <Txt v="h3">Invite {c.name.split(' ')[0]}</Txt>
-            <Txt v="small" style={{ fontSize: 15 }}>Send this link. They open it, sign in or create a Dragonfly account, and they’re connected. Codes last 14 days.</Txt>
-            {code ? (
-              <>
-                <Txt selectable style={{ fontSize: 28, letterSpacing: 4, fontFamily: undefined, fontWeight: '700' }} accessibilityLabel={`Invite code ${code.split('').join(' ')}`}>{code}</Txt>
-                <Txt v="small" selectable>{link}</Txt>
-                <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-                  {Platform.OS !== 'web' && <Button title="Send invite" icon="share" onPress={() => Share.share({ message })} />}
-                  <Button kind={Platform.OS === 'web' ? 'solid' : 'ghost'} title="Copy message" icon="content_copy" onPress={async () => { await Clipboard.setStringAsync(message); toast('Invite message copied'); }} />
-                  <Button kind="quiet" small title="New code" busy={busy === 'invite'} onPress={makeInvite} style={{ alignSelf: 'center' }} />
-                </View>
-              </>
-            ) : (
-              <Button title="Create invite link" icon="link" busy={busy === 'invite'} style={{ alignSelf: 'flex-start' }} onPress={makeInvite} />
-            )}
+            <Txt v="h3">{c.name.split(' ')[0]} hasn’t signed in yet</Txt>
+            <Txt v="small" style={{ fontSize: 15 }}>
+              We emailed {c.email} a code to set their password. They sign in on the Dragonfly app or at {WEB_URL.replace(/^https:\/\//, '')} with that email.
+              If they already use another Dragonfly app, they just sign in with it.
+            </Txt>
+            <Button kind="ghost" title="Send the email again" icon="mail" busy={busy === 'invite'} style={{ alignSelf: 'flex-start' }} onPress={resend} />
           </Card>
         )}
 

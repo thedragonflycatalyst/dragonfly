@@ -15,7 +15,7 @@ export function TopBar() {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, gap: 12 }}>
       <Pressable accessibilityRole="link" accessibilityLabel="Home" onPress={() => router.replace('/')}>
-        <Text style={{ fontFamily: F.displayBold, fontSize: 19, color: p.ink }}>Dragonfly <Text style={{ color: p.focus }}>Coach</Text></Text>
+        <Text style={{ fontFamily: F.displayBold, fontSize: 19, color: p.ink }}>Dragonfly</Text>
       </Pressable>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         {both && (
