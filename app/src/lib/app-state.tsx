@@ -1,7 +1,7 @@
 import type { User } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { avatarUrl } from './account';
-import type { Client, Trainer } from './model';
+import type { Client, Trainer, Units } from './model';
 import { recall, sb, store, SUPABASE_KEY, USERNAME_LOGIN_FN } from './supabase';
 
 export type Mode = 'coach' | 'client';
@@ -14,6 +14,12 @@ type Ctx = {
   trainer: Trainer | null;
   /** Client records linking this person to their trainer(s) */
   memberships: Client[];
+  /** The client record in use (first active one, else the first) */
+  membership: Client | null;
+  /** The trainer of that client record, as the client sees them */
+  myTrainer: { user_id: string; display_name: string; business_name: string | null; units: Units } | null;
+  /** Units to show in the current mode */
+  units: Units;
   /** Which side of the app they're using, for people who are both */
   mode: Mode | null; setMode: (m: Mode) => void;
   signIn: (id: string, password: string) => Promise<void>;
@@ -34,12 +40,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [avatar, setAvatar] = useState<string | null>(null);
   const [trainer, setTrainer] = useState<Trainer | null>(null);
   const [memberships, setMemberships] = useState<Client[]>([]);
+  const [myTrainer, setMyTrainer] = useState<Ctx['myTrainer']>(null);
   const [modeChoice, setModeChoice] = useState<Mode | null>(() => recall<Mode | null>('coach.mode', null));
   const lastUid = useRef<string | null | undefined>(undefined);
 
   const loadFor = useCallback(async (u: User | null): Promise<number> => {
     setUser(u);
-    if (!u) { setUsername(null); setAvatar(null); setTrainer(null); setMemberships([]); return 0; }
+    if (!u) { setUsername(null); setAvatar(null); setTrainer(null); setMemberships([]); setMyTrainer(null); return 0; }
     avatarUrl(u.id).then(setAvatar).catch(() => setAvatar(null));
     // Attach any client records a trainer made for this email (My PT Hub-style onboarding)
     await sb.rpc('coach_link_me').then(() => {}, () => {});
@@ -50,8 +57,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ]);
     setUsername(p.data?.username ?? u.email ?? null);
     setTrainer((t.data as Trainer) ?? null);
-    setMemberships((m.data as Client[]) ?? []);
-    return m.data?.length ?? 0;
+    const mine = (m.data as Client[]) ?? [];
+    setMemberships(mine);
+    const primary = mine.find((c) => c.status === 'active') ?? mine[0];
+    if (primary) {
+      const { data: tr } = await sb.from('coach_trainers').select('user_id,display_name,business_name,units').eq('user_id', primary.trainer_id).maybeSingle();
+      setMyTrainer((tr as Ctx['myTrainer']) ?? null);
+    } else setMyTrainer(null);
+    return mine.length;
   }, []);
 
   useEffect(() => {
@@ -96,8 +109,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // A trainer lands in the coach side, a client in theirs; someone who is both keeps their last choice
   const mode: Mode | null = trainer && memberships.length ? (modeChoice ?? 'coach') : trainer ? 'coach' : memberships.length ? 'client' : null;
 
+  const membership = memberships.find((c) => c.status === 'active') ?? memberships[0] ?? null;
+  const units: Units = (mode === 'coach' ? trainer?.units : myTrainer?.units) ?? 'imperial';
+
   const value = useMemo<Ctx>(() => ({
-    ready, user, username, avatar, trainer, memberships, mode,
+    ready, user, username, avatar, trainer, memberships, membership, myTrainer, units, mode,
     setMode: (m) => { setModeChoice(m); store('coach.mode', m); },
     refreshAvatar: async () => { setAvatar(user ? await avatarUrl(user.id) : null); },
     signIn, signUp,
@@ -116,7 +132,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await loadFor(u);
     },
     reloadMe: async () => { const { data } = await sb.auth.getUser(); return loadFor(data.user ?? null); },
-  }), [ready, user, username, avatar, trainer, memberships, mode, signIn, signUp, loadFor]);
+  }), [ready, user, username, avatar, trainer, memberships, membership, myTrainer, units, mode, signIn, signUp, loadFor]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

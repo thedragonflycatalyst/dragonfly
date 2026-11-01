@@ -61,7 +61,8 @@
           "cameraPermission": "Dragonfly uses your camera for progress photos.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,
