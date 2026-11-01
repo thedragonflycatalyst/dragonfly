@@ -143,6 +143,7 @@ export default function Account() {
           if (Platform.OS === 'web') { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = 'dragonfly-account.json'; a.click(); }
           else await Share.share({ title: 'My Dragonfly account data', message: json });
         }, 'Export ready')} />
+        {app.mode && <Row icon="school" title="Quickstart guide" sub="A quick tour of what you can do" onPress={() => router.push('/guide')} />}
         <Row icon="logout" title="Sign out" last onPress={() => run('out', app.signOut, 'Signed out', () => router.replace('/'))} />
       </Card>
 

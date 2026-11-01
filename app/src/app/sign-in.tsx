@@ -58,7 +58,7 @@ export default function SignIn() {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{2,29}$/.test(uname)) throw new Error('dragonfly_username_invalid');
     if (pw.length < 8) throw new Error('Use at least 8 characters for your password.');
     const r = await app.signUp(email.trim(), uname.trim(), pw);
-    if (r === 'signed-in') { toast('Welcome!'); done(); } else setMode('confirm');
+    if (r === 'signed-in') { await app.becomeTrainer(); toast('Welcome!'); done(); } else setMode('confirm');
   });
 
   const errLine = err ? <Txt v="bold" color={p.danger} style={{ marginBottom: 12 }} accessibilityLiveRegion="polite">{err}</Txt> : null;
@@ -121,7 +121,7 @@ export default function SignIn() {
                 <Txt style={{ marginBottom: 16 }}>We sent a code to <Txt v="bold">{email}</Txt>. Enter it to finish creating your account.</Txt>
                 <Field label="Code from the email" value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="one-time-code" autoFocus />
                 {errLine}
-                <Button title="Confirm account" busy={busy} onPress={() => attempt(async () => { await confirmWithCode(email.trim(), code, 'signup'); toast('Welcome!'); done(); })} />
+                <Button title="Confirm account" busy={busy} onPress={() => attempt(async () => { await confirmWithCode(email.trim(), code, 'signup'); await app.becomeTrainer(); toast('Welcome!'); done(); })} />
                 <Button kind="ghost" title="Send a new code" style={{ marginTop: 10 }} onPress={() => attempt(async () => { await resendVerification(email.trim()); toast('New code sent'); })} />
               </>
             )}

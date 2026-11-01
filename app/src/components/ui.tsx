@@ -26,6 +26,7 @@ const SF: Partial<Record<AndroidSymbol, SFSymbol>> = {
   document_scanner: 'doc.viewfinder', flash_on: 'bolt.fill', flash_off: 'bolt.slash', photo_library: 'photo.on.rectangle',
   group_add: 'person.2.badge.plus', person_add: 'person.badge.plus', content_copy: 'doc.on.doc', fitness_center: 'dumbbell', swap_horiz: 'arrow.left.arrow.right',
   sports_gymnastics: 'figure.strengthtraining.traditional', link: 'link', pause: 'pause.circle', archive: 'archivebox', badge: 'person.text.rectangle',
+  monitor_weight: 'scalemass', restaurant: 'fork.knife', watch: 'applewatch', school: 'graduationcap',
   chat_bubble: 'bubble.right', send: 'paperplane.fill', reply: 'arrowshape.turn.up.left', more_horiz: 'ellipsis',
 };
 export function Icon({ name, size = 22, color }: { name: AndroidSymbol; size?: number; color?: string }) {

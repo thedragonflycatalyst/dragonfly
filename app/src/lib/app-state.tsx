@@ -19,6 +19,8 @@ type Ctx = {
   signIn: (id: string, password: string) => Promise<void>;
   signUp: (email: string, username: string, password: string) => Promise<'signed-in' | 'confirm-email'>;
   signOut: () => Promise<void>;
+  /** Makes the signed-in account a trainer (named after their Dragonfly username). Safe to call twice. */
+  becomeTrainer: () => Promise<void>;
   /** Reloads profile, trainer and client links; returns how many trainers this person trains with */
   reloadMe: () => Promise<number>;
 };
@@ -100,6 +102,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshAvatar: async () => { setAvatar(user ? await avatarUrl(user.id) : null); },
     signIn, signUp,
     signOut: async () => { await sb.auth.signOut(); },
+    becomeTrainer: async () => {
+      const { data } = await sb.auth.getUser();
+      const u = data.user;
+      if (!u) throw new Error('Sign in first.');
+      const { data: prof } = await sb.from('dragonfly_profiles').select('username').eq('user_id', u.id).maybeSingle();
+      const { error } = await sb.from('coach_trainers').upsert({
+        user_id: u.id, display_name: (prof?.username ?? u.email?.split('@')[0] ?? 'Trainer').slice(0, 80),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
+      }, { onConflict: 'user_id', ignoreDuplicates: true });
+      if (error) throw error;
+      setModeChoice('coach'); store('coach.mode', 'coach');
+      await loadFor(u);
+    },
     reloadMe: async () => { const { data } = await sb.auth.getUser(); return loadFor(data.user ?? null); },
   }), [ready, user, username, avatar, trainer, memberships, mode, signIn, signUp, loadFor]);
 
