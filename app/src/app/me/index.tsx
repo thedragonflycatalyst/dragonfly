@@ -70,6 +70,9 @@ export default function Me() {
           )}
           {missed.length > 0 && <><Txt v="h2" style={{ marginTop: 8 }}>Catch up</Txt>{missed.map((a) => <WorkoutCard key={a.id} a={a} />)}</>}
           {upcoming.length > 0 && <><Txt v="h2" style={{ marginTop: 8 }}>Coming up</Txt>{upcoming.slice(0, 10).map((a) => <WorkoutCard key={a.id} a={a} />)}</>}
+          <Card style={{ padding: 0 }}>
+            <Row icon="restaurant" title="My nutrition plan" sub="Meals and daily targets from your trainer" last onPress={() => router.push('/me/nutrition')} />
+          </Card>
           <SectionLabel>My progress</SectionLabel>
           <Card style={{ padding: 0 }}>
             {MINE.map((k, i) => <Row key={k} icon={SECTIONS[k].icon} title={SECTIONS[k].title} last={i === MINE.length - 1}

@@ -35,3 +35,8 @@ npm test && npx tsc --noEmit
   Someone who already uses another Dragonfly app just signs in with it.
 - A client sees only their own assignments and logs. "Create an account" in this app is for trainers.
 - Archiving a client cuts their access; their history stays.
+
+## Data sources
+
+- Exercises: [Free Exercise DB](https://github.com/yuhonas/free-exercise-db) (public domain), built by `app/scripts/build-library.mjs`.
+- Foods: USDA FoodData Central, SR Legacy (public domain), built by `app/scripts/build-foods.mjs` from the release CSVs.

@@ -18,7 +18,6 @@ type Summary = { weight: number | null; photos: number; files: number; pendingFo
 
 // Sections that arrive with later tabs, so they're listed but not open yet
 const LATER: { title: string; icon: Parameters<typeof Row>[0]['icon']; with: string }[] = [
-  { title: 'Nutrition plans', icon: 'restaurant', with: 'the Nutrition tab' },
   { title: 'Sessions', icon: 'event', with: 'the Hub and your schedule' },
   { title: 'Credits', icon: 'payments', with: 'payments' },
   { title: 'Check-ins', icon: 'inbox', with: 'the Hub' },
@@ -160,6 +159,7 @@ export default function ClientProfile() {
         <SectionLabel>Training and business</SectionLabel>
         <Card style={{ padding: 0 }}>
           <Row icon="fitness_center" title="Workouts and programs" sub="Calendar, history and assigning" onPress={() => router.push({ pathname: '/clients/[id]/workouts', params: { id: c.id } })} />
+          <Row icon="restaurant" title="Nutrition plans" sub="Meal plans and targets you’ve shared" onPress={() => router.push({ pathname: '/clients/[id]/nutrition', params: { id: c.id } })} />
           {LATER.map((l, i) => <Row key={l.title} icon={l.icon} title={l.title} disabled last={i === LATER.length - 1} right={<ComingWith what={l.with} />} />)}
           <Row icon="chat_bubble" title={`Message ${first}`} disabled last right={<ComingWith what="the Hub" />} />
         </Card>

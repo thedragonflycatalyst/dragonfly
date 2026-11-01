@@ -102,6 +102,7 @@ const FRIENDLY: Record<string, string> = {
   'path does not match': 'That file couldn’t be saved to this client.',
   workout_already_done: 'That workout is already logged.',
   coach_workout_folders_trainer_id_name_key: 'You already have a folder with that name.',
+  coach_nutrition_folders_trainer_id_name_key: 'You already have a folder with that name.',
   coach_logs_one_per_assignment: 'This workout was already logged.',
   own_email: 'That’s your own email. Use your client’s email address.',
   client_archived: 'Restore this client before sending them an email.',
