@@ -40,7 +40,7 @@ export default function Start() {
     <Screen kicker={`Hi ${app.username ?? ''}`} title="Set up your coaching space">
       <View style={{ gap: 14, maxWidth: 560 }}>
         <Card>
-          <Field label="Your name, as clients see it" value={name} onChangeText={setName} placeholder="Coach Emmet" autoComplete="name" />
+          <Field label="Your name, as clients see it" value={name} onChangeText={setName} placeholder="Dragonfly" autoComplete="name" />
           <Field label="Business name" hint="(optional)" value={business} onChangeText={setBusiness} placeholder="The Dragonfly Catalyst" />
           <Button title="Create coaching space" busy={busy} onPress={becomeTrainer} />
         </Card>
