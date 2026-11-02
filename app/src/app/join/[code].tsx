@@ -102,6 +102,16 @@ export default function Join() {
     if (error) throw new Error('That code didn’t work. Check the newest text and try again.');
     await afterText();
   });
+  // Android Chrome: read the code straight from the text (WebOTP; the text ends "@thedragonflycatalyst.github.io #123456").
+  // iPhone shows the code above the keyboard instead (one tap).
+  useEffect(() => {
+    if (step !== 'sms' || Platform.OS !== 'web' || typeof window === 'undefined' || !('OTPCredential' in window)) return;
+    const ac = new AbortController();
+    (navigator.credentials.get({ otp: { transport: ['sms'] }, signal: ac.signal } as CredentialRequestOptions) as Promise<(Credential & { code?: string }) | null>)
+      .then((c) => { if (c?.code) { setOtp(c.code); verifyText(c.code); } })
+      .catch(() => { /* cancelled, timed out or not supported: they tap the link or type the code */ });
+    return () => ac.abort();
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
   // Signed in by phone: add their email to the account (they confirm it later, from the email we send) and join
   const afterText = async () => {
     await sb.auth.updateUser({ email: f.email.trim().toLowerCase() }).catch(() => {});
@@ -136,8 +146,8 @@ export default function Join() {
             ) : step === 'sms' ? (
               <Card style={{ gap: 12 }}>
                 <Txt v="h2">Check your texts</Txt>
-                <Txt>We texted <Txt v="bold">{f.phone.trim()}</Txt>. Tap the link in the message to finish, or enter the code from it here.</Txt>
-                <Field label="Code from the text" value={otp} autoFocus keyboardType="number-pad" autoComplete="sms-otp" textContentType="oneTimeCode"
+                <Txt>We texted <Txt v="bold">{f.phone.trim()}</Txt>. On most Android phones the code fills in by itself (tap Allow). Otherwise tap the link in the message, or enter the code here.</Txt>
+                <Field label="Code from the text" value={otp} autoFocus keyboardType="number-pad" autoComplete={Platform.OS === "web" ? "one-time-code" : "sms-otp"} textContentType="oneTimeCode"
                   onChangeText={(v) => { const d = v.replace(/\D/g, '').slice(0, 8); setOtp(d); if (d.length === 6 && !busy) verifyText(d); }} />
                 {err ? <Txt color={p.danger}>{err}</Txt> : null}
                 <Button title="Finish" busy={busy} onPress={() => verifyText(otp)} />
