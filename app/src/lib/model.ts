@@ -74,6 +74,7 @@ export type Program = { id: string; trainer_id: string; name: string; descriptio
 export type MyExercise = {
   id: string; trainer_id: string; name: string; instructions: string | null; video_url: string | null;
   equipment: string[]; muscles: string[]; tags: string[]; default_metric: SetMetric; archived: boolean;
+  category: string; secondary_muscles: string[]; image_path: string | null; alternatives: string[];
 };
 
 export type Assignment = {
@@ -84,7 +85,7 @@ export type Assignment = {
 
 /** What was actually done in one set (weight in the trainer's display unit, recorded in `unit`) */
 export type SetLog = { weight?: number | null; reps?: number | null; time?: number | null; distance?: string | null; done: boolean };
-export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg' };
+export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string };
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
   duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';

@@ -14,6 +14,10 @@ insert into public.coach_workouts (trainer_id, name, folder_id, blocks)
   select f.trainer_id, 'Full body A', f.id, '[{"id":"b1","kind":"exercise","ex":{"src":"lib","id":"Plank","name":"Plank"},"metric":"time","sets":[{"time":30}]}]' from public.coach_workout_folders f;
 insert into public.coach_exercise_favorites (trainer_id, ref) select v, 'lib:Plank' from t.ids where k = 'trainer';
 select t.ok(t.refused($$insert into public.coach_exercise_favorites (trainer_id, ref) select auth.uid(), 'drop table x'$$), 'favorites only accept exercise references');
+insert into public.coach_exercises (trainer_id, name, category, muscles, secondary_muscles, alternatives) select v, 'TRX Row', 'suspension', '{lats}', '{biceps}', '{lib:Pushups,my:abc}' from t.ids where k = 'trainer';
+select t.ok((select category from public.coach_exercises where name = 'TRX Row') = 'suspension', 'custom exercises keep category, muscles and alternatives');
+select t.ok(t.refused($$insert into public.coach_exercises (trainer_id, name, alternatives) select auth.uid(), 'Bad', '{"x; drop"}'$$), 'alternatives must be exercise references');
+select t.ok(t.refused($$insert into public.coach_exercises (trainer_id, name, category) select auth.uid(), 'Bad', 'yoga-ish'$$), 'unknown categories are refused');
 select t.ok(public.coach_media_ok((select v || '/exercises/demo.mp4' from t.ids where k = 'trainer')), 'trainer can reach their own demo videos');
 
 select t.as_user('trainer2');

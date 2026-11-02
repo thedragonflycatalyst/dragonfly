@@ -85,7 +85,10 @@ export default function AssignmentScreen() {
                 </View>
                 {b.note ? <Txt v="small">{b.note}</Txt> : null}
                 {log
-                  ? (done?.sets.length ? done.sets.map((s, i) => <Txt key={i}>Set {i + 1}: {did(s, done.unit)}</Txt>) : <Txt v="small">Not done</Txt>)
+                  ? (done?.sets.length ? <>
+                      {done.swapped_from || (done.ex && done.ex.name !== b.ex.name) ? <Txt v="smallBold" color={p.focus}>Swapped to {done.ex?.name}</Txt> : null}
+                      {done.sets.map((s, i) => <Txt key={i}>Set {i + 1}: {did(s, done.unit)}</Txt>)}
+                    </> : <Txt v="small">Not done</Txt>)
                   : b.sets.map((_, i) => <Txt key={i}>Set {i + 1}: {planned(b, i, weightUnit(app.units))}</Txt>)}
               </Card>
             );

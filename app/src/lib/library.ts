@@ -10,6 +10,7 @@ export type LibExercise = {
   images: string[];       // full image URLs (start and end position)
   video?: string | null;  // trainer's own: YouTube/Vimeo link or a storage path in coach-media
   mine?: boolean;
+  alts?: string[];        // trainer's own: exercises a client may swap to
 };
 
 const IMG_BASE = `https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@${(data as { commit: string }).commit}/exercises`;
@@ -42,6 +43,21 @@ export const BODY_PARTS: { key: string; label: string; muscles: string[] }[] = [
 export const EQUIPMENT = ['body only', 'suspension trainer', 'dumbbell', 'barbell', 'kettlebells', 'cable', 'machine', 'bands',
   'medicine ball', 'exercise ball', 'foam roll', 'e-z curl bar', 'other'];
 export const CATEGORIES = ['strength', 'stretching', 'plyometrics', 'cardio', 'powerlifting', 'olympic weightlifting', 'strongman'];
+/** Categories a trainer can give their own exercises */
+export const MY_CATEGORIES = ['strength', 'cardio', 'stretching', 'mobility', 'plyometrics', 'suspension', 'powerlifting', 'olympic weightlifting', 'strongman'];
+
+/** Exercises a client could swap to: the trainer's chosen alternatives first, then similar library moves
+ *  (same main muscle, same kind of exercise, different equipment preferred). */
+export function alternativesFor(ex: LibExercise, mine: LibExercise[] = [], n = 6): LibExercise[] {
+  const chosen = (ex.alts ?? []).map((r) => byRef(r, mine)).filter((e): e is LibExercise => !!e && e.ref !== ex.ref);
+  if (chosen.length >= n || !ex.primary.length) return chosen.slice(0, n);
+  const seen = new Set([ex.ref, ...chosen.map((e) => e.ref)]);
+  const similar = builtIn()
+    .filter((e) => !seen.has(e.ref) && e.primary.some((m) => ex.primary.includes(m)) && e.category === (ex.category === 'suspension' ? 'strength' : ex.category))
+    .map((e) => [(e.equipment === ex.equipment ? 1 : 0) + (e.primary[0] === ex.primary[0] ? 0 : 2) + e.name.length / 100, e] as const)
+    .sort((a, b) => a[0] - b[0]).map(([, e]) => e);
+  return [...chosen, ...similar].slice(0, n);
+}
 
 export type Filter = { q?: string; part?: string | null; equipment?: string | null; category?: string | null };
 
