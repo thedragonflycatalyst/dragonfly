@@ -34,6 +34,7 @@ export function useRest() {
   const [, setNow] = useState(Date.now());
   const fired = useRef(new Set<string>());
   const restRef = useRef(rest); restRef.current = rest;
+  const onEnd = useRef<(() => void) | null>(null);
 
   const on = !!rest && rest.pausedLeft == null;
   useEffect(() => { if (!on) return; const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t); }, [on]);
@@ -55,11 +56,14 @@ export function useRest() {
     if (p.countdown) for (const n of [3, 2, 1]) if (s === n && rest.total > n && !f.has(String(n))) { f.add(String(n)); buzz(); void say(String(n)); }
     if (left <= 0 && !f.has('end')) {
       f.add('end'); void backstop(null); void bell(); setRest(null);
+      const next = onEnd.current; onEnd.current = null; next?.();
     }
   }, [rest, left]);
 
-  const start = (seconds: number, label = '') => {
-    if (seconds <= 0) return;
+  /** Start resting; `then` runs when the rest runs out (not when skipped), e.g. to start the next timed set */
+  const start = (seconds: number, label = '', then?: () => void) => {
+    onEnd.current = then ?? null;
+    if (seconds <= 0) { then?.(); return; }
     fired.current = new Set();
     setRest({ until: Date.now() + seconds * 1000, total: seconds, label, pausedLeft: null });
     buzz();
@@ -75,7 +79,7 @@ export function useRest() {
   });
   const pause = () => setRest((r) => (r && r.pausedLeft == null ? { ...r, pausedLeft: Math.max(0, (r.until - Date.now()) / 1000) } : r));
   const resume = () => setRest((r) => (r && r.pausedLeft != null ? { ...r, until: Date.now() + r.pausedLeft * 1000, pausedLeft: null } : r));
-  const skip = () => { void backstop(null); setRest(null); };
+  const skip = () => { void backstop(null); setRest(null); onEnd.current = null; };
   return { rest, left, start, add, pause, resume, skip };
 }
 
@@ -108,7 +112,7 @@ export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
  * Mini Lapis timer for a timed set, sitting where the time box goes. With a target it counts down ("Go", bell,
  * 3-2-1, bell); without one it's a stopwatch. When it ends it hands back the seconds done.
  */
-export function SetTimer({ target, onDone, label, compact }: { target: number | null; onDone: (seconds: number) => void; label: string; compact?: boolean }) {
+export function SetTimer({ target, onDone, label, compact, go: autoGo }: { target: number | null; onDone: (seconds: number) => void; label: string; compact?: boolean; go?: number }) {
   const p = usePalette();
   const [started, setStarted] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -124,6 +128,8 @@ export function SetTimer({ target, onDone, label, compact }: { target: number | 
     if (left <= 0 && !f.has('end')) { f.add('end'); void bell(); setStarted(null); onDone(target); }
   }, [started, left, target]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = () => { fired.current = new Set(); setStarted(Date.now()); void bell().then(() => say('Go')); };
+  // Started for you: the next set of a timed exercise after its rest, or the left side after the right
+  useEffect(() => { if (autoGo && started == null) go(); }, [autoGo]); // eslint-disable-line react-hooks/exhaustive-deps
   const stop = () => { const secs = Math.round(elapsed); setStarted(null); if (secs > 0) { void bell(); onDone(secs); } };
   const running = started != null;
   const frac = target ? 1 - left / target : 0;

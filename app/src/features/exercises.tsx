@@ -21,7 +21,7 @@ export function toLib(m: MyExercise): LibExercise {
   const thumb = youTubeThumb(m.video_url);
   return { ref: `my:${m.id}`, name: m.name, category: m.category ?? 'strength', equipment: m.equipment[0] ?? 'other',
     primary: m.muscles, secondary: m.secondary_muscles ?? [], level: '', mechanic: '', steps: m.instructions ? m.instructions.split('\n').filter(Boolean) : [],
-    images: m.image_path ? [`media:${m.image_path}`] : thumb ? [thumb] : [], video: m.video_url, mine: true, alts: m.alternatives ?? [] };
+    images: m.image_path ? [`media:${m.image_path}`] : thumb ? [thumb] : [], video: m.video_url, mine: true, alts: m.alternatives ?? [], metric: m.default_metric };
 }
 export function useMyExercises(trainerId: string | undefined) {
   const [mine, setMine] = useState<LibExercise[]>([]);
@@ -294,7 +294,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
       <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Category *</Txt>
       {chips(MY_CATEGORIES, (c) => c === category, setCategory)}
       <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Type *</Txt>
-      <View style={{ marginBottom: 16 }}><Segmented<SetMetric> value={metric} onChange={setMetric} options={[['reps', 'Reps and weight'], ['time', 'Time'], ['distance', 'Distance']]} /></View>
+      <View style={{ marginBottom: 16 }}><Segmented<SetMetric> value={metric} onChange={setMetric} options={[['reps', 'Reps and weight'], ['time', 'Timed (Lapis)'], ['distance', 'Distance']]} /></View>
       <Field label="Description" hint="(how to do it, cues; one step per line)" value={steps} onChangeText={setSteps} multiline placeholder="Write something…" />
       <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Main muscle worked</Txt>
       {chips(MUSCLE_CHOICES, (m) => m === main, (m) => setMain(main === m ? null : m))}

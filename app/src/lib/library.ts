@@ -11,6 +11,7 @@ export type LibExercise = {
   video?: string | null;  // trainer's own: YouTube/Vimeo link or a storage path in coach-media
   mine?: boolean;
   alts?: string[];        // trainer's own: exercises a client may swap to
+  metric?: 'reps' | 'time' | 'distance'; // trainer's own: how it's measured (time = Lapis timer)
 };
 
 const IMG_BASE = `https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@${(data as { commit: string }).commit}/exercises`;

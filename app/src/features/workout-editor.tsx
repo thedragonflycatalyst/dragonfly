@@ -113,7 +113,7 @@ export function BlocksEditor({ blocks, onChange, weightUnit }: { blocks: Workout
           { label: 'Remove from superset', icon: 'link_off', hidden: !labels[menu], onPress: () => onChange(unlink(blocks, menu)) },
           { label: 'Replace exercise', icon: 'swap_horiz', onPress: () => setPicker({ mode: 'replace', index: menu }) },
           { label: 'Measure by reps', icon: 'fitness_center', hidden: m.metric === 'reps', onPress: () => set(menu, withMetric(m, 'reps')) },
-          { label: 'Measure by time', icon: 'timer', hidden: m.metric === 'time', onPress: () => set(menu, withMetric(m, 'time')) },
+          { label: 'Timed exercise (Lapis timer)', icon: 'timer', hidden: m.metric === 'time', onPress: () => set(menu, withMetric(m, 'time')) },
           { label: 'Measure by distance', icon: 'straighten', hidden: m.metric === 'distance', onPress: () => set(menu, withMetric(m, 'distance')) },
           usesSides(m.sides, m.ex.name)
             ? { label: 'Log both sides together', icon: 'join_inner', onPress: () => set(menu, { ...m, sides: false }) }

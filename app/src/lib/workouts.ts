@@ -13,7 +13,8 @@ export function refOf(e: LibExercise): ExerciseRef {
 }
 
 /** Sensible starting sets for an exercise: 3 × 10 with 60 s rest, or 3 × 30 s holds for stretches/planks */
-export function defaultMetric(e: Pick<LibExercise, 'category' | 'name'>): SetMetric {
+export function defaultMetric(e: Pick<LibExercise, 'category' | 'name' | 'metric'>): SetMetric {
+  if (e.metric) return e.metric;
   if (e.category === 'cardio') return 'time';
   if (e.category === 'stretching' || /plank|hold|bridge|wall sit|hang\b/i.test(e.name)) return 'time';
   return 'reps';

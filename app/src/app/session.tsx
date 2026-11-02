@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import { ExerciseInfo, ExerciseThumb, useMyExercises } from '@/features/exercises';
-import { CUE_LINES, hush } from '@/features/lapis/audio';
+import { CUE_LINES, hush, say } from '@/features/lapis/audio';
 import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
@@ -46,6 +46,7 @@ export default function Session() {
   const [historyFor, setHistoryFor] = useState<number | null>(null);
   const [noteIdx, setNoteIdx] = useState<Record<string, number>>({});
   const [manualTime, setManualTime] = useState<Record<string, boolean>>({});
+  const [autoGo, setAutoGo] = useState<{ key: string; n: number } | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [rpe, setRpe] = useState<number | null>(null);
   const [note, setNote] = useState('');
@@ -117,7 +118,9 @@ export default function Session() {
     if (!lapis.autoRest) return;
     const e = log[bi];
     const next = si + 1 < e.sets.length ? `Next: set ${si + 2}` : log[bi + 1]?.ex ? `Next: ${log[bi + 1].ex?.name}` : 'Last set done';
-    rest.start(s.rest ?? lapis.defaultRest, next);
+    // Timed exercises run like a Lapis session: work, rest, then the next set starts by itself
+    const timed = blocks.find((x) => x.id === e.block_id)?.metric === 'time' && !manualTime[e.block_id] && si + 1 < e.sets.length;
+    rest.start(s.rest ?? lapis.defaultRest, next, timed ? () => setAutoGo({ key: `${bi}:${si + 1}:${e.sides ? 'r' : '-'}`, n: Date.now() }) : undefined);
   };
 
   const clearDraft = () => { try { if (readDraft((k) => storage.getItem(k))?.key === key) storage.removeItem(DRAFT_KEY); } catch { /* nothing to clear */ } };
@@ -214,12 +217,16 @@ export default function Session() {
                     const short = gap && side && gap.side === side.toUpperCase();
                     if (metric === 'reps') return <NumCell key={rk} label={`Set ${si + 1}${who} reps`} warn={!!short} placeholder={gh(g?.[rk] ?? g?.reps)} value={s[rk] == null ? '' : String(s[rk])} onChange={(t) => setSet(bi, si, { [rk]: toNum(t) })} />;
                     if (metric === 'time') {
-                      if (lapisTime) return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side}
-                        onDone={(sec) => {
-                          const patch: Partial<SetLog> = { [tk]: sec };
-                          const other = side === 'l' ? s.time_r : side === 'r' ? s.time_l : sec;
-                          if (!side || other != null) tick(bi, si, { ...s, ...patch }, patch); else setSet(bi, si, patch);
-                        }} />;
+                      if (lapisTime) {
+                        const k = `${bi}:${si}:${side ?? '-'}`;
+                        return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
+                          onDone={(sec) => {
+                            const patch: Partial<SetLog> = { [tk]: sec };
+                            // Right side done: switch and start the left; both done (or one-sided): tick the set and rest
+                            if (side === 'r') { setSet(bi, si, patch); void say('Switch sides'); setAutoGo({ key: `${bi}:${si}:l`, n: Date.now() }); }
+                            else tick(bi, si, { ...s, ...patch }, patch);
+                          }} />;
+                      }
                       return <NumCell key={tk} label={`Set ${si + 1}${who} time`} warn={!!short} placeholder={gh(g?.[tk] ?? g?.time, (n) => fmtSeconds(n))} value={fmtSeconds(s[tk])} onChange={(t) => setSet(bi, si, { [tk]: parseSeconds(t) })} lazy />;
                     }
                     return <NumCell key="d" label={`Set ${si + 1} distance`} placeholder={g?.distance ?? undefined} value={s.distance ?? ''} onChange={(t) => setSet(bi, si, { distance: t.slice(0, 20) || null })} />;
