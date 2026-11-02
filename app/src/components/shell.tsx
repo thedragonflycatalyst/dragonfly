@@ -159,15 +159,15 @@ export function SidebarDrawer() {
 }
 
 /** Page frame: ambient artwork, top bar, a heading, and content kept to a readable column on wide screens. */
-export function Screen({ title, kicker, right, children, onRefresh, refreshing = false, bar = true }: {
-  title?: string; kicker?: string; right?: ReactNode; children: ReactNode; onRefresh?: () => void; refreshing?: boolean; bar?: boolean;
+export function Screen({ title, kicker, right, children, onRefresh, refreshing = false, bar = true, scroll = true }: {
+  title?: string; kicker?: string; right?: ReactNode; children: ReactNode; onRefresh?: () => void; refreshing?: boolean; bar?: boolean; scroll?: boolean;
 }) {
   const p = usePalette();
   const insets = useSafeAreaInsets();
   return (
     <View style={{ flex: 1, backgroundColor: p.bg }}>
       <Ambient />
-      <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled"
+      <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" scrollEnabled={scroll}
         refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={p.ink} /> : undefined}
         contentContainerStyle={{ paddingTop: insets.top + 4, paddingBottom: insets.bottom + 48, paddingHorizontal: 16, alignItems: 'center' }}>
         <View style={{ width: '100%', maxWidth: MAX_W }}>
