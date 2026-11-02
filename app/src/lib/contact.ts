@@ -20,3 +20,9 @@ export function contactLink(via: ContactVia, phone: string | null | undefined, t
   if (n.replace(/\D/g, '').length < 7) return null;
   return `sms:${n}${text ? `${os === 'ios' ? '&' : '?'}body=${encodeURIComponent(text)}` : ''}`;
 }
+
+/** +E.164 for sign-up and sign-in by phone (10-digit numbers are treated as US/Canada); null if it isn't a phone number */
+export function e164(phone: string): string | null {
+  const n = intlDigits(phone);
+  return n ? `+${n}` : null;
+}

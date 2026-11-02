@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { avatarUrl } from './account';
 import type { Client, Team, TeamMember, Trainer, Units } from './model';
 import { DEFAULT_PERMS, unitPrefs, type ClientPerms, type UnitPrefs } from './prefs';
+import { e164 } from './contact';
 import { recall, sb, setActing, store, SUPABASE_KEY, USERNAME_LOGIN_FN } from './supabase';
 
 export type Mode = 'coach' | 'client';
@@ -108,6 +109,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (id: string, password: string) => {
     if (id.includes('@')) {
       const { error } = await sb.auth.signInWithPassword({ email: id, password });
+      if (error) throw error;
+      return;
+    }
+    // A phone number (accounts made by QR sign-up with a text-message code)
+    const phone = /^[+\d\s().-]{7,20}$/.test(id.trim()) ? e164(id) : null;
+    if (phone) {
+      const { error } = await sb.auth.signInWithPassword({ phone, password });
       if (error) throw error;
       return;
     }

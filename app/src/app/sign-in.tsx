@@ -41,7 +41,7 @@ export default function SignIn() {
   };
 
   const signIn = () => attempt(async () => {
-    if (!id.trim() || !pw) throw new Error('Enter your email or username and your password.');
+    if (!id.trim() || !pw) throw new Error('Enter your email, username or phone, and your password.');
     await app.signIn(id.trim(), pw);
     toast('Signed in'); done();
   });
@@ -77,7 +77,7 @@ export default function SignIn() {
             {mode === 'in' && (
               <>
                 <Txt v="h2" style={{ marginBottom: 16 }}>Sign in</Txt>
-                <Field label="Email or username" value={id} onChangeText={setId} autoCapitalize="none" autoComplete="username" autoCorrect={false} keyboardType="email-address" />
+                <Field label="Email, username or phone" value={id} onChangeText={setId} autoCapitalize="none" autoComplete="username" autoCorrect={false} keyboardType="email-address" />
                 <Field label="Password" value={pw} onChangeText={setPw} secureTextEntry autoComplete="current-password" onSubmitEditing={signIn} />
                 {errLine}
                 <Button title="Sign in" busy={busy} onPress={signIn} />

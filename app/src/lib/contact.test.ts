@@ -15,3 +15,10 @@ test('contactLink builds WhatsApp and SMS links, nothing for in-app or missing n
   assert.equal(contactLink('app', '4105550199'), null);
   assert.equal(contactLink('sms', null), null);
 });
+
+test('e164 formats phone numbers for sign-up and sign-in', async () => {
+  const { e164 } = await import('./contact');
+  assert.equal(e164('(410) 555-0199'), '+14105550199');
+  assert.equal(e164('+44 7700 900123'), '+447700900123');
+  assert.equal(e164('hello'), null);
+});
