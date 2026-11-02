@@ -23,7 +23,7 @@ export function ViewingBanner() {
         <Txt v="smallBold" color="#fff">Emergency edit</Txt>
         <Switch value={app.editing} onValueChange={app.setEditing} accessibilityLabel="Emergency editing" trackColor={{ true: '#fff8', false: '#fff4' }} thumbColor="#fff" />
       </View>
-      <Button small kind="ghost" title="Back to my account" style={{ backgroundColor: '#fff' }} onPress={() => { app.stopViewing(); router.replace('/coach/menu'); }} />
+      <Button small kind="ghost" title="Back to my account" style={{ backgroundColor: '#fff' }} onPress={() => { app.stopViewing(); router.replace('/coach'); }} />
     </View>
   );
 }

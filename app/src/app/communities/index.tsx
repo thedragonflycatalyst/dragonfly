@@ -32,13 +32,13 @@ export default function Communities() {
   const shown = (list ?? []).filter((c) => c.archived === (shelf === 'archived'));
   return (
     <View style={{ flex: 1, backgroundColor: p.bg }}>
-      <Stack.Screen options={{ title: 'Communities' }} />
+      <Stack.Screen options={{ title: 'Social' }} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, alignItems: 'center' }}>
         <View style={{ width: '100%', maxWidth: MAX_W, gap: 12 }}>
           {coach && <Segmented value={shelf} onChange={setShelf} options={[['current', 'Current'], ['archived', 'Archived']]} />}
           {list === null ? <ActivityIndicator color={p.ink} style={{ marginTop: 30 }} /> : shown.length === 0 ? (
-            <Empty emoji="🫂" title={coach ? (shelf === 'archived' ? 'Nothing archived' : 'Start a community') : 'No communities yet'}
-              body={coach ? 'A shared space for a group: a bootcamp crew, a 6-week challenge, everyone on a program. Post announcements, and let members share wins and cheer each other on.' : 'When your trainer adds you to a community, it shows up here.'} />
+            <Empty emoji="🫂" title={coach ? (shelf === 'archived' ? 'Nothing archived' : 'Start a group') : 'No groups yet'}
+              body={coach ? 'A shared space for a group: a bootcamp crew, a 6-week challenge, everyone on a program. Post announcements, and let members share wins and cheer each other on.' : 'When your trainer adds you to a workout group, it shows up here.'} />
           ) : (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
               {shown.map((c) => (
@@ -52,7 +52,7 @@ export default function Communities() {
           )}
         </View>
       </ScrollView>
-      {coach && shelf === 'current' && <Fab title="Create community" onPress={() => setEditing(true)} />}
+      {coach && shelf === 'current' && <Fab title="Create group" onPress={() => setEditing(true)} />}
       {coach && <CommunitySheet visible={editing} onClose={() => setEditing(false)} onSaved={(id) => { setEditing(false); load(); if (id) router.push({ pathname: '/communities/[id]', params: { id } }); }} />}
     </View>
   );
@@ -91,7 +91,7 @@ export function CommunitySheet({ visible, onClose, onSaved, initial, members = [
     } catch (e) { toast(errText(e), false); } finally { setBusy(false); }
   };
   return (
-    <Sheet visible={visible} onClose={onClose} title={initial ? 'Community settings' : 'New community'}>
+    <Sheet visible={visible} onClose={onClose} title={initial ? 'Group settings' : 'New group'}>
       <Field label="Name" value={f.name} onChangeText={(name) => setF({ ...f, name })} placeholder="Spring Shred Challenge" />
       <Field label="Description" hint="(optional)" value={f.description} onChangeText={(description) => setF({ ...f, description })} multiline placeholder="Six weeks, three workouts a week. Post your wins!" />
       <Txt v="bold" style={{ marginBottom: 8 }}>Cover art</Txt>

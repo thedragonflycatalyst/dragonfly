@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
 import { Stack } from 'expo-router';
+import { Ambient } from '@/components/ambient';
 import { useToast } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
 import { errText } from '@/lib/model';
@@ -21,9 +22,12 @@ export function useTrainerSave() {
 export function Page({ title, children }: { title: string; children: ReactNode }) {
   const p = usePalette();
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 60, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
-      <Stack.Screen options={{ title }} />
-      <View style={{ width: '100%', maxWidth: 640, gap: 12 }}>{children}</View>
-    </ScrollView>
+    <View style={{ flex: 1, backgroundColor: p.bg }}>
+      <Ambient />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 60, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+        <Stack.Screen options={{ title }} />
+        <View style={{ width: '100%', maxWidth: 640, gap: 12 }}>{children}</View>
+      </ScrollView>
+    </View>
   );
 }

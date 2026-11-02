@@ -30,7 +30,7 @@ export default function EditClient() {
     try {
       const { error } = await sb.from('coach_clients').update({
         first_name: v.first_name, last_name: v.last_name, phone: v.phone, sex: v.sex, date_of_birth: v.date_of_birth,
-        height_cm: v.height_cm, goals: v.goals, source: v.source, ...(client.user_id ? {} : { email: v.email }),
+        height_cm: v.height_cm, goals: v.goals, source: v.source, contact_via: v.contact_via, ...(client.user_id ? {} : { email: v.email }),
       }).eq('id', client.id);
       if (error) throw error;
       const add = v.groupIds.filter((g) => !mine.includes(g)), drop = mine.filter((g) => !v.groupIds.includes(g));

@@ -1,6 +1,7 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, ScrollView, View } from 'react-native';
+import { CONTACT_LABEL, contactLink } from '@/lib/contact';
 import { ComingWith, Initials, Row, SectionLabel, statusColor } from '@/components/bits';
 import { Badge } from '@/components/shell';
 import { Button, Card, Empty, Txt, useToast } from '@/components/ui';
@@ -162,7 +163,15 @@ export default function ClientProfile() {
           <Row icon="redeem" title="Packages and payments" sub="Credits left, purchases and payments" onPress={() => router.push({ pathname: '/clients/[id]/billing', params: { id: c.id } })} />
           <Row icon="event" title="Sessions" sub="Book or see them on your calendar" onPress={() => router.push('/calendar')} />
           {LATER.map((l) => <Row key={l.title} icon={l.icon} title={l.title} disabled right={<ComingWith what={l.with} />} />)}
-          <Row icon="chat_bubble" title={`Message ${first}`} last onPress={() => router.push({ pathname: '/chat/new', params: { client: c.id } })} />
+          {(() => {
+            const via = c.contact_via ?? 'app', link = contactLink(via, c.phone, '', Platform.OS);
+            return link
+              ? <>
+                  <Row icon="chat_bubble" title={`Message ${first}`} sub={`By ${CONTACT_LABEL[via]} (their preference)`} last={!c.user_id} onPress={() => Linking.openURL(link)} />
+                  {c.user_id && <Row icon="forum" title="Dragonfly chat" last onPress={() => router.push({ pathname: '/chat/new', params: { client: c.id } })} />}
+                </>
+              : <Row icon="chat_bubble" title={`Message ${first}`} last onPress={() => router.push({ pathname: '/chat/new', params: { client: c.id } })} />;
+          })()}
         </Card>
 
         <SectionLabel>Account</SectionLabel>

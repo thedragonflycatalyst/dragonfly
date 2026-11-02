@@ -5,7 +5,7 @@ export type ChatMember = { chat_id: string; user_id: string; role: 'trainer' | '
 export type MessageKind = 'text' | 'image' | 'video' | 'audio' | 'file' | 'gif' | 'workout' | 'system';
 export type Message = {
   id: string; chat_id: string; sender: string; kind: MessageKind; body: string | null; path: string | null;
-  meta: { name?: string; size?: number; mime?: string; url?: string; w?: number; h?: number; secs?: number; title?: string; assignment_id?: string; date?: string; summary?: string };
+  meta: { name?: string; size?: number; mime?: string; url?: string; w?: number; h?: number; secs?: number; title?: string; assignment_id?: string; date?: string; summary?: string; via?: 'sms' | 'whatsapp' };
   reply_to: string | null; broadcast_id: string | null; edited_at: string | null; deleted_at: string | null; created_at: string;
 };
 export type Reaction = { message_id: string; user_id: string; emoji: string };

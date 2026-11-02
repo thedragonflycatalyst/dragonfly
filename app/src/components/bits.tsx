@@ -9,13 +9,13 @@ import { Icon, Txt } from './ui';
 export function Segmented<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
   const p = usePalette();
   return (
-    <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: p.soft, borderRadius: R.pill, padding: 4, alignSelf: 'flex-start', maxWidth: '100%' }}>
+    <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: p.soft, borderRadius: R.md, padding: 3, alignSelf: 'flex-start', maxWidth: '100%', borderWidth: 1, borderColor: p.line }}>
       {options.map(([k, label]) => {
         const on = k === value;
         return (
           <Pressable key={k} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => onChange(k)}
-            style={{ paddingHorizontal: 16, height: 38, borderRadius: R.pill, justifyContent: 'center', backgroundColor: on ? p.surface : 'transparent' }}>
-            <Text numberOfLines={1} style={{ fontFamily: on ? F.bodyBold : F.body, fontSize: 15, color: p.ink }}>{label}</Text>
+            style={{ flexShrink: 1, paddingHorizontal: options.length > 3 ? 10 : 14, height: 34, borderRadius: R.sm, justifyContent: 'center', alignItems: 'center', backgroundColor: on ? p.focus : 'transparent' }}>
+            <Text numberOfLines={1} style={{ fontFamily: on ? F.bodyBold : F.body, fontSize: 14, color: on ? p.onAccent : p.ink }}>{label}</Text>
           </Pressable>
         );
       })}

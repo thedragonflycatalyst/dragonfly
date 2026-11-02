@@ -24,7 +24,7 @@ export default function NewClient() {
     try {
       const { data, error } = await sb.from('coach_clients').insert({
         trainer_id: app.trainer!.user_id, first_name: v.first_name, last_name: v.last_name, email: v.email, phone: v.phone,
-        sex: v.sex, date_of_birth: v.date_of_birth, height_cm: v.height_cm, goals: v.goals, source: v.source,
+        sex: v.sex, date_of_birth: v.date_of_birth, height_cm: v.height_cm, goals: v.goals, source: v.source, contact_via: v.contact_via,
         status: v.asLead ? 'lead' : 'invited',
       }).select('id').single();
       if (error) throw error;

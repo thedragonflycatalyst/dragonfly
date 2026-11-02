@@ -1,12 +1,13 @@
-import { AtkinsonHyperlegible_400Regular, AtkinsonHyperlegible_700Bold } from '@expo-google-fonts/atkinson-hyperlegible';
-import { BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold } from '@expo-google-fonts/bricolage-grotesque';
+import { Inter_400Regular, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { useFonts } from 'expo-font';
 import { SplashScreen, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
+import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from '@/components/ui';
+import { SidebarDrawer, SidebarRail, useWide } from '@/components/shell';
 import { AutoSync } from '@/features/auto-sync';
 import { ViewingBanner } from '@/features/team';
 import { AppProvider, useApp } from '@/lib/app-state';
@@ -17,8 +18,9 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 function Shell() {
   const p = usePalette();
   const { ready, viewing } = useApp();
+  const wide = useWide();
   const viewingKey = viewing?.trainer_id ?? 'me';
-  const [fontsLoaded] = useFonts({ BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold, AtkinsonHyperlegible_400Regular, AtkinsonHyperlegible_700Bold });
+  const [fontsLoaded] = useFonts({ Inter_400Regular, Inter_600SemiBold, Inter_700Bold });
 
   useEffect(() => { SystemUI.setBackgroundColorAsync(p.bg).catch(() => {}); }, [p.bg]);
   useEffect(() => { if (fontsLoaded && ready) SplashScreen.hideAsync().catch(() => {}); }, [fontsLoaded, ready]);
@@ -33,15 +35,21 @@ function Shell() {
       <StatusBar style={p.scheme === 'dark' ? 'light' : 'dark'} />
       <ViewingBanner />
       <AutoSync />
+      <View style={{ flex: 1, flexDirection: 'row', backgroundColor: p.bg }}>
+      {wide && <SidebarRail />}
+      <View style={{ flex: 1 }}>
       <Stack key={viewingKey} screenOptions={{ ...header, headerShown: false }}>
         <Stack.Screen name="account" options={{ headerShown: true, title: 'Account' }} />
         {['clients/new', 'clients/[id]/index', 'clients/[id]/edit', 'clients/[id]/[section]', 'groups/[id]', 'forms/[rid]', 'forms/build', 'me/[section]', 'workouts/[id]', 'programs/[id]', 'session', 'workout/[aid]', 'clients/[id]/workouts', 'nutrition/[id]', 'clients/[id]/nutrition', 'me/nutrition', 'me/food', 'team', 'support', 'exercises', 'soon/[key]', 'checkins/index', 'checkins/[id]', 'programs/index',
           'settings/index', 'settings/coaching', 'settings/details', 'settings/branding', 'settings/notifications', 'settings/units', 'settings/permissions', 'settings/about',
           'packages/index', 'packages/[id]', 'financials', 'habits', 'communities/index', 'communities/[id]', 'resources', 'calendar', 'events/index', 'events/[id]',
-          'chat/index', 'chat/[id]', 'chat/new', 'chat/info', 'chat/broadcast', 'files', 'notifications', 'me/scale', 'me/packages', 'clients/[id]/scale', 'clients/[id]/billing', 'connections', 'me/activity', 'clients/[id]/activity'].map((name) => (
+          'chat/index', 'chat/[id]', 'chat/new', 'chat/info', 'chat/broadcast', 'files', 'notifications', 'me/scale', 'me/packages', 'clients/[id]/scale', 'clients/[id]/billing', 'connections', 'me/activity', 'clients/[id]/activity', 'settings/appearance'].map((name) => (
           <Stack.Screen key={name} name={name} options={{ headerShown: true, title: '' }} />
         ))}
       </Stack>
+      </View>
+      </View>
+      {!wide && <SidebarDrawer />}
     </>
   );
 }

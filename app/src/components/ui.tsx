@@ -47,23 +47,24 @@ export function Button({ title, onPress, kind = 'solid', icon, small, busy, disa
   accent?: string; style?: StyleProp<ViewStyle>; haptic?: boolean;
 }) {
   const p = usePalette();
-  const bg = { solid: p.ink, ghost: 'transparent', quiet: p.soft, danger: 'transparent', accent: accent ?? p.focus, on: p.good }[kind];
-  const fg = { solid: p.bg, ghost: p.ink, quiet: p.ink, danger: p.danger, accent: p.onAccent, on: p.onAccent }[kind];
+  // Uploader buttons: primary violet, secondary outlined, quiet tinted, danger outlined
+  const bg = { solid: p.focus, ghost: p.surface, quiet: p.soft, danger: 'transparent', accent: accent ?? p.focus, on: p.good }[kind];
+  const fg = { solid: p.onAccent, ghost: p.ink, quiet: p.ink, danger: p.danger, accent: p.onAccent, on: p.onAccent }[kind];
   const border = kind === 'ghost' ? p.line : kind === 'danger' ? p.danger : 'transparent';
   return (
     <Pressable
       accessibilityRole="button" accessibilityLabel={title} disabled={disabled || busy}
       onPress={() => { if (haptic) Haptics.selectionAsync().catch(() => {}); onPress?.(); }}
       style={({ pressed }) => [
-        { backgroundColor: bg, borderColor: border, borderWidth: 1.5, minHeight: small ? 38 : 50, paddingHorizontal: title ? (small ? 14 : tight ? 10 : 20) : 0,
-          width: title ? undefined : small ? 38 : 50, borderRadius: R.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+        { backgroundColor: bg, borderColor: border, borderWidth: 1, minHeight: small ? 36 : 46, paddingHorizontal: title ? (small ? 12 : tight ? 10 : 18) : 0,
+          width: title ? undefined : small ? 36 : 46, borderRadius: R.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
           opacity: disabled ? 0.45 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
         style,
       ]}>
       {busy ? <ActivityIndicator color={fg} /> : (
         <>
           {icon && <Icon name={icon} size={small ? 18 : 20} color={fg} />}
-          {title && <Text style={[styles.bold, { color: fg, fontSize: small ? 15 : 16 }]} numberOfLines={1}>{title}</Text>}
+          {title && <Text style={[styles.bold, { color: fg, fontSize: small ? 14 : 15 }]} numberOfLines={1}>{title}</Text>}
         </>
       )}
     </Pressable>
@@ -72,20 +73,20 @@ export function Button({ title, onPress, kind = 'solid', icon, small, busy, disa
 
 export function Chip({ label, emoji, selected, onPress, color }: { label: string; emoji?: string; selected?: boolean; onPress?: () => void; color?: string }) {
   const p = usePalette();
-  const on = color ?? p.ink;
+  const on = color ?? p.focus;
   return (
     <Pressable
       accessibilityRole="button" accessibilityState={{ selected }} onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress?.(); }}
       style={({ pressed }) => [styles.chip, { backgroundColor: selected ? on : p.surface, borderColor: selected ? on : p.line, opacity: pressed ? 0.8 : 1 }]}>
       {emoji && <Text style={{ fontSize: 16 }}>{emoji}</Text>}
-      <Text style={[selected ? styles.bold : styles.body, { fontSize: 15, color: selected ? (color ? p.onAccent : p.bg) : p.ink }]}>{label}</Text>
+      <Text style={[selected ? styles.bold : styles.body, { fontSize: 14, color: selected ? p.onAccent : p.ink }]}>{label}</Text>
     </Pressable>
   );
 }
 
 export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const p = usePalette();
-  return <View style={[styles.card, { backgroundColor: p.surface, shadowColor: p.scheme === 'dark' ? '#000' : '#1b1622' }, style]}>{children}</View>;
+  return <View style={[styles.card, { backgroundColor: p.surface, borderColor: p.line, shadowColor: p.scheme === 'dark' ? '#000' : '#2a1f5c' }, style]}>{children}</View>;
 }
 
 export function Field({ label, hint, style, ...input }: TextInputProps & { label: string; hint?: string; style?: StyleProp<TextStyle> }) {
@@ -93,11 +94,11 @@ export function Field({ label, hint, style, ...input }: TextInputProps & { label
   const [focus, setFocus] = useState(false);
   return (
     <View style={{ marginBottom: 16 }}>
-      <Txt v="bold" style={{ marginBottom: 6, fontSize: 15 }}>{label}{hint ? <Txt v="small"> {hint}</Txt> : null}</Txt>
+      <Txt v="bold" style={{ marginBottom: 6, fontSize: 14 }}>{label}{hint ? <Txt v="small"> {hint}</Txt> : null}</Txt>
       <TextInput
         placeholderTextColor={p.muted} {...input}
         onFocus={(e) => { setFocus(true); input.onFocus?.(e); }} onBlur={(e) => { setFocus(false); input.onBlur?.(e); }}
-        style={[styles.input, { backgroundColor: p.surface, color: p.ink, borderColor: focus ? p.focus : p.line }, input.multiline && { minHeight: 120, textAlignVertical: 'top', paddingTop: 12 }, style]}
+        style={[styles.input, { backgroundColor: p.raise, color: p.ink, borderColor: focus ? p.focus : p.line }, input.multiline && { minHeight: 120, textAlignVertical: 'top', paddingTop: 12 }, style]}
       />
     </View>
   );
@@ -138,25 +139,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastCtx.Provider value={show}>
       {children}
       <Animated.View pointerEvents="none" accessibilityLiveRegion="polite"
-        style={[styles.toast, { top: insets.top + 8, backgroundColor: p.ink, opacity: anim, transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }] }]}>
-        <Text style={[styles.bold, { color: p.bg, textAlign: 'center' }]}>{msg}</Text>
+        style={[styles.toast, { top: insets.top + 8, backgroundColor: p.raise, borderColor: p.focus, opacity: anim, transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }] }]}>
+        <Text style={[styles.bold, { color: p.ink, textAlign: 'center' }]}>{msg}</Text>
       </Animated.View>
     </ToastCtx.Provider>
   );
 }
 
 const styles = StyleSheet.create({
-  display: { fontFamily: F.display, fontSize: 38, lineHeight: 40, letterSpacing: -1 },
-  h1: { fontFamily: F.display, fontSize: 30, lineHeight: 33, letterSpacing: -0.6 },
-  h2: { fontFamily: F.display, fontSize: 23, lineHeight: 27, letterSpacing: -0.4 },
-  h3: { fontFamily: F.displayBold, fontSize: 18, lineHeight: 22 },
-  body: { fontFamily: F.body, fontSize: 17, lineHeight: 25 },
-  bold: { fontFamily: F.bodyBold, fontSize: 17, lineHeight: 23 },
-  small: { fontFamily: F.body, fontSize: 14, lineHeight: 20 },
-  smallBold: { fontFamily: F.bodyBold, fontSize: 14, lineHeight: 20 },
-  kicker: { fontFamily: F.bodyBold, fontSize: 14, lineHeight: 19 },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 7, height: 40, paddingHorizontal: 15, borderRadius: R.pill, borderWidth: 1 },
-  card: { borderRadius: R.lg, padding: 16, shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
-  input: { minHeight: 50, borderWidth: 1.5, borderRadius: R.sm, paddingHorizontal: 14, fontFamily: F.body, fontSize: 17 },
-  toast: { position: 'absolute', left: 20, right: 20, paddingVertical: 13, paddingHorizontal: 18, borderRadius: R.pill, elevation: 8, zIndex: 100 },
+  display: { fontFamily: F.display, fontSize: 34, lineHeight: 40, letterSpacing: -0.8 },
+  h1: { fontFamily: F.display, fontSize: 28, lineHeight: 34, letterSpacing: -0.5 },
+  h2: { fontFamily: F.display, fontSize: 21, lineHeight: 27, letterSpacing: -0.3 },
+  h3: { fontFamily: F.displayBold, fontSize: 17, lineHeight: 23 },
+  body: { fontFamily: F.body, fontSize: 16, lineHeight: 24 },
+  bold: { fontFamily: F.bodyBold, fontSize: 16, lineHeight: 22 },
+  small: { fontFamily: F.body, fontSize: 13.5, lineHeight: 19 },
+  smallBold: { fontFamily: F.bodyBold, fontSize: 13.5, lineHeight: 19 },
+  kicker: { fontFamily: F.bodyBold, fontSize: 12, lineHeight: 16, letterSpacing: 0.6 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 7, height: 36, paddingHorizontal: 14, borderRadius: R.pill, borderWidth: 1 },
+  card: { borderRadius: R.lg, padding: 16, borderWidth: 1, shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
+  input: { minHeight: 46, borderWidth: 1, borderRadius: R.md, paddingHorizontal: 14, fontFamily: F.body, fontSize: 16 },
+  toast: { position: 'absolute', left: 20, right: 20, paddingVertical: 13, paddingHorizontal: 18, borderRadius: R.md, borderWidth: 1, elevation: 8, zIndex: 100 },
 });

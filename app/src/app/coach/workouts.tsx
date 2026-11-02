@@ -72,16 +72,19 @@ export default function WorkoutsTab() {
   const useTemplate = (t: Template) => createFrom(t.name, { blocks: t.blocks, description: t.description, cover: t.cover });
 
   return (
-    <Screen title="Workouts" right={tab === 'workouts' || tab === 'programs'
-      ? <Button title={tab === 'programs' ? 'Create program' : 'Create workout'} icon="add" onPress={() => setCreating(tab === 'programs' ? 'program' : 'workout')} /> : undefined}>
+    <Screen title="Workouts" right={
+      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        <Button kind="ghost" title="Exercise library" icon="sports_gymnastics" onPress={() => router.push('/exercises')} />
+        {tab === 'workouts' || tab === 'programs' ? <Button title={tab === 'programs' ? 'Create program' : 'Create routine'} icon="add" onPress={() => setCreating(tab === 'programs' ? 'program' : 'workout')} /> : null}
+      </View>}>
       <ResumeBanner />
-      <Segmented value={tab} onChange={setTab} options={[['workouts', 'Workouts'], ['programs', 'Programs'], ['folders', 'Folders'], ['templates', 'Templates']]} />
+      <Segmented value={tab} onChange={setTab} options={[['workouts', 'Routines'], ['programs', 'Programs'], ['folders', 'Folders'], ['templates', 'Templates']]} />
 
       {tab === 'workouts' && (
         <View style={{ marginTop: 16, gap: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.surface, borderWidth: 1.5, borderColor: p.line, borderRadius: R.pill, paddingHorizontal: 14, height: 46 }}>
             <Icon name="search" size={20} color={p.muted} />
-            <TextInput value={q} onChangeText={setQ} placeholder="Search workouts" placeholderTextColor={p.muted} accessibilityLabel="Search workouts" style={{ flex: 1, fontFamily: F.body, fontSize: 16, color: p.ink, height: 44 }} />
+            <TextInput value={q} onChangeText={setQ} placeholder="Search routines" placeholderTextColor={p.muted} accessibilityLabel="Search workouts" style={{ flex: 1, fontFamily: F.body, fontSize: 16, color: p.ink, height: 44 }} />
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {([['recent', 'Most recent'], ['az', 'A to Z'], ['created', 'Newest']] as [Sort, string][]).map(([k, l]) => <Chip key={k} label={l} selected={sort === k} onPress={() => setSort(k)} />)}
@@ -91,7 +94,7 @@ export default function WorkoutsTab() {
           {workouts === null ? <ActivityIndicator color={p.ink} style={{ marginTop: 30 }} /> : list.length === 0 ? (
             workouts.length === 0
               ? <Empty emoji="🏋️" title="Build your first workout" body="Start blank, or copy one of the starter templates and make it yours."
-                  action={<View style={{ flexDirection: 'row', gap: 10 }}><Button title="Create workout" onPress={() => setCreating('workout')} /><Button kind="ghost" title="Templates" onPress={() => setTab('templates')} /></View>} />
+                  action={<View style={{ flexDirection: 'row', gap: 10 }}><Button title="Create routine" onPress={() => setCreating('workout')} /><Button kind="ghost" title="Templates" onPress={() => setTab('templates')} /></View>} />
               : <Txt v="small" center style={{ marginTop: 20 }}>No workouts match.</Txt>
           ) : (
             <Card style={{ padding: 0 }}>
@@ -222,7 +225,7 @@ function CreateSheet({ kind, workouts, onClose, onWorkout, onProgram }: {
   const [weeks, setWeeks] = useState('4');
   const reset = () => { setName(''); setCopy(false); setFrom(null); setWeeks('4'); };
   return (
-    <Sheet visible={!!kind} onClose={() => { reset(); onClose(); }} title={kind === 'program' ? 'Create program' : 'Create workout'}>
+    <Sheet visible={!!kind} onClose={() => { reset(); onClose(); }} title={kind === 'program' ? 'Create program' : 'Create routine'}>
       <Field label={kind === 'program' ? 'Program name' : 'Workout title'} value={name} onChangeText={setName} placeholder={kind === 'program' ? '8-week strength block' : 'Upper body day'} autoFocus />
       {kind === 'program' ? (
         <View style={{ width: 160 }}><Field label="Weeks" value={weeks} onChangeText={setWeeks} keyboardType="number-pad" /></View>

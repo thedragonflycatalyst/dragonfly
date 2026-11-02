@@ -10,6 +10,7 @@ import { Sheet } from '@/components/sheet';
 import { Button, Card, Field, Icon, Txt, useToast } from '@/components/ui';
 import { Page } from '@/features/settings-page';
 import { useApp } from '@/lib/app-state';
+import { canSee } from '@/lib/features';
 import { errText } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
@@ -19,6 +20,8 @@ const GROUPS: Group[] = [
   { key: 'general', title: 'General', icon: 'person', items: [['My details', 'Name, address, time zone, birthday', '/settings/details'], ['Account', 'Picture, email, password, devices', '/account']] },
   { key: 'custom', title: 'Customisation', icon: 'star', items: [['Branding', 'Your logo and colour in your clients’ app', '/settings/branding']] },
   { key: 'features', title: 'Feature settings', icon: 'notifications', items: [['Notifications', 'What you’re told about, and how', '/settings/notifications'], ['Unit of measurement', 'Weights, bodyweight, lengths, distance', '/settings/units'], ['Permissions', 'What clients (and your trainers) can do', '/settings/permissions']] },
+  { key: 'money', title: 'Payments & packages', icon: 'payments', items: [['Packages & vouchers', 'Session packs, memberships, discount codes', '/packages'], ['Payments', 'Income, payments, refunds, subscriptions', '/financials']] },
+  { key: 'look', title: 'Appearance', icon: 'palette', items: [['Theme', 'Dark (default), light, or match your phone', '/settings/appearance']] },
   { key: 'coaching', title: 'Coaching', icon: 'fitness_center', items: [['Coaching settings', 'Profile, health questionnaire, freezing, check-in rhythm', '/settings/coaching'], ['Team', 'Your trainers, invites, viewing their accounts', '/team']] },
 ];
 
@@ -34,6 +37,7 @@ export default function Settings() {
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (app.trainer?.logo) coverUrl(app.trainer.logo.replace(/^media:/, '')).then(setLogo); else setLogo(null); }, [app.trainer?.logo]);
   const t = app.trainer;
+  const member = app.teamMembers.find((x) => x.trainer_id === app.user?.id && x.role === 'trainer');
   const send = async () => {
     if (!issue.trim()) return toast('Describe the issue first', false);
     setBusy(true);
@@ -56,7 +60,7 @@ export default function Settings() {
               style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderBottomWidth: 1, borderBottomColor: p.line }}>
               <Icon name={g.icon} color={p.ink} /><Txt v="bold" style={{ flex: 1 }}>{g.title}</Txt><Icon name={open === g.key ? 'expand_less' : 'expand_more'} color={p.muted} />
             </Pressable>
-            {open === g.key && g.items.map(([title, sub, href]) => (
+            {open === g.key && g.items.filter(([, , href]) => href === '/packages' ? canSee('packages', member, app.isOwner) : href === '/financials' ? canSee('financials', member, app.isOwner) : true).map(([title, sub, href]) => (
               <Pressable key={href} onPress={() => router.push(href as never)} accessibilityRole="link"
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, paddingLeft: 52, paddingRight: 16, borderBottomWidth: 1, borderBottomColor: p.line, backgroundColor: p.raise }}>
                 <View style={{ flex: 1 }}><Txt v="bold">{title}</Txt><Txt v="small">{sub}</Txt></View><Icon name="chevron_right" color={p.muted} />

@@ -7,10 +7,12 @@ import { dayKey } from '@/lib/dates';
 import { isEmail, type Client, type Group, type Sex } from '@/lib/model';
 import { cmToFtIn, ftInToCm, num, showLength, toCm, toKg, weightUnit, type Units } from '@/lib/units';
 import { usePalette } from '@/lib/theme';
+import { CONTACT_LABEL, type ContactVia } from '@/lib/contact';
 
 export type ClientFormValues = {
   first_name: string; last_name: string; phone: string | null; email: string; sex: Sex | null; date_of_birth: string | null;
   height_cm: number | null; goals: string | null; source: string | null; weight_kg: number | null; groupIds: string[]; asLead: boolean;
+  contact_via: ContactVia;
 };
 
 /** Client details form: used for Add client (and the client pool) and for editing a client. */
@@ -24,7 +26,7 @@ export function ClientForm({ initial, groups, initialGroups = [], units, mode, p
     first: initial?.first_name ?? '', last: initial?.last_name ?? '', phone: initial?.phone ?? '', email: initial?.email ?? '',
     sex: (initial?.sex ?? null) as Sex | null, dob: initial?.date_of_birth ?? null as string | null, weight: '',
     ft: ftIn ? String(ftIn.ft) : '', inch: ftIn ? String(ftIn.in) : '', cm: initial?.height_cm ? String(showLength(Number(initial.height_cm), 'metric')) : '',
-    goals: initial?.goals ?? '', source: initial?.source ?? '',
+    goals: initial?.goals ?? '', source: initial?.source ?? '', via: (initial?.contact_via ?? 'app') as ContactVia,
   });
   const [groupIds, setGroupIds] = useState<string[]>(initialGroups);
   const [asLead, setAsLead] = useState(!!pool);
@@ -51,7 +53,7 @@ export function ClientForm({ initial, groups, initialGroups = [], units, mode, p
     onSubmit({
       first_name: f.first.trim(), last_name: f.last.trim(), phone: f.phone.trim() || null, email: f.email.trim().toLowerCase(),
       sex: f.sex, date_of_birth: f.dob, height_cm: height, goals: f.goals.trim() || null, source: f.source.trim() || null,
-      weight_kg: weight, groupIds, asLead,
+      weight_kg: weight, groupIds, asLead, contact_via: f.via,
     });
   };
 
@@ -76,6 +78,11 @@ export function ClientForm({ initial, groups, initialGroups = [], units, mode, p
             autoCapitalize="none" keyboardType="email-address" autoComplete="off" />
           <Field label="Phone" hint="(optional)" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" autoComplete="off" />
         </Pair>
+        <Txt v="bold" style={{ marginBottom: 8, fontSize: 14 }}>Message them by</Txt>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          {(['app', 'sms', 'whatsapp'] as ContactVia[]).map((k) => <Chip key={k} label={CONTACT_LABEL[k]} selected={f.via === k} onPress={() => setF((x) => ({ ...x, via: k }))} />)}
+        </View>
+        <Txt v="small" style={{ marginBottom: 14 }}>{f.via === 'app' ? 'Messages stay in Dragonfly.' : f.phone.trim() ? `Message buttons open ${CONTACT_LABEL[f.via]} on your phone with your message ready to send.` : 'Add their phone number above to use this.'}</Txt>
         {(asLead || initial?.status === 'lead') && <Field label="Where they came from" hint="(optional)" value={f.source} onChangeText={set('source')} placeholder="Website, referral, Instagram…" />}
       </Card>
 

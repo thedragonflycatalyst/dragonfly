@@ -4,7 +4,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Linking, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { CONTACT_LABEL, contactLink, type ContactVia } from '@/lib/contact';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Initials } from '@/components/bits';
 import { ActionMenu, Sheet } from '@/components/sheet';
@@ -205,6 +206,21 @@ export default function Conversation() {
   const nameOf = (uid: string) => members.find((m) => m.user_id === uid)?.name ?? 'Member';
   const title = chat ? chatName(chat, members, me) : '';
   const group = chat?.kind === 'group';
+  // Trainer: does this client prefer a text message or WhatsApp?
+  const [pref, setPref] = useState<{ first: string; phone: string | null; via: ContactVia } | null>(null);
+  const otherClient = app.mode === 'coach' && chat?.kind === 'direct' ? members.find((m) => m.role === 'client')?.user_id : undefined;
+  useEffect(() => {
+    if (!otherClient) return setPref(null);
+    sb.from('coach_clients').select('first_name, phone, contact_via').eq('user_id', otherClient).limit(1).maybeSingle()
+      .then(({ data }) => setPref(data && data.contact_via && data.contact_via !== 'app' ? { first: data.first_name, phone: data.phone, via: data.contact_via } : null));
+  }, [otherClient]);
+  const outside = pref ? contactLink(pref.via, pref.phone, text.trim(), Platform.OS) : null;
+  const sendOutside = async () => {
+    if (!pref || !outside) return;
+    const body = text.trim();
+    if (body && !(await send({ kind: 'text', body, meta: { via: pref.via as 'sms' | 'whatsapp' } }))) return;
+    setText(''); Linking.openURL(outside).catch(() => toast(`Couldn’t open ${CONTACT_LABEL[pref.via]}`, false));
+  };
 
   if (msgs === null) return <View style={{ flex: 1, backgroundColor: p.bg, justifyContent: 'center' }}><ActivityIndicator color={p.ink} /></View>;
   return (
@@ -262,6 +278,15 @@ export default function Conversation() {
               <Icon name={editing ? 'edit' : 'reply'} size={18} color={p.focus} />
               <Txt v="small" style={{ flex: 1 }} numberOfLines={1}>{editing ? 'Editing message' : `Replying to ${reply!.sender === me ? 'yourself' : nameOf(reply!.sender)}: ${reply!.body ?? reply!.kind}`}</Txt>
               <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={() => { setReply(null); if (editing) { setEditing(null); setText(''); } }} hitSlop={8}><Icon name="close" size={18} /></Pressable>
+            </View>
+          )}
+          {pref && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 8 }}>
+              <Icon name="info" size={18} color={p.focus} />
+              <Txt v="small" style={{ flex: 1 }}>{pref.first} prefers {CONTACT_LABEL[pref.via]}{outside ? '' : ' (add their phone number to use it)'}</Txt>
+              {outside && <Pressable accessibilityRole="button" onPress={sendOutside} style={{ paddingHorizontal: 12, height: 32, borderRadius: R.md, backgroundColor: p.focus, justifyContent: 'center' }}>
+                <Txt v="smallBold" color={p.onAccent}>{text.trim() ? `Send by ${CONTACT_LABEL[pref.via]}` : `Open ${CONTACT_LABEL[pref.via]}`}</Txt>
+              </Pressable>}
             </View>
           )}
           {recording !== null ? (

@@ -61,8 +61,9 @@ export function MessageBody({ m, url, mine }: { m: Message; url?: string; mine: 
       );
     default: {
       if (bigEmoji(m.body)) return <Text style={{ fontSize: 42, lineHeight: 50 }}>{m.body}</Text>;
-      return <Text style={{ fontFamily: F.body, fontSize: 17, lineHeight: 24, color: fg }}>{linkify(m.body ?? '').map((part, i) => part.url
+      const text = <Text style={{ fontFamily: F.body, fontSize: 16, lineHeight: 23, color: fg }}>{linkify(m.body ?? '').map((part, i) => part.url
         ? <Text key={i} style={{ textDecorationLine: 'underline' }} onPress={() => Linking.openURL(part.url!)}>{part.text}</Text> : part.text)}</Text>;
+      return m.meta.via ? <View>{text}<Txt v="small" color={mine ? p.onAccent : p.muted} style={{ marginTop: 4, opacity: 0.85 }}>Sent by {m.meta.via === 'whatsapp' ? 'WhatsApp' : 'text message'}</Txt></View> : text;
     }
   }
 }

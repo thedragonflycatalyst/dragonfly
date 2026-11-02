@@ -34,6 +34,10 @@ select t.ok((select count(*) from public.coach_trainer_details) = 0, 'clients ca
 select t.ok((select count(*) from public.coach_external_busy) = 0, 'or what their busy blocks are');
 select t.ok((select count(*) from public.coach_trainer_busy((select v from t.ids where k = 'trainer'), 10)) = 1, 'but busy times block the booking screen');
 select t.ok(t.refused($$select public.coach_book_session((select v from t.ids where k = 'trainer'), date_trunc('hour', now()) + interval '3 days 1 hour', 60)$$), 'and booking over them is refused');
+select t.as_user('trainer');
+update public.coach_clients set contact_via = 'whatsapp', phone = '410-555-0199';
+select t.ok((select contact_via from public.coach_clients limit 1) = 'whatsapp', 'trainers can set a client to WhatsApp');
+select t.ok(t.refused($$update public.coach_clients set contact_via = 'fax'$$), 'only Dragonfly chat, text or WhatsApp');
 select t.as_user('trainer2');
 insert into public.coach_trainers (user_id, display_name) select v, 'Other' from t.ids where k = 'trainer2';
 select t.ok((select count(*) from public.coach_health_daily) + (select count(*) from public.coach_activities) = 0, 'other trainers see nothing');

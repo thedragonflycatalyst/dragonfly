@@ -2,7 +2,10 @@ import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { Initials, Segmented } from '@/components/bits';
+import { Ambient } from '@/components/ambient';
 import { ClientPicker, Fab, matches, SearchBox } from '@/components/pickers';
+import { Heading, TopBar } from '@/components/shell';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionMenu, Sheet } from '@/components/sheet';
 import { Button, Card, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
@@ -14,12 +17,13 @@ import { MAX_W, R, usePalette } from '@/lib/theme';
 type Tab = 'inbox' | 'archived' | 'broadcasts';
 
 /** Chat inbox: private and group chats, archived chats, and broadcast lists */
-export default function ChatInbox() {
+export default function ChatInbox({ embedded }: { embedded?: boolean } = {}) {
   const p = usePalette();
   const toast = useToast();
   const app = useApp();
   const me = app.user?.id ?? '';
   const coach = app.mode === 'coach';
+  const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('inbox');
   const [chats, setChats] = useState<Chat[] | null>(null);
   const [members, setMembers] = useState<ChatMember[]>([]);
@@ -55,9 +59,10 @@ export default function ChatInbox() {
 
   return (
     <View style={{ flex: 1, backgroundColor: p.bg }}>
-      <Stack.Screen options={{ title: 'Chat' }} />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+      {embedded ? <Ambient /> : <Stack.Screen options={{ title: 'Chat' }} />}
+      <ScrollView contentContainerStyle={{ padding: 16, paddingTop: embedded ? insets.top + 4 : 16, paddingBottom: 110, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
         <View style={{ width: '100%', maxWidth: MAX_W, gap: 12 }}>
+          {embedded && <><TopBar /><Heading title="Chat" /></>}
           <Segmented<Tab> value={tab} onChange={setTab} options={coach ? [['inbox', 'Inbox'], ['archived', 'Archived'], ['broadcasts', 'Broadcasts']] : [['inbox', 'Inbox'], ['archived', 'Archived']]} />
           <SearchBox value={q} onChange={setQ} />
           {chats === null ? <ActivityIndicator color={p.ink} style={{ marginTop: 30 }} /> : tab === 'broadcasts' ? (

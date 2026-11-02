@@ -21,7 +21,7 @@ import {
 } from '@/lib/scale';
 import { sb } from '@/lib/supabase';
 import { cmToFtIn, ftInToCm, num } from '@/lib/units';
-import { R, usePalette } from '@/lib/theme';
+import { F, R, usePalette } from '@/lib/theme';
 
 const SERIES_COLORS: Partial<Record<MetricKey, string>> = { weight: '#5aa9e6', lean_mass: '#3fd6c6', muscle_pct: '#2bb3a3', body_fat_pct: '#e0a03a', fat_mass: '#e07a3a', skeletal_muscle_pct: '#7bc96f', bone_mass_kg: '#a98fe0' };
 const colorFor = (k: MetricKey, i: number) => SERIES_COLORS[k] ?? ['#5aa9e6', '#e0a03a', '#c77ddb', '#3fd6c6', '#e06a6a'][i % 5];
@@ -192,13 +192,13 @@ function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metric
                     <Txt v="bold" style={{ lineHeight: 19 }}>{d.getDate()}</Txt>
                     <Txt v="small" style={{ fontSize: 11, lineHeight: 13 }}>{d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</Txt>
                   </View>
-                  <Text style={{ fontSize: 30, color: p.focus, fontFamily: 'BricolageGrotesque_700Bold' }}>{fmtNum(fromKg(w.weight_kg, unit), 1, fmt)}<Text style={{ fontSize: 14, color: p.muted }}> {unitLabel(unit)}</Text></Text>
+                  <Text style={{ fontSize: 30, color: p.focus, fontFamily: F.display }}>{fmtNum(fromKg(w.weight_kg, unit), 1, fmt)}<Text style={{ fontSize: 14, color: p.muted }}> {unitLabel(unit)}</Text></Text>
                   <View style={{ flex: 1, alignItems: 'flex-end', gap: 4 }}>
                     <Txt v="small">{d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}{w.source !== 'manual' ? ` · ${w.source === 'import' ? 'imported' : 'Health Connect'}` : ''}</Txt>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' }}>
                       {tags.filter((k) => w.metrics[k] != null).slice(0, 4).map((k) => (
                         <View key={k} style={{ backgroundColor: k === 'body_fat_pct' ? p.gold : p.focus, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 }}>
-                          <Text style={{ fontSize: 12, color: p.onAccent, fontFamily: 'AtkinsonHyperlegible_700Bold' }}>{READINGS[k].short} {fmtMetric(k, w.metrics[k]!, unit, fmt).replace(' %', '%')}</Text>
+                          <Text style={{ fontSize: 12, color: p.onAccent, fontFamily: F.bodyBold }}>{READINGS[k].short} {fmtMetric(k, w.metrics[k]!, unit, fmt).replace(' %', '%')}</Text>
                         </View>
                       ))}
                     </View>
