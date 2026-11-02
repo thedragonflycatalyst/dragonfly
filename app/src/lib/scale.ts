@@ -305,3 +305,39 @@ export function parseCsv(text: string, fallback: BodyUnit = 'lb'): { rows: Impor
   }
   return { rows, skipped };
 }
+
+/* ---------------- Health Connect (Android) ---------------- */
+/** Readings as Health Connect stores them (each is its own record with a time) */
+export type HealthReadings = {
+  weight: { time: string; kg: number; origin?: string }[];
+  bodyFat: { time: string; pct: number }[];
+  leanMass: { time: string; kg: number }[];
+  boneMass: { time: string; kg: number }[];
+  bodyWater: { time: string; kg: number }[];
+  bmr: { time: string; kcal: number }[];
+};
+/** Pairs each weigh-in with the readings taken at the same moment (within 10 minutes), the way a smart scale saves them */
+export function mergeHealth(h: HealthReadings, existing: Pick<Weighin, 'measured_at'>[] = []): Imported[] {
+  const near = <T extends { time: string }>(list: T[], t: number) => {
+    let best: T | null = null, gap = 10 * 60_000;
+    for (const x of list) { const d = Math.abs(new Date(x.time).getTime() - t); if (d <= gap) { gap = d; best = x; } }
+    return best;
+  };
+  const have = existing.map((w) => new Date(w.measured_at).getTime());
+  const out: Imported[] = [];
+  for (const w of h.weight) {
+    const t = new Date(w.time).getTime();
+    if (!Number.isFinite(t) || w.kg < 20 || w.kg > 400) continue;
+    if (have.some((x) => Math.abs(x - t) < 5 * 60_000)) continue;  // already have this weigh-in (typed, imported or synced)
+    const m: Partial<Record<ReadingKey, number>> = {};
+    const bf = near(h.bodyFat, t), lean = near(h.leanMass, t), bone = near(h.boneMass, t), water = near(h.bodyWater, t), bmrR = near(h.bmr, t);
+    if (bf && bf.pct > 2 && bf.pct < 75) m.body_fat_pct = r1(bf.pct);
+    else if (lean && lean.kg < w.kg) { const pct = (1 - lean.kg / w.kg) * 100; if (pct > 2 && pct < 75) m.body_fat_pct = r1(pct); }
+    if (bone && bone.kg > 0 && bone.kg < 15) m.bone_mass_kg = r1(bone.kg);
+    if (water && water.kg > 0 && water.kg < w.kg) m.body_water_pct = r1((water.kg / w.kg) * 100);
+    if (bmrR && bmrR.kcal > 300 && bmrR.kcal < 6000) m.bmr_kcal = Math.round(bmrR.kcal);
+    out.push({ measured_at: new Date(t).toISOString(), weight_kg: Math.round(w.kg * 100) / 100, metrics: m });
+    have.push(t);
+  }
+  return out;
+}

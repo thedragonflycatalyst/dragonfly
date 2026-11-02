@@ -18,7 +18,18 @@
         "backgroundColor": "#0a1214",
         "foregroundImage": "./assets/adaptive-icon.png",
         "monochromeImage": "./assets/adaptive-icon.png"
-      }
+      },
+      "permissions": [
+        "android.permission.health.READ_WEIGHT",
+        "android.permission.health.READ_BODY_FAT",
+        "android.permission.health.READ_LEAN_BODY_MASS",
+        "android.permission.health.READ_BONE_MASS",
+        "android.permission.health.READ_BODY_WATER_MASS",
+        "android.permission.health.READ_BASAL_METABOLIC_RATE",
+        "android.permission.health.READ_HEALTH_DATA_HISTORY",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -72,6 +83,15 @@
         "expo-audio",
         {
           "microphonePermission": "Dragonfly uses the microphone to record voice messages in chat."
+        }
+      ],
+      "react-native-health-connect",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
         }
       ]
     ],

@@ -140,3 +140,18 @@ test('preferences fill in defaults', () => {
   const n = notifyPrefs({ messages: { push: false, email: true } });
   assert.deepEqual(n.messages, { push: false, email: true }); assert.equal(n.payments.email, true); assert.equal(n.quiet!.on, false);
 });
+
+test('Health Connect: readings pair with their weigh-in, duplicates are skipped', async () => {
+  const { mergeHealth } = await import('./scale');
+  const rows = mergeHealth({
+    weight: [{ time: '2026-10-30T23:20:00Z', kg: 111.04 }, { time: '2026-10-29T20:32:00Z', kg: 110.8 }, { time: '2026-10-28T08:00:00Z', kg: 110 }],
+    bodyFat: [{ time: '2026-10-30T23:20:05Z', pct: 30.2 }],
+    leanMass: [{ time: '2026-10-29T20:32:00Z', kg: 77.8 }],
+    boneMass: [{ time: '2026-10-30T23:20:00Z', kg: 4.1 }],
+    bodyWater: [{ time: '2026-10-30T23:20:00Z', kg: 55.7 }],
+    bmr: [{ time: '2026-10-30T23:21:00Z', kcal: 2010 }, { time: '2026-10-28T09:00:00Z', kcal: 1990 }],
+  }, [{ measured_at: '2026-10-28T08:02:00Z' }]);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0].metrics, { body_fat_pct: 30.2, bone_mass_kg: 4.1, body_water_pct: 50.2, bmr_kcal: 2010 });
+  assert.equal(rows[1].metrics.body_fat_pct, 29.8);  // worked out from lean mass
+});

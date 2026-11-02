@@ -1,11 +1,13 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import { Segmented, SectionLabel } from '@/components/bits';
 import { ChangeBars, Gauge, LineChart, type Series } from '@/components/charts';
 import { DateField } from '@/components/date-field';
 import { Fab, TimeField, Toggle } from '@/components/pickers';
+import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from './health-connect';
+import { healthSync, setHealthSync, syncHealth } from './scale-sync';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui';
 import { confirm } from '@/lib/ask';
@@ -50,6 +52,13 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
     setSettings((s.data as ScaleSettings) ?? { user_id: userId, metrics: DEFAULT_METRICS, goal_kg: null, goal_date: null, height_cm: defaults?.height_cm ?? null, sex: defaults?.sex ?? null, reminder_on: false, reminder_time: '07:30' });
   }, [userId, toast, defaults?.height_cm, defaults?.sex]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  // Android: new weigh-ins from the scale's app (through Health Connect) arrive when the Scale opens
+  const synced = useRef(false);
+  useEffect(() => {
+    if (readOnly || !list || synced.current || Platform.OS !== 'android' || !healthSync(userId).on) return;
+    synced.current = true;
+    syncHealth(userId, list).then((n) => { if (n) { toast(`${n} new weigh-in${n === 1 ? '' : 's'} from Health Connect`); load(); } }).catch(() => {});
+  }, [list, readOnly, userId, toast, load]);
 
   const saveSettings = async (patch: Partial<ScaleSettings>) => {
     const next = { ...settings!, ...patch };
@@ -372,9 +381,53 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
           <Button kind="ghost" icon="download" title="Import CSV" busy={importing} onPress={doImport} />
           {Platform.OS === 'web' && count > 0 && <Button kind="ghost" icon="share" title="Export CSV" onPress={exportCsv} />}
         </View>
-        <Txt v="small">Automatic sync from your scale through Health Connect arrives with the Android app build.</Txt>
       </Card>
+
+      <SectionLabel>Sync with your scale</SectionLabel>
+      <HealthCard userId={settings.user_id} list={list} reload={reload} />
     </>
+  );
+}
+
+/* ---------------- Health Connect ---------------- */
+function HealthCard({ userId, list, reload }: { userId: string; list: Weighin[]; reload: () => void }) {
+  const toast = useToast();
+  const [status, setStatus] = useState<HealthStatus | null>(null);
+  const [on, setOn] = useState(() => healthSync(userId).on);
+  const [busy, setBusy] = useState<'connect' | 'history' | null>(null);
+  useEffect(() => { healthStatus().then(setStatus); }, []);
+  const last = healthSync(userId).last;
+  const run = async (kind: 'connect' | 'history') => {
+    setBusy(kind);
+    try {
+      if (kind === 'connect' && !(await connectHealth())) return toast('Allow Dragonfly to read your weight in Health Connect to sync', false);
+      const n = await syncHealth(userId, list, kind === 'history' ? new Date(Date.now() - 10 * 365 * 86_400_000) : undefined);
+      setOn(true); toast(n ? `Added ${n} weigh-in${n === 1 ? '' : 's'}` : 'All caught up'); if (n) reload();
+    } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
+  };
+  if (status === null) return null;
+  if (status === 'unsupported') return (
+    <Card><Txt v="small">Automatic sync uses Health Connect, so it works in the Dragonfly app on Android. Turn it on there and weigh-ins from your RENPHO, Libra, Samsung Health, Fitbit or Withings show up here too.</Txt></Card>
+  );
+  if (status !== 'ready') return (
+    <Card style={{ gap: 10 }}>
+      <Txt>{status === 'update_needed' ? 'Health Connect needs an update before Dragonfly can use it.' : 'Install Health Connect (free from Google) to sync weigh-ins from your scale’s app.'}</Txt>
+      <Button kind="ghost" icon="open_in_new" title="Open Health Connect" onPress={openHealthSettings} style={{ alignSelf: 'flex-start' }} />
+    </Card>
+  );
+  return (
+    <Card style={{ gap: 10 }}>
+      <Txt v="small">Your RENPHO app (or Libra, Samsung Health, Fitbit, Withings…) shares each weigh-in with Health Connect, and Dragonfly picks it up whenever you open the Scale: weight, body fat, bone mass, body water and BMR. In the RENPHO app, switch on sharing to Health Connect (in its settings, under connected apps or integrations).</Txt>
+      {on ? <>
+        <Txt v="bold">✓ Syncing{last ? ` · last checked ${new Date(last).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <Button kind="ghost" icon="sync" title="Sync now" busy={busy === 'connect'} onPress={() => run('connect')} />
+          <Button kind="ghost" icon="download" title="Bring in all history" busy={busy === 'history'} onPress={() => run('history')} />
+          <Button kind="quiet" title="Turn off" onPress={() => { setHealthSync(userId, { on: false, last }); setOn(false); }} />
+        </View>
+        <Txt v="small">Muscle mass, visceral fat, metabolic age and the arm/leg/trunk readings aren’t shared through Health Connect; add those with a RENPHO CSV export now and then.</Txt>
+      </> : <Button title="Connect Health Connect" icon="monitor_weight" busy={busy === 'connect'} onPress={() => run('connect')} style={{ alignSelf: 'flex-start' }} />}
+    </Card>
   );
 }
 
