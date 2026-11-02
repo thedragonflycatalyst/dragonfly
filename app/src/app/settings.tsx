@@ -17,6 +17,7 @@ export default function Settings() {
   const [name, setName] = useState(t?.display_name ?? '');
   const [business, setBusiness] = useState(t?.business_name ?? '');
   const [freezeDays, setFreezeDays] = useState(String(t?.auto_freeze_days ?? 90));
+  const [every, setEvery] = useState(String(t?.checkin_every_days ?? 14));
   const [busy, setBusy] = useState(false);
   useEffect(() => { setName(t?.display_name ?? ''); setBusiness(t?.business_name ?? ''); setFreezeDays(String(t?.auto_freeze_days ?? 90)); }, [t]);
   if (!t) return null;
@@ -73,6 +74,20 @@ export default function Settings() {
                 save({ auto_freeze_days: d });
               }} />
             </View>
+          </View>
+        </Card>
+
+        <SectionLabel>Check-ins</SectionLabel>
+        <Card>
+          <Txt v="bold">Check in with each client every</Txt>
+          <Txt v="small" style={{ marginBottom: 10 }}>Dragonfly reminds you when someone’s due. You can change it per client.</Txt>
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
+            <View style={{ width: 140 }}><Field label="Days" value={every} onChangeText={setEvery} keyboardType="number-pad" /></View>
+            <Button kind="quiet" title="Save" style={{ marginBottom: 16 }} busy={busy} onPress={() => {
+              const d = Number(every);
+              if (!Number.isInteger(d) || d < 1 || d > 90) return toast('Use 1 to 90 days', false);
+              save({ checkin_every_days: d });
+            }} />
           </View>
         </Card>
 

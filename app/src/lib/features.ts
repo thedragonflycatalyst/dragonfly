@@ -8,7 +8,7 @@ export const FEATURES: Feature[] = [
   { key: 'workouts', title: 'Workouts', icon: 'fitness_center', group: 'Coaching', href: '/coach/workouts' },
   { key: 'exercises', title: 'Exercises', icon: 'directions_run', group: 'Coaching', href: '/exercises' },
   { key: 'nutrition', title: 'Nutrition', icon: 'restaurant', group: 'Coaching', href: '/coach/nutrition' },
-  { key: 'checkins', title: 'Check-ins', icon: 'inbox', group: 'Coaching', soon: 'Regular check-in forms your clients fill in (weight, photos, how the week went), with reminders and a review queue for you.' },
+  { key: 'checkins', title: 'Check-ins', icon: 'inbox', group: 'Coaching', href: '/checkins' },
   { key: 'programs', title: 'Programs', icon: 'calendar_month', group: 'Coaching', href: '/coach/workouts?tab=programs' },
   { key: 'habits', title: 'Habits', icon: 'checklist', group: 'Coaching', soon: 'One place to see every client’s habits and streaks, and assign a habit to many clients at once. (You can already add habits from a client’s profile.)' },
   { key: 'packages', title: 'Packages', icon: 'redeem', group: 'Business', soon: 'Sell session packs and memberships: price, sessions included, expiry, and what clients get.' },

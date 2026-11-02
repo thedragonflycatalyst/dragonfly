@@ -3,7 +3,7 @@
 export type Units = 'imperial' | 'metric';
 export type Trainer = {
   user_id: string; display_name: string; business_name: string | null; bio: string | null; timezone: string;
-  units: Units; auto_health_form: boolean; auto_freeze_days: number;
+  units: Units; auto_health_form: boolean; auto_freeze_days: number; checkin_every_days?: number;
 };
 
 export type ClientStatus = 'lead' | 'invited' | 'active' | 'frozen' | 'archived';
