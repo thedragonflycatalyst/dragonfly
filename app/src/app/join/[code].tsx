@@ -10,7 +10,7 @@ import { e164 } from '@/lib/contact';
 import { confirmWithCode, resendVerification } from '@/lib/account';
 import { useApp } from '@/lib/app-state';
 import { errText, isEmail } from '@/lib/model';
-import { sb } from '@/lib/supabase';
+import { sb, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
 
 const JOIN_TEXT: Record<string, string> = {
@@ -45,7 +45,13 @@ export default function Join() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const [who, setWho] = useState<{ trainer_name: string; business_name: string | null } | null | undefined>(undefined);
   const [step, setStep] = useState<'form' | 'sms' | 'confirm' | 'done'>('form');
-  const [via, setVia] = useState<'sms' | 'email'>('sms');
+  const [via, setVia] = useState<'sms' | 'email'>('email');
+  // Text-message codes once texting is switched on in Supabase (Phone provider); email codes until then
+  const [texting, setTexting] = useState(false);
+  useEffect(() => {
+    fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_KEY } }).then((r) => r.json())
+      .then((j: { external?: { phone?: boolean } }) => { if (j.external?.phone) { setTexting(true); setVia('sms'); } }).catch(() => {});
+  }, []);
   const [other, setOther] = useState(false);
   const [f, setF] = useState({ first: '', last: '', phone: '', email: '', uname: '', pw: '' });
   const [otp, setOtp] = useState('');
@@ -175,8 +181,8 @@ export default function Join() {
                 <Field label="Password" hint="(8+ characters)" value={f.pw} onChangeText={set('pw')} secureTextEntry autoComplete="new-password" />
                 {err ? <Txt color={p.danger} style={{ marginBottom: 8 }}>{err}</Txt> : null}
                 <Button title={via === 'sms' ? 'Text me a code' : 'Email me a code'} icon={via === 'sms' ? 'sms' : 'mail'} busy={busy} onPress={signUp} />
-                <OtherWay open={other} onToggle={() => setOther(!other)} label={via === 'sms' ? 'Verify by email instead' : 'Verify by text message instead'}
-                  onPick={() => { setVia(via === 'sms' ? 'email' : 'sms'); setOther(false); }} />
+                {texting && <OtherWay open={other} onToggle={() => setOther(!other)} label={via === 'sms' ? 'Verify by email instead' : 'Verify by text message instead'}
+                  onPick={() => { setVia(via === 'sms' ? 'email' : 'sms'); setOther(false); }} />}
                 <Button kind="ghost" title="I already have an account" style={{ marginTop: 8 }} onPress={() => router.push({ pathname: '/sign-in', params: { next: `/join/${code}` } })} />
               </Card>
             )}
