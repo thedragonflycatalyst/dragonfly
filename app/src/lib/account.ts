@@ -1,7 +1,7 @@
 // Dragonfly account features shared by every Dragonfly app (same storage and server as the Uploader).
 import * as ImageManipulator from 'expo-image-manipulator';
 import { File } from 'expo-file-system';
-import { sb, SUPABASE_URL } from './supabase';
+import { sb, SUPABASE_URL, WEB_URL } from './supabase';
 
 const AVATAR_BUCKET = 'dragonfly-avatars';
 const AVATAR_PIXELS = 256;
@@ -64,8 +64,10 @@ export async function setUsername(wanted: string) {
 }
 
 /** Password recovery by emailed code (no links needed), same as the Uploader. */
+/** Password-reset links from any Dragonfly app can land on the coaching app's reset page (one shared account) */
+export const resetRedirect = () => `${WEB_URL}reset-password`;
 export async function sendRecoveryCode(email: string) {
-  const { error } = await sb.auth.resetPasswordForEmail(email);
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: resetRedirect() });
   if (error) throw error;
 }
 export async function recoverWithCode(email: string, code: string, newPassword: string) {
