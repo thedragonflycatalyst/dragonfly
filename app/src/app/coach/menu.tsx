@@ -78,6 +78,7 @@ export default function Menu() {
 
         <SectionLabel>Help and account</SectionLabel>
         <Card style={{ padding: 0 }}>
+          <Row icon="groups" title={app.team ? app.team.name : 'Team'} sub={app.team ? (app.isOwner ? 'Your trainers, invites, open a trainer’s account' : 'Your team') : 'Solo trainer · create a team to add trainers'} onPress={() => router.push('/team')} />
           <Row icon="school" title="Quickstart guide" onPress={() => router.push('/guide')} />
           <Row icon="person" title="Account" sub="Picture, email, password, devices" onPress={() => router.push('/account')} />
           <Row icon="logout" title="Sign out" last onPress={async () => { await app.signOut(); router.replace('/'); }} />

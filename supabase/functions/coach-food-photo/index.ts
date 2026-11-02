@@ -11,7 +11,7 @@ const MAX_IMAGE = 2_000_000; // base64 characters (about 1.5 MB)
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-dragonfly-trainer, x-dragonfly-edit',
   'Access-Control-Max-Age': '86400',
 };
 const headers = { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };

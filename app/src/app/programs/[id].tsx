@@ -10,6 +10,8 @@ import { errText, type Client, type Program, type Workout } from '@/lib/model';
 import { copyWeek, setDay, trimWeeks } from '@/lib/session';
 import { sb } from '@/lib/supabase';
 import { CoverPicker } from '@/features/cover-picker';
+import { canSendToTrainers, CopyToTrainer } from '@/features/team';
+import { useApp } from '@/lib/app-state';
 import { MAX_W, R, usePalette } from '@/lib/theme';
 
 /** Program builder: a grid of weeks × days, each day holding one workout. Saves automatically. */
@@ -26,6 +28,8 @@ export default function ProgramScreen() {
   const [who, setWho] = useState<string | null>(null);
   const [start, setStart] = useState<string | null>(dayKey(new Date()));
   const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+  const app = useApp();
   const [saved, setSaved] = useState<'saved' | 'saving' | 'error'>('saved');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const latest = useRef<Program | null>(null);
@@ -102,6 +106,7 @@ export default function ProgramScreen() {
               </View>
             </Card>
           ))}
+          {canSendToTrainers(app) && <Button kind="ghost" icon="send" title="Send a copy to a trainer" style={{ alignSelf: 'flex-start' }} onPress={async () => { await persist(); setSending(true); }} />}
           <Button kind="danger" title="Delete program" style={{ alignSelf: 'flex-start' }} onPress={() => ask('Delete this program?', 'Workouts already on clients’ calendars stay there.', [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Delete', style: 'destructive', onPress: async () => {
@@ -129,6 +134,7 @@ export default function ProgramScreen() {
           { label: 'Clear this week', icon: 'delete', danger: true, onPress: () => update({ schedule: pr.schedule.filter((s) => s.week !== weekMenu) }) },
         ]} />
       )}
+      <CopyToTrainer item={sending ? { kind: 'program', id: pr.id, name: pr.name } : null} onClose={() => setSending(false)} />
       <Sheet visible={assigning} onClose={() => setAssigning(false)} title={`Assign “${pr.name}”`}>
         <Txt v="smallBold" style={{ marginBottom: 8 }}>Client</Txt>
         {clients.length === 0 && <Txt v="small" style={{ marginBottom: 12 }}>Add clients first, from the Clients tab.</Txt>}

@@ -102,7 +102,7 @@ export function FoodPicker({ visible, onClose, onAdd, title, mine = true }: { vi
         </View>
       ) : (
         <View style={{ flex: 1, paddingHorizontal: 16, gap: 10 }}>
-          <Segmented value={tab} onChange={setTab} options={mine ? [['search', 'Search'], ['browse', 'Food groups'], ['mine', 'My foods']] : [['search', 'Search'], ['browse', 'Food groups']]} />
+          <Segmented value={tab} onChange={setTab} options={mine ? [['search', 'Search'], ['browse', 'Food groups'], ['mine', 'Our foods']] : [['search', 'Search'], ['browse', 'Food groups']]} />
           {(tab !== 'browse' || cat !== null) && <SearchBox value={q} onChange={setQ} placeholder={tab === 'mine' ? 'Search my foods' : 'Search foods, e.g. chicken breast'} />}
           {tab === 'browse' && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

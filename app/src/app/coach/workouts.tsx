@@ -12,6 +12,7 @@ import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { errText, type Folder, type Program, type Workout } from '@/lib/model';
 import { ResumeBanner } from '@/features/resume';
+import { canSendToTrainers, CopyToTrainer } from '@/features/team';
 import { sb } from '@/lib/supabase';
 import { cloneBlocks, estimateMinutes, exerciseCount } from '@/lib/workouts';
 import { F, R, usePalette } from '@/lib/theme';
@@ -38,6 +39,7 @@ export default function WorkoutsTab() {
   const [moving, setMoving] = useState<Workout | null>(null);
   const [renaming, setRenaming] = useState<{ w: Workout; name: string } | null>(null);
   const [newFolder, setNewFolder] = useState('');
+  const [sending, setSending] = useState<{ kind: 'workout' | 'program'; id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     const [w, pr, f] = await Promise.all([
@@ -176,9 +178,11 @@ export default function WorkoutsTab() {
         { label: 'Rename', icon: 'edit', onPress: () => setRenaming({ w: menu, name: menu.name }) },
         { label: 'Duplicate', icon: 'content_copy', onPress: () => createFrom(`${menu.name} (copy)`, menu) },
         { label: 'Move to folder', icon: 'drive_file_move', onPress: () => setMoving(menu) },
+        { label: 'Send a copy to a trainer', icon: 'send', hidden: !canSendToTrainers(app), onPress: () => setSending({ kind: 'workout', id: menu.id, name: menu.name }) },
         { label: 'Delete', icon: 'delete', danger: true, onPress: () => ask(`Delete ${menu.name}?`, 'Workouts already assigned to clients stay on their calendars.', [
           { text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { const { error } = await sb.from('coach_workouts').delete().eq('id', menu.id); if (error) toast(errText(error), false); load(); } }]) },
       ]} />}
+      <CopyToTrainer item={sending} onClose={() => setSending(null)} />
       <AssignWorkout workout={assign} visible={!!assign} onClose={() => { setAssign(null); load(); }} />
       <Sheet visible={!!moving} onClose={() => setMoving(null)} title="Move to folder">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

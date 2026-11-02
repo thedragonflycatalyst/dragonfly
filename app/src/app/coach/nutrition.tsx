@@ -9,6 +9,7 @@ import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/compone
 import { nutritionTemplates, type NutritionTemplate } from '@/data/nutrition-templates';
 import { CustomFoodEditor, kcalOf, useCustomFoods } from '@/features/food-picker';
 import { SharePlan } from '@/features/nutrition-view';
+import { canSendToTrainers, CopyToTrainer } from '@/features/team';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { errText } from '@/lib/model';
@@ -39,6 +40,7 @@ export default function NutritionTab() {
   const [share, setShare] = useState<NutritionPlan | null>(null);
   const [moving, setMoving] = useState<NutritionPlan | null>(null);
   const [newFolder, setNewFolder] = useState('');
+  const [sending, setSending] = useState<{ kind: 'plan'; id: string; name: string } | null>(null);
   const [food, setFood] = useState<CustomFood | null | 'new'>(null);
   const custom = useCustomFoods(tab === 'foods');
   const templates = useMemo(() => (tab === 'templates' ? nutritionTemplates() : []), [tab]);
@@ -78,7 +80,7 @@ export default function NutritionTab() {
   return (
     <Screen title="Nutrition" right={tab === 'plans' ? <Button title="Create plan" icon="add" onPress={() => setCreating(true)} />
       : tab === 'foods' ? <Button title="New food" icon="add" onPress={() => setFood('new')} /> : undefined}>
-      <Segmented value={tab} onChange={setTab} options={[['plans', 'Plans'], ['folders', 'Folders'], ['foods', 'My foods'], ['templates', 'Templates']]} />
+      <Segmented value={tab} onChange={setTab} options={[['plans', 'Plans'], ['folders', 'Folders'], ['foods', app.team ? 'Team foods' : 'My foods'], ['templates', 'Templates']]} />
 
       {tab === 'plans' && (
         <View style={{ marginTop: 16, gap: 12 }}>
@@ -138,7 +140,7 @@ export default function NutritionTab() {
 
       {tab === 'foods' && (
         <View style={{ marginTop: 16, gap: 12 }}>
-          <Txt v="small">Foods that aren’t in the database, like your client’s protein shake, a branded bar or a recipe. Enter the numbers from the label.</Txt>
+          <Txt v="small">{app.team ? 'Shared with everyone on your team. ' : ''}Foods that aren’t in the database, like your client’s protein shake, a branded bar or a recipe. Enter the numbers from the label.</Txt>
           {custom.list === null ? <ActivityIndicator color={p.ink} /> : custom.list.length === 0
             ? <Empty emoji="🥫" title="No foods of your own yet" action={<Button title="New food" onPress={() => setFood('new')} />} />
             : <Card style={{ padding: 0 }}>
@@ -170,9 +172,11 @@ export default function NutritionTab() {
         { label: 'Share with clients', icon: 'group_add', onPress: () => setShare(menu) },
         { label: 'Duplicate', icon: 'content_copy', onPress: () => createFrom(`${menu.name} (copy)`, menu) },
         { label: 'Move to folder', icon: 'drive_file_move', onPress: () => setMoving(menu) },
+        { label: 'Send a copy to a trainer', icon: 'send', hidden: !canSendToTrainers(app), onPress: () => setSending({ kind: 'plan', id: menu.id, name: menu.name }) },
         { label: 'Delete', icon: 'delete', danger: true, onPress: () => ask(`Delete ${menu.name}?`, counts[menu.id] ? `It’s removed from ${counts[menu.id]} client${counts[menu.id] === 1 ? '' : 's'} too.` : 'This can’t be undone.', [
           { text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { const { error } = await sb.from('coach_nutrition_plans').delete().eq('id', menu.id); if (error) toast(errText(error), false); load(); } }]) },
       ]} />}
+      <CopyToTrainer item={sending} onClose={() => setSending(null)} />
       <SharePlan plan={share} visible={!!share} onClose={() => { setShare(null); load(); }} />
       <Sheet visible={!!moving} onClose={() => setMoving(null)} title="Move to folder">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

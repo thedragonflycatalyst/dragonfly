@@ -1,8 +1,8 @@
 import type { User } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { avatarUrl } from './account';
-import type { Client, Trainer, Units } from './model';
-import { recall, sb, store, SUPABASE_KEY, USERNAME_LOGIN_FN } from './supabase';
+import type { Client, Team, TeamMember, Trainer, Units } from './model';
+import { recall, sb, setActing, store, SUPABASE_KEY, USERNAME_LOGIN_FN } from './supabase';
 
 export type Mode = 'coach' | 'client';
 
@@ -10,8 +10,15 @@ type Ctx = {
   ready: boolean; user: User | null; username: string | null;
   /** Shared Dragonfly profile picture (same in every Dragonfly app) */
   avatar: string | null; refreshAvatar: () => Promise<void>;
-  /** The signed-in person's trainer profile, when they coach */
+  /** The trainer profile in use: yours, or the team trainer whose account you're viewing */
   trainer: Trainer | null;
+  /** Your own trainer profile (unchanged while viewing a team trainer) */
+  ownTrainer: Trainer | null;
+  /** Your team, if you're on one, and its members */
+  team: Team | null; teamMembers: TeamMember[]; isOwner: boolean; reloadTeam: () => Promise<void>;
+  /** Owner viewing one of their trainers' accounts (read-only unless emergency editing is on) */
+  viewing: TeamMember | null; editing: boolean;
+  startViewing: (m: TeamMember) => Promise<void>; stopViewing: () => void; setEditing: (on: boolean) => void;
   /** Client records linking this person to their trainer(s) */
   memberships: Client[];
   /** The client record in use (first active one, else the first) */
@@ -38,18 +45,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [username, setUsername] = useState<string | null>(null);
   const [avatar, setAvatar] = useState<string | null>(null);
-  const [trainer, setTrainer] = useState<Trainer | null>(null);
+  const [ownTrainer, setTrainer] = useState<Trainer | null>(null);
+  const [team, setTeam] = useState<Team | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [viewing, setViewing] = useState<{ member: TeamMember; trainer: Trainer } | null>(null);
+  const [editing, setEditingState] = useState(false);
   const [memberships, setMemberships] = useState<Client[]>([]);
   const [myTrainer, setMyTrainer] = useState<Ctx['myTrainer']>(null);
   const [modeChoice, setModeChoice] = useState<Mode | null>(() => recall<Mode | null>('coach.mode', null));
   const lastUid = useRef<string | null | undefined>(undefined);
 
+  const loadTeam = useCallback(async () => {
+    const [t, m] = await Promise.all([sb.from('coach_teams').select('*').maybeSingle(), sb.from('coach_team_members').select('*').neq('status', 'removed').order('created_at')]);
+    setTeam((t.data as Team) ?? null); setTeamMembers((m.data as TeamMember[]) ?? []);
+  }, []);
+
   const loadFor = useCallback(async (u: User | null): Promise<number> => {
     setUser(u);
-    if (!u) { setUsername(null); setAvatar(null); setTrainer(null); setMemberships([]); setMyTrainer(null); return 0; }
+    setActing(null); setViewing(null); setEditingState(false);
+    if (!u) { setUsername(null); setAvatar(null); setTrainer(null); setMemberships([]); setMyTrainer(null); setTeam(null); setTeamMembers([]); return 0; }
     avatarUrl(u.id).then(setAvatar).catch(() => setAvatar(null));
     // Attach any client records a trainer made for this email (My PT Hub-style onboarding)
     await sb.rpc('coach_link_me').then(() => {}, () => {});
+    // …and join any team that invited this email as a trainer
+    await sb.rpc('coach_join_team').then(() => {}, () => {});
+    loadTeam();
     const [p, t, m] = await Promise.all([
       sb.from('dragonfly_profiles').select('username').eq('user_id', u.id).maybeSingle(),
       sb.from('coach_trainers').select('*').eq('user_id', u.id).maybeSingle(),
@@ -107,13 +127,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // A trainer lands in the coach side, a client in theirs; someone who is both keeps their last choice
-  const mode: Mode | null = trainer && memberships.length ? (modeChoice ?? 'coach') : trainer ? 'coach' : memberships.length ? 'client' : null;
+  const mode: Mode | null = ownTrainer && memberships.length ? (modeChoice ?? 'coach') : ownTrainer ? 'coach' : memberships.length ? 'client' : null;
 
   const membership = memberships.find((c) => c.status === 'active') ?? memberships[0] ?? null;
+  const trainer = viewing?.trainer ?? ownTrainer;
   const units: Units = (mode === 'coach' ? trainer?.units : myTrainer?.units) ?? 'imperial';
+  const isOwner = !!team && !!user && team.owner_id === user.id;
 
   const value = useMemo<Ctx>(() => ({
-    ready, user, username, avatar, trainer, memberships, membership, myTrainer, units, mode,
+    ready, user, username, avatar, trainer, ownTrainer, memberships, membership, myTrainer, units, mode,
+    team, teamMembers, isOwner, reloadTeam: loadTeam,
+    viewing: viewing?.member ?? null, editing,
+    startViewing: async (m) => {
+      if (!m.trainer_id) throw new Error('That trainer hasn’t joined yet.');
+      const { data, error } = await sb.from('coach_trainers').select('*').eq('user_id', m.trainer_id).maybeSingle();
+      if (error || !data) throw error ?? new Error('Couldn’t open that account.');
+      setActing({ id: m.trainer_id, edit: false }); setEditingState(false);
+      setViewing({ member: m, trainer: data as Trainer });
+    },
+    stopViewing: () => { setActing(null); setEditingState(false); setViewing(null); },
+    setEditing: (on) => { if (!viewing?.member.trainer_id) return; setActing({ id: viewing.member.trainer_id, edit: on }); setEditingState(on); },
     setMode: (m) => { setModeChoice(m); store('coach.mode', m); },
     refreshAvatar: async () => { setAvatar(user ? await avatarUrl(user.id) : null); },
     signIn, signUp,
@@ -132,7 +165,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await loadFor(u);
     },
     reloadMe: async () => { const { data } = await sb.auth.getUser(); return loadFor(data.user ?? null); },
-  }), [ready, user, username, avatar, trainer, memberships, membership, myTrainer, units, mode, signIn, signUp, loadFor]);
+  }), [ready, user, username, avatar, trainer, ownTrainer, memberships, membership, myTrainer, units, mode, team, teamMembers, isOwner, loadTeam, viewing, editing, signIn, signUp, loadFor]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

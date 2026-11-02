@@ -90,6 +90,9 @@ export type WorkoutLog = {
   duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
 };
 
+export type Team = { id: string; owner_id: string; name: string };
+export type TeamMember = { id: string; team_id: string; trainer_id: string | null; email: string; display_name: string; role: 'owner' | 'trainer'; status: 'invited' | 'active' | 'removed'; created_at: string };
+
 export type Person = { user_id: string; username: string; relation: 'client' | 'trainer' };
 
 const FRIENDLY: Record<string, string> = {
@@ -103,6 +106,11 @@ const FRIENDLY: Record<string, string> = {
   workout_already_done: 'That workout is already logged.',
   coach_workout_folders_trainer_id_name_key: 'You already have a folder with that name.',
   coach_nutrition_folders_trainer_id_name_key: 'You already have a folder with that name.',
+  view_only: 'You’re viewing this trainer’s account. Switch on emergency editing to make changes.',
+  already_on_a_team: 'You’re already on a team.',
+  coach_team_members_email: 'That trainer is already on your team.',
+  not_your_team_member: 'That trainer isn’t on your team.',
+  member_removed: 'That trainer was removed from your team. Add them again first.',
   coach_logs_one_per_assignment: 'This workout was already logged.',
   own_email: 'That’s your own email. Use your client’s email address.',
   client_archived: 'Restore this client before sending them an email.',
