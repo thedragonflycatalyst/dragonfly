@@ -4,7 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
-import { Row, SectionLabel } from '@/components/bits';
+import { SectionLabel } from '@/components/bits';
 import { Toggle } from '@/components/pickers';
 import { Button, Card, Field, Txt, useToast } from '@/components/ui';
 import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from '@/features/health-connect';
@@ -67,7 +67,7 @@ function PhoneCard() {
       toast(r.days + r.workouts + r.food ? `Synced ${r.days} day${r.days === 1 ? '' : 's'}, ${r.workouts} workout${r.workouts === 1 ? '' : 's'}${r.food ? `, ${r.food} food${r.food === 1 ? '' : 's'}` : ''}` : 'All caught up');
     } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
   };
-  const feeds = 'Garmin Connect, Fitbit, Samsung Health, Google Fit, Withings, Polar, COROS, Peloton, MyFitnessPal, Cronometer, MacroFactor, Lose It and more';
+  const feeds = 'Garmin Connect, Fitbit, Samsung Health, Google Fit, Strava, Oura, WHOOP, Withings, Polar, COROS, Peloton, MyFitnessPal, Cronometer, MacroFactor, Lose It and more';
   return (
     <>
       <SectionLabel>On your phone</SectionLabel>
@@ -140,11 +140,14 @@ function AccountsCard() {
     setBusy(a.key);
     try { await callFn('coach-connect', { action: 'disconnect', provider: a.key }); await load(); } catch (e) { toast(fnText(e), false); } finally { setBusy(null); }
   };
+  // Only accounts that are switched on (their keys are in Supabase) or already linked
+  const shown = ACCOUNTS.filter((a) => avail?.includes(a.key) || conns.some((c) => c.provider === a.key));
+  if (!shown.length) return null;
   return (
     <>
       <SectionLabel>Accounts</SectionLabel>
       <Card style={{ padding: 0 }}>
-        {ACCOUNTS.map((a) => {
+        {shown.map((a) => {
           const c = conns.find((x) => x.provider === a.key);
           const ready = avail?.includes(a.key);
           return (
@@ -155,13 +158,11 @@ function AccountsCard() {
                 {c ? <>
                   {c.status === 'expired' ? <Button small title="Reconnect" busy={busy === a.key} onPress={() => connect(a.key)} /> : <Button small kind="ghost" icon="sync" title="Sync now" busy={busy === a.key} onPress={() => sync(a.key)} />}
                   <Button small kind="quiet" title="Disconnect" onPress={() => disconnect(a)} />
-                </> : ready ? <Button small icon="link" title={`Connect ${a.name}`} busy={busy === a.key} onPress={() => connect(a.key)} />
-                  : <Txt v="small">{avail === null ? '' : 'Coming soon'}</Txt>}
+                </> : ready ? <Button small icon="link" title={`Connect ${a.name}`} busy={busy === a.key} onPress={() => connect(a.key)} /> : null}
               </View>
             </View>
           );
         })}
-        <Row icon="watch" title="Garmin, Fitbit, Samsung, Polar, COROS" sub="Through Health Connect on Android for now: switch on sharing in their app" last />
       </Card>
     </>
   );

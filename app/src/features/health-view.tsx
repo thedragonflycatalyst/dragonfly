@@ -37,7 +37,7 @@ export function HealthView({ userId, own, name }: { userId: string; own?: boolea
   }, [userId]));
   if (!days) return <ActivityIndicator color={p.ink} style={{ marginTop: 40 }} />;
   if (!days.length && !acts.length) return (
-    <Empty emoji="⌚" title="Nothing synced yet" body={own ? 'Connect Health Connect, Strava, Oura or WHOOP and your steps, sleep and workouts show up here, for you and your trainer.' : `When ${name ?? 'they'} connect${name ? 's' : ''} a watch, ring or health app, their steps, sleep and workouts show up here.`}
+    <Empty emoji="⌚" title="Nothing synced yet" body={own ? 'Connect Health Connect and your steps, sleep and workouts show up here, for you and your trainer.' : `When ${name ?? 'they'} connect${name ? 's' : ''} a watch, ring or health app, their steps, sleep and workouts show up here.`}
       action={own ? <Button title="Connect apps" icon="link" onPress={() => router.push('/connections')} /> : undefined} />
   );
   const last14 = Array.from({ length: 14 }, (_, i) => dayKey(new Date(Date.now() - (13 - i) * 864e5)));
