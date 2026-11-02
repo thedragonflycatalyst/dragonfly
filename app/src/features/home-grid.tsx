@@ -125,13 +125,17 @@ export function HomeGrid({ items, all, keys, onChange, editing, setEditing, onDr
                     else onChange(moveKey(keys, a.key, i + (n === 'earlier' ? -1 : 1)));
                   }}>
                   {tile}
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${a.title}`} hitSlop={10}
-                    onPress={() => { buzz(); onChange(keys.filter((x) => x !== a.key)); }}
-                    style={{ position: 'absolute', top: -8, left: -8, width: 26, height: 26, borderRadius: 13, backgroundColor: p.raise, borderWidth: 1, borderColor: p.line, alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon name="remove" size={18} color={p.ink} />
-                  </Pressable>
                 </Animated.View>
-              ) : (
+              ) : null}
+              {editing && !lifted && (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${a.title}`} hitSlop={8}
+                  onPress={() => { buzz(); onChange(keys.filter((x) => x !== a.key)); }}
+                  style={({ pressed }) => ({ position: 'absolute', top: 6, right: 6, width: 34, height: 34, borderRadius: 17, zIndex: 5, elevation: 5,
+                    backgroundColor: pressed ? p.danger : p.raise, borderWidth: 1, borderColor: p.line, alignItems: 'center', justifyContent: 'center' })}>
+                  <Icon name="remove" size={20} color={p.ink} />
+                </Pressable>
+              )}
+              {!editing && (
                 <Pressable accessibilityRole="button" accessibilityHint="Long-press to arrange your shortcuts" delayLongPress={450}
                   onPress={() => router.push(a.href as Href)} onLongPress={() => { buzz(true); setEditing(true); }}
                   style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.8 : 1 })}>
