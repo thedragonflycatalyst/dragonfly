@@ -4,6 +4,7 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/lib/app-state';
 import { F, MAX_W, R, usePalette } from '@/lib/theme';
+import { Icon } from './ui';
 import { Avatar } from './avatar';
 import { Txt } from './ui';
 
@@ -28,6 +29,11 @@ export function TopBar() {
               </Pressable>
             ))}
           </View>
+        )}
+        {app.user && app.mode === 'coach' && (
+          <Pressable accessibilityRole="button" accessibilityLabel="Notifications" hitSlop={8} onPress={() => router.push('/soon/notifications')}>
+            <Icon name="notifications" size={26} />
+          </Pressable>
         )}
         {app.user && (
           <Pressable accessibilityRole="button" accessibilityLabel={`Your account, ${app.username ?? ''}`} onPress={() => router.push('/account')}>

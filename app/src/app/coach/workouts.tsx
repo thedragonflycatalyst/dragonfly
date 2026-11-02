@@ -1,5 +1,5 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Switch, TextInput, View } from 'react-native';
 import { Row, Segmented } from '@/components/bits';
 import { Cover } from '@/components/cover';
@@ -26,7 +26,9 @@ export default function WorkoutsTab() {
   const toast = useToast();
   const app = useApp();
   const tid = app.trainer?.user_id;
-  const [tab, setTab] = useState<Tab>('workouts');
+  const params = useLocalSearchParams<{ tab?: Tab }>();
+  const [tab, setTab] = useState<Tab>(params.tab ?? 'workouts');
+  useEffect(() => { if (params.tab) setTab(params.tab); }, [params.tab]);
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
