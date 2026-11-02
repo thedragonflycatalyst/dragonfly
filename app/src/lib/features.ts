@@ -20,6 +20,7 @@ export const FEATURES: Feature[] = [
   { key: 'communities', title: 'Communities', icon: 'groups', group: 'Community', href: '/communities' },
   { key: 'resources', title: 'Resources', icon: 'storefront', group: 'Community', href: '/resources' },
   { key: 'files', title: 'Files', icon: 'description', group: 'Community', href: '/files' },
+  { key: 'connections', title: 'Connected apps', icon: 'link', group: 'Help', href: '/connections' },
   { key: 'settings', title: 'Settings', icon: 'settings', group: 'Help', href: '/settings' },
   { key: 'support', title: 'Support', icon: 'support_agent', group: 'Help', href: '/support' },
   { key: 'notifications', title: 'Notifications', icon: 'notifications', group: 'Hidden', href: '/notifications' },

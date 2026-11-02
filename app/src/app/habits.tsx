@@ -13,7 +13,9 @@ import { errText, type Habit } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { MAX_W, usePalette } from '@/lib/theme';
 
-type LibHabit = { id: string; trainer_id: string; name: string; details: string | null; icon: string; color: string; once: boolean; days_per_week: number; coaching: boolean; archived: boolean; created_at: string };
+type AutoMetric = 'steps' | 'sleep_hours' | 'water_ml' | 'active_kcal';
+const AUTO: [AutoMetric, string, string, number][] = [['steps', 'Steps', 'steps', 8000], ['sleep_hours', 'Sleep', 'hours', 7], ['active_kcal', 'Active calories', 'kcal', 400], ['water_ml', 'Water', 'ml', 2500]];
+type LibHabit = { id: string; trainer_id: string; name: string; details: string | null; icon: string; color: string; once: boolean; days_per_week: number; coaching: boolean; archived: boolean; created_at: string; auto_metric?: AutoMetric | null; auto_target?: number | null };
 const ICONS = ['✅', '💧', '🚶', '🏃', '😴', '🥗', '🍎', '🥩', '🧘', '📵', '☀️', '🧴', '💊', '📖', '✍️', '🙏', '🧊', '🚭', '🍷', '☕', '🍬', '🥦', '⚖️', '📸', '💪', '🦵', '🫁', '🎯', '⏰', '🌙'];
 
 /** Habits: your library of habits (with icon and colour), who's doing each one, and how this week is going */
@@ -92,19 +94,21 @@ function HabitSheet({ h, onClose, onSaved, assigned, checks, clients }: {
   const app = useApp();
   const ed = h && h !== 'new' ? h : null;
   const [seen, setSeen] = useState<typeof h>(null);
-  const [f, setF] = useState({ name: '', details: '', icon: '✅', color: COLORS[0], once: false, days: 7, coaching: true });
+  const [f, setF] = useState({ name: '', details: '', icon: '✅', color: COLORS[0], once: false, days: 7, coaching: true, auto: null as AutoMetric | null, target: '' });
   const [busy, setBusy] = useState(false);
   const [pick, setPick] = useState(false);
   if (h !== seen) {
     setSeen(h);
-    setF({ name: ed?.name ?? '', details: ed?.details ?? '', icon: ed?.icon ?? '✅', color: ed?.color ?? COLORS[0], once: ed?.once ?? false, days: ed?.days_per_week ?? 7, coaching: ed?.coaching ?? true });
+    setF({ name: ed?.name ?? '', details: ed?.details ?? '', icon: ed?.icon ?? '✅', color: ed?.color ?? COLORS[0], once: ed?.once ?? false, days: ed?.days_per_week ?? 7, coaching: ed?.coaching ?? true, auto: ed?.auto_metric ?? null, target: ed?.auto_target ? String(ed.auto_target) : '' });
   }
   const save = async (): Promise<string | null> => {
     if (!f.name.trim()) { toast('Name the habit', false); return null; }
+    const target = f.auto ? Number(f.target) : null;
+    if (f.auto && !(target! > 0 && target! <= 200000)) { toast('Set the target it ticks at', false); return null; }
     setBusy(true);
-    const row = { trainer_id: app.trainer?.user_id, name: f.name.trim(), details: f.details.trim() || null, icon: f.icon, color: f.color, once: f.once, days_per_week: f.days, coaching: f.coaching };
+    const row = { trainer_id: app.trainer?.user_id, name: f.name.trim(), details: f.details.trim() || null, icon: f.icon, color: f.color, once: f.once, days_per_week: f.days, coaching: f.coaching, auto_metric: f.auto, auto_target: target };
     const res = ed ? await sb.from('coach_habit_library').update(row).eq('id', ed.id).select('id').single() : await sb.from('coach_habit_library').insert(row).select('id').single();
-    if (!res.error && ed) await sb.from('coach_habits').update({ title: row.name, details: row.details, icon: row.icon, color: row.color, once: row.once, days_per_week: row.days_per_week }).eq('library_id', ed.id);
+    if (!res.error && ed) await sb.from('coach_habits').update({ title: row.name, details: row.details, icon: row.icon, color: row.color, once: row.once, days_per_week: row.days_per_week, auto_metric: row.auto_metric, auto_target: row.auto_target }).eq('library_id', ed.id);
     setBusy(false);
     if (res.error) { toast(errText(res.error), false); return null; }
     onSaved(); return res.data.id as string;
@@ -115,7 +119,7 @@ function HabitSheet({ h, onClose, onSaved, assigned, checks, clients }: {
     const have = new Set(assigned.map((a) => a.client_id));
     const add = ids.filter((id) => !have.has(id));
     const drop = assigned.filter((a) => !ids.includes(a.client_id)).map((a) => a.id);
-    const rows = add.map((client_id) => ({ client_id, trainer_id: app.trainer?.user_id, library_id: libId, title: f.name.trim(), details: f.details.trim() || null, icon: f.icon, color: f.color, once: f.once, days_per_week: f.days }));
+    const rows = add.map((client_id) => ({ client_id, trainer_id: app.trainer?.user_id, library_id: libId, title: f.name.trim(), details: f.details.trim() || null, icon: f.icon, color: f.color, once: f.once, days_per_week: f.days, auto_metric: f.auto, auto_target: f.auto ? Number(f.target) || null : null }));
     const r1 = rows.length ? await sb.from('coach_habits').insert(rows) : { error: null };
     const r2 = drop.length ? await sb.from('coach_habits').update({ active: false }).in('id', drop) : { error: null };
     if (r1.error || r2.error) return toast(errText(r1.error ?? r2.error), false);
@@ -148,6 +152,13 @@ function HabitSheet({ h, onClose, onSaved, assigned, checks, clients }: {
       <ColorPicker value={f.color} onChange={(color) => setF({ ...f, color })} colors={COLORS} />
       <Txt v="bold" style={{ marginTop: 14, marginBottom: 8 }}>Icon</Txt>
       <EmojiPicker value={f.icon} onChange={(icon) => setF({ ...f, icon })} options={ICONS} />
+      <Txt v="bold" style={{ marginTop: 14, marginBottom: 8 }}>Tick automatically</Txt>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <Chip label="No, client ticks it" selected={!f.auto} onPress={() => setF({ ...f, auto: null })} />
+        {AUTO.map(([k, l, , d]) => <Chip key={k} label={l} selected={f.auto === k} onPress={() => setF({ ...f, auto: k, target: f.auto === k ? f.target : String(d) })} />)}
+      </View>
+      {f.auto && <View style={{ width: 200 }}><Field label={`Ticks at (${AUTO.find(([k]) => k === f.auto)![2]})`} value={f.target} onChangeText={(target) => setF({ ...f, target })} keyboardType="decimal-pad" /></View>}
+      {f.auto && <Txt v="small" style={{ marginBottom: 8 }}>Ticks itself on days the client’s synced data (Health Connect, Oura, WHOOP…) reaches it. They can still tick it by hand.</Txt>}
       <Toggle label="Coaching" sub="Flag missed days in check-ins so you can follow up" value={f.coaching} onChange={(coaching) => setF({ ...f, coaching })} />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
         <Button title={ed ? 'Save' : 'Create'} icon="check" busy={busy} onPress={async () => { if (await save()) { toast('Saved'); if (!ed) onClose(); } }} />

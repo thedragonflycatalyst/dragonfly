@@ -8,6 +8,8 @@ import { sb } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
 import type { SectionProps } from './common';
 
+const AUTO_UNIT: Record<string, string> = { steps: 'steps', sleep_hours: 'hours of sleep', water_ml: 'ml', active_kcal: 'active kcal' };
+
 /** The last 7 days, oldest first, as YYYY-MM-DD */
 export const lastWeek = (today = new Date()) => Array.from({ length: 7 }, (_, i) => dayKey(addDays(today, i - 6)));
 
@@ -71,6 +73,7 @@ export function Habits({ client, role }: SectionProps) {
               <View style={{ flex: 1 }}>
                 <Txt v="bold">{h.icon ? `${h.icon} ` : ""}{h.title}</Txt>
                 {h.details ? <Txt v="small">{h.details}</Txt> : null}
+                {h.auto_metric ? <Txt v="small" color={p.focus}>⚡ Ticks itself at {Number(h.auto_target).toLocaleString()} {AUTO_UNIT[h.auto_metric]} (from synced data)</Txt> : null}
                 <Txt v="small" color={done >= h.days_per_week ? p.good : p.muted}>{done} of {h.days_per_week} days in the last week</Txt>
               </View>
               {role === 'coach' && <Button small kind="quiet" title="Stop" onPress={() => ask('Stop this habit?', 'It moves to past habits. Its history is kept.', [

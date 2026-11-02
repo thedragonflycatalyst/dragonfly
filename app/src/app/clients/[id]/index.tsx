@@ -157,6 +157,7 @@ export default function ClientProfile() {
           <Row icon="fitness_center" title="Workouts and programs" sub="Calendar, history and assigning" onPress={() => router.push({ pathname: '/clients/[id]/workouts', params: { id: c.id } })} />
           <Row icon="restaurant" title="Nutrition" sub="Food diary, water and meal plans" onPress={() => router.push({ pathname: '/clients/[id]/nutrition', params: { id: c.id } })} />
           <Row icon="monitor_weight" title="Scale" sub="Weigh-ins, body fat, muscle and trend" onPress={() => router.push({ pathname: '/clients/[id]/scale', params: { id: c.id } })} />
+          <Row icon="directions_walk" title="Activity & sleep" sub="Steps, sleep, heart rate and workouts from their apps" onPress={() => router.push({ pathname: '/clients/[id]/activity', params: { id: c.id } })} />
           <Row icon="inbox" title="Check-ins" sub="Rhythm, talking points and history" onPress={() => router.push({ pathname: '/checkins/[id]', params: { id: c.id } })} />
           <Row icon="redeem" title="Packages and payments" sub="Credits left, purchases and payments" onPress={() => router.push({ pathname: '/clients/[id]/billing', params: { id: c.id } })} />
           <Row icon="event" title="Sessions" sub="Book or see them on your calendar" onPress={() => router.push('/calendar')} />

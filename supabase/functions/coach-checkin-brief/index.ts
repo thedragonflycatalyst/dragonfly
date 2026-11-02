@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
     if (!m) return reply(403, { error: 'not_your_team_member' });
     trainerId = viewing;
   }
-  const { data: client } = await admin.from('coach_clients').select('id, trainer_id, first_name, goals, interests, status, started_on').eq('id', clientId).maybeSingle();
+  const { data: client } = await admin.from('coach_clients').select('id, trainer_id, user_id, first_name, goals, interests, status, started_on').eq('id', clientId).maybeSingle();
   if (!client || client.trainer_id !== trainerId) return reply(404, { error: 'not_your_client' });
 
   const since = new Date(Date.now() - 86_400_000).toISOString();
@@ -72,7 +72,8 @@ Deno.serve(async (req) => {
   await admin.from('coach_ai_calls').insert({ user_id: me.user.id, kind: 'checkin' });
 
   const from = day(new Date(Date.now() - 21 * 86_400_000)), today = day(new Date());
-  const [a, logs, food, water, meas, notes, checks, habits] = await Promise.all([
+  const uid = client.user_id ?? '00000000-0000-0000-0000-000000000000';
+  const [a, logs, food, water, meas, notes, checks, habits, health, synced] = await Promise.all([
     admin.from('coach_assignments').select('scheduled_on, title, status').eq('client_id', clientId).gte('scheduled_on', from).lte('scheduled_on', today).order('scheduled_on'),
     admin.from('coach_logs').select('performed_at, rpe, note, duration_seconds').eq('client_id', clientId).gte('performed_at', from).order('performed_at'),
     admin.from('coach_food_logs').select('eaten_on, n').eq('client_id', clientId).gte('eaten_on', from),
@@ -81,6 +82,9 @@ Deno.serve(async (req) => {
     admin.from('coach_notes').select('body, pinned, created_at').eq('client_id', clientId).order('created_at', { ascending: false }).limit(5),
     admin.from('coach_checkins').select('done_on, channel, note, mood').eq('client_id', clientId).order('done_on', { ascending: false }).limit(3),
     admin.from('coach_habits').select('title, days_per_week, active').eq('client_id', clientId).eq('active', true),
+    // From the apps they've connected (Health Connect, Oura, WHOOP, Strava…)
+    admin.from('coach_health_daily').select('day, steps, sleep_min, resting_hr, hrv_ms, readiness').eq('user_id', uid).gte('day', from).order('day'),
+    admin.from('coach_activities').select('started_at, kind, duration_s, distance_m, app').eq('user_id', uid).gte('started_at', from).order('started_at').limit(40),
   ]);
   // Daily calorie and protein totals from the diary
   const perDay: Record<string, { kcal: number; protein: number }> = {};
@@ -93,6 +97,7 @@ Deno.serve(async (req) => {
     workouts_scheduled: a.data ?? [], workouts_logged: logs.data ?? [],
     food_diary_days: Object.entries(perDay).map(([d, v]) => ({ day: d, kcal: Math.round(v.kcal), protein_g: Math.round(v.protein) })),
     water: water.data ?? [], recent_measurements: meas.data ?? [], trainer_notes: notes.data ?? [], previous_checkins: checks.data ?? [], habits: habits.data ?? [],
+    synced_daily_health: health.data ?? [], synced_workouts_from_other_apps: synced.data ?? [],
   };
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {

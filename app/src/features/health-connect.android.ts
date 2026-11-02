@@ -1,9 +1,12 @@
 // Health Connect on Android: RENPHO, Libra, Samsung Health, Fitbit, Withings and others share weigh-ins here.
-import { getGrantedPermissions, getSdkStatus, initialize, openHealthConnectSettings, readRecords, requestPermission, SdkAvailabilityStatus } from 'react-native-health-connect';
+import { ExerciseType, getGrantedPermissions, getSdkStatus, initialize, openHealthConnectSettings, readRecords, requestPermission, SdkAvailabilityStatus, SleepStageType } from 'react-native-health-connect';
+import { appName } from '@/lib/apps';
+import { emptyHealth, mealName, type DeviceHealth } from '@/lib/health';
 import type { HealthReadings } from '@/lib/scale';
 
 export type HealthStatus = 'unsupported' | 'not_installed' | 'update_needed' | 'ready';
-const TYPES = ['Weight', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate'] as const;
+const TYPES = ['Weight', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate',
+  'Steps', 'ActiveCaloriesBurned', 'Distance', 'SleepSession', 'RestingHeartRate', 'HeartRateVariabilityRmssd', 'Hydration', 'ExerciseSession', 'Nutrition'] as const;
 
 export async function healthStatus(): Promise<HealthStatus> {
   try {
@@ -14,14 +17,14 @@ export async function healthStatus(): Promise<HealthStatus> {
   } catch { return 'unsupported'; }
 }
 
-/** Asks for read access to weight and body composition (and older history). True if weight was allowed. */
+/** Asks for read access to everything Dragonfly uses (and older history). True if anything was allowed. */
 export async function connectHealth(): Promise<boolean> {
   if (!(await initialize())) return false;
   const granted = await requestPermission([
     ...TYPES.map((recordType) => ({ accessType: 'read' as const, recordType })),
     { accessType: 'read', recordType: 'ReadHealthDataHistory' } as never,
   ]);
-  return granted.some((g) => (g as { recordType?: string }).recordType === 'Weight');
+  return granted.length > 0;
 }
 
 async function all<T>(type: (typeof TYPES)[number], since: Date): Promise<T[]> {
@@ -56,3 +59,42 @@ export async function readHealth(since: Date): Promise<HealthReadings> {
   };
 }
 export const openHealthSettings = () => openHealthConnectSettings();
+
+const EXERCISE_NAMES = Object.fromEntries(Object.entries(ExerciseType).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())]));
+const AWAKE = new Set<number>([SleepStageType.AWAKE, SleepStageType.OUT_OF_BED]);
+
+/** Activity, sleep, heart, water, workouts and food shared since a date */
+export async function readDevice(since: Date): Promise<DeviceHealth> {
+  await initialize();
+  const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
+  const get = <T>(t: (typeof TYPES)[number]) => (ok.has(t) ? all<T>(t, since).catch(() => [] as T[]) : Promise.resolve([] as T[]));
+  type I = { startTime: string; endTime: string; metadata?: { id?: string; dataOrigin?: string } };
+  type Mass = { inGrams: number } | undefined;
+  const [steps, kcal, dist, sleep, rhr, hrv, water, ex, food] = await Promise.all([
+    get<I & { count: number }>('Steps'), get<I & { energy: { inKilocalories: number } }>('ActiveCaloriesBurned'), get<I & { distance: { inMeters: number } }>('Distance'),
+    get<I & { stages?: { startTime: string; endTime: string; stage: number }[] }>('SleepSession'), get<{ time: string; beatsPerMinute: number }>('RestingHeartRate'),
+    get<{ time: string; heartRateVariabilityMillis: number }>('HeartRateVariabilityRmssd'), get<I & { volume: { inMilliliters: number } }>('Hydration'),
+    get<I & { exerciseType: number; title?: string }>('ExerciseSession'),
+    get<I & { name?: string; mealType?: number; energy?: { inKilocalories: number }; protein?: Mass; totalCarbohydrate?: Mass; totalFat?: Mass; sugar?: Mass; dietaryFiber?: Mass; sodium?: { inMilligrams: number } }>('Nutrition'),
+  ]);
+  const h = emptyHealth();
+  h.steps = steps.map((x) => ({ start: x.startTime, end: x.endTime, count: x.count }));
+  h.activeKcal = kcal.map((x) => ({ start: x.startTime, end: x.endTime, kcal: x.energy.inKilocalories }));
+  h.distance = dist.map((x) => ({ start: x.startTime, end: x.endTime, m: x.distance.inMeters }));
+  h.sleep = sleep.map((x) => {
+    const asleep = x.stages?.length ? x.stages.filter((st) => !AWAKE.has(st.stage)).reduce((a, st) => a + (new Date(st.endTime).getTime() - new Date(st.startTime).getTime()) / 60_000, 0) : undefined;
+    return { start: x.startTime, end: x.endTime, asleepMin: asleep };
+  });
+  h.restingHr = rhr.map((x) => ({ time: x.time, bpm: x.beatsPerMinute }));
+  h.hrv = hrv.map((x) => ({ time: x.time, ms: x.heartRateVariabilityMillis }));
+  h.water = water.map((x) => ({ start: x.startTime, ml: x.volume.inMilliliters }));
+  h.workouts = ex.map((x) => ({ id: x.metadata?.id ?? `${x.startTime}-${x.exerciseType}`, kind: EXERCISE_NAMES[x.exerciseType] ?? 'Workout', title: x.title, start: x.startTime, end: x.endTime, app: appName(x.metadata?.dataOrigin) }));
+  h.food = food.filter((x) => x.energy).map((x) => ({
+    id: x.metadata?.id ?? `${x.startTime}-${x.name}`, start: x.startTime, meal: mealName(x.mealType), name: x.name || 'Food', kcal: x.energy!.inKilocalories,
+    protein: x.protein?.inGrams, carbs: x.totalCarbohydrate?.inGrams, fat: x.totalFat?.inGrams, sugar: x.sugar?.inGrams, fibre: x.dietaryFiber?.inGrams, sodium: x.sodium?.inMilligrams,
+    app: appName(x.metadata?.dataOrigin),
+  }));
+  // Dragonfly's own entries never come back in
+  h.food = h.food.filter((f) => !/dragonfly/i.test(f.app ?? ''));
+  return h;
+}

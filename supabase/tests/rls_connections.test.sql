@@ -1,0 +1,41 @@
+-- Connections: synced health data, auto-ticking habits, private tokens, the trainer's busy calendar.
+\set ON_ERROR_STOP on
+set client_min_messages = warning;
+insert into t.ids values ('trainer', gen_random_uuid()), ('trainer2', gen_random_uuid()), ('client', gen_random_uuid());
+insert into auth.users (id, email, email_confirmed_at) select v, k || '@example.com', now() from t.ids;
+insert into public.dragonfly_profiles select v, k from t.ids;
+set client_min_messages = notice;
+select t.as_user('trainer');
+insert into public.coach_trainers (user_id, display_name, timezone) select v, 'Dragonfly', 'UTC' from t.ids where k = 'trainer';
+insert into public.coach_clients (trainer_id, first_name, email) select v, 'Ana', 'client@example.com' from t.ids where k = 'trainer';
+select t.as_user('client'); select public.coach_link_me();
+select t.as_user('trainer');
+insert into public.coach_habits (client_id, trainer_id, title, auto_metric, auto_target) select id, trainer_id, '8,000 steps', 'steps', 8000 from public.coach_clients;
+insert into public.coach_habits (client_id, trainer_id, title, auto_metric, auto_target) select id, trainer_id, 'Sleep 7 hours', 'sleep_hours', 7 from public.coach_clients;
+select t.as_user('client');
+insert into public.coach_health_daily (day, steps, sleep_min, sources) values (current_date, 9500, 380, '{health_connect}');
+select t.ok((select count(*) from public.coach_habit_checks) = 1, 'synced steps tick the steps habit (not sleep: 6h20)');
+update public.coach_health_daily set sleep_min = 450 where day = current_date;
+select t.ok((select count(*) from public.coach_habit_checks) = 2, 'more sleep later ticks the sleep habit');
+insert into public.coach_activities (source, external_id, kind, name, started_at, duration_s, distance_m) values ('strava', '123', 'Run', 'Morning run', now(), 1800, 5000);
+insert into public.coach_food_logs (client_id, eaten_on, meal, name, n, source, external_id) select id, current_date, 'Lunch', 'Chicken bowl', '{"kcal": 600}', 'health_connect', 'hc:abc' from public.coach_clients;
+select t.ok(t.refused($$insert into public.coach_food_logs (client_id, eaten_on, meal, name, n, source, external_id) select id, current_date, 'Lunch', 'Chicken bowl', '{"kcal": 600}', 'health_connect', 'hc:abc' from public.coach_clients$$), 'the same synced food can''t be added twice');
+select t.ok(t.refused($$select * from public.coach_connection_tokens$$), 'connection tokens are never readable');
+select t.ok(t.refused($$insert into public.coach_connections (user_id, provider) select v, 'strava' from t.ids where k = 'client'$$), 'connections are only made by the server');
+select t.as_user('trainer');
+select t.ok((select count(*) from public.coach_health_daily) = 1 and (select count(*) from public.coach_activities) = 1, 'the trainer sees their client''s activity and sleep');
+select t.ok(t.refused($$insert into public.coach_health_daily (user_id, day, steps) select v, current_date - 1, 1 from t.ids where k = 'client'$$), 'trainers can''t write a client''s health data');
+insert into public.coach_trainer_details (user_id, calendar_token) select v, 'tok_abcdefghijklmnopqrstuvwxyz' from t.ids where k = 'trainer';
+insert into public.coach_availability (trainer_id, weekday, start_time, end_time) select v, d, '00:00', '23:59' from t.ids, generate_series(0, 6) d where k = 'trainer';
+select t.as_admin();
+insert into public.coach_external_busy (trainer_id, starts_at, ends_at, title) select v, date_trunc('hour', now()) + interval '3 days', date_trunc('hour', now()) + interval '3 days 2 hours', 'Dentist' from t.ids where k = 'trainer';
+select t.as_user('client');
+select t.ok((select count(*) from public.coach_trainer_details) = 0, 'clients can''t see the trainer''s calendar link');
+select t.ok((select count(*) from public.coach_external_busy) = 0, 'or what their busy blocks are');
+select t.ok((select count(*) from public.coach_trainer_busy((select v from t.ids where k = 'trainer'), 10)) = 1, 'but busy times block the booking screen');
+select t.ok(t.refused($$select public.coach_book_session((select v from t.ids where k = 'trainer'), date_trunc('hour', now()) + interval '3 days 1 hour', 60)$$), 'and booking over them is refused');
+select t.as_user('trainer2');
+insert into public.coach_trainers (user_id, display_name) select v, 'Other' from t.ids where k = 'trainer2';
+select t.ok((select count(*) from public.coach_health_daily) + (select count(*) from public.coach_activities) = 0, 'other trainers see nothing');
+select t.as_admin();
+\echo 'ALL CONNECTIONS TESTS PASSED'

@@ -14,7 +14,7 @@ import { at, COLORS, fmtDuration, hhmm, KINDS, occurrences, openSlots, REPEATS, 
 import { addDays, dayKey, fromKey } from '@/lib/dates';
 import { callFn, fnText } from '@/lib/fn';
 import { errText } from '@/lib/model';
-import { sb } from '@/lib/supabase';
+import { recall, sb, store } from '@/lib/supabase';
 import { MAX_W, R, usePalette } from '@/lib/theme';
 
 const t12 = (d: Date) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -40,15 +40,27 @@ function CoachCalendar() {
   const { clients, groups } = useClientList();
   const week = weekOf(anchor);
 
+  const [external, setExternal] = useState<{ id: string; starts_at: string; ends_at: string; title: string | null }[]>([]);
   const load = useCallback(async () => {
-    const [b, e] = await Promise.all([
+    const [b, e, x] = await Promise.all([
       sb.from('coach_bookings').select('*').order('starts_at'),
       sb.from('coach_events').select('*').eq('cancelled', false).gte('starts_at', addDays(new Date(), -60).toISOString()).order('starts_at'),
+      sb.from('coach_external_busy').select('id,starts_at,ends_at,title').order('starts_at').limit(1500),
     ]);
     if (b.error) toast(errText(b.error), false);
-    setBookings((b.data as Booking[]) ?? []); setEvents((e.data as CoachEvent[]) ?? []);
+    setBookings((b.data as Booking[]) ?? []); setEvents((e.data as CoachEvent[]) ?? []); setExternal(x.data ?? []);
   }, [toast]);
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    load();
+    // Busy times from the trainer's own Google/Outlook/iCloud calendar (Connected apps), refreshed at most hourly
+    if (app.viewing || !app.trainer) return;
+    const k = `cal.busy.${app.trainer.user_id}`;
+    if (Date.now() - recall<number>(k, 0) < 3600_000) return;
+    store(k, Date.now());
+    sb.from('coach_trainer_details').select('busy_ics_url').eq('user_id', app.trainer.user_id).maybeSingle().then(({ data }) => {
+      if (data?.busy_ics_url) callFn('coach-calendar', { action: 'refresh_busy' }).then(load).catch(() => {});
+    });
+  }, [load, app.viewing, app.trainer]));
 
   const occ = useMemo(() => occurrences(bookings ?? [], week[0], week[6]), [bookings, week[0]]); // eslint-disable-line react-hooks/exhaustive-deps
   const who = (b: Booking) => b.client_id ? clients?.find((c) => c.id === b.client_id)?.name : b.group_id ? groups.find((g) => g.id === b.group_id)?.name : null;
@@ -125,8 +137,8 @@ function CoachCalendar() {
             <Button small kind="ghost" icon="schedule" title="Open hours" onPress={() => setHours(true)} />
           </View>
           {bookings === null ? <ActivityIndicator color={p.ink} style={{ marginTop: 30 }} /> : week.filter((d) => d >= day).map((d) => {
-            const items = occ.filter((o) => o.day === d), evs = events.filter((e) => dayKey(e.starts_at) === d);
-            const all = [...items.map((o) => ({ t: o.start.getTime(), o })), ...evs.map((e) => ({ t: new Date(e.starts_at).getTime(), e }))].sort((a, b) => a.t - b.t);
+            const items = occ.filter((o) => o.day === d), evs = events.filter((e) => dayKey(e.starts_at) === d), ext = external.filter((x) => dayKey(x.starts_at) === d);
+            const all = [...items.map((o) => ({ t: o.start.getTime(), o })), ...evs.map((e) => ({ t: new Date(e.starts_at).getTime(), e })), ...ext.map((x) => ({ t: new Date(x.starts_at).getTime(), x }))].sort((a, b) => a.t - b.t);
             return (
               <View key={d} style={{ gap: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -154,6 +166,14 @@ function CoachCalendar() {
                       </View>
                     </Card>
                   </Pressable>
+                ) : 'x' in x && x.x ? (
+                  <Card key={x.x.id} style={{ flexDirection: 'row', gap: 12, padding: 12, opacity: 0.7 }}>
+                    <View style={{ width: 5, borderRadius: 3, backgroundColor: p.line }} />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Txt v="bold">{x.x.title || 'Busy'}</Txt>
+                      <Txt v="small">{t12(new Date(x.x.starts_at))} – {t12(new Date(x.x.ends_at))} · From your calendar · clients can’t book this</Txt>
+                    </View>
+                  </Card>
                 ) : null)}
               </View>
             );
