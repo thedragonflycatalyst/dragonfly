@@ -56,6 +56,6 @@ begin
 end
 $$;
 
-revoke execute on function public.coach_join_info(text), public.coach_join(text, text, text, text, text) from public;
+revoke execute on function public.coach_join_info(text), public.coach_join(text, text, text, text, text) from public, anon, authenticated;
 grant execute on function public.coach_join_info(text) to anon, authenticated;
 grant execute on function public.coach_join(text, text, text, text, text) to authenticated;
