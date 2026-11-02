@@ -4,7 +4,7 @@ import { Row, SectionLabel } from '@/components/bits';
 import { Screen } from '@/components/shell';
 import { Card, Txt } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
-import { FEATURES, GROUPS } from '@/lib/features';
+import { allowed, FEATURES, GROUPS } from '@/lib/features';
 import { usePalette } from '@/lib/theme';
 
 /** Trainer menu: every part of Dragonfly in one list. */
@@ -15,7 +15,8 @@ export default function Menu() {
     <Screen title="Menu">
       <View style={{ maxWidth: 640, width: '100%' }}>
         {GROUPS.map((g) => {
-          const items = FEATURES.filter((f) => f.group === g);
+          const member = app.teamMembers.find((t) => t.trainer_id === app.user?.id && t.role === 'trainer');
+          const items = FEATURES.filter((f) => f.group === g && allowed(f, member, app.isOwner));
           return (
             <View key={g}>
               <SectionLabel>{g}</SectionLabel>

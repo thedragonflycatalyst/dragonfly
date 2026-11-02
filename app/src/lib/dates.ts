@@ -20,3 +20,6 @@ export function relDay(k: string, today = new Date()) {
   if (k > t && k < dayKey(addDays(today, 7))) return fromKey(k).toLocaleDateString(undefined, { weekday: 'long' });
   return fromKey(k).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
+
+/** relDay for mid-sentence use: "today", "yesterday", but month names keep their capital */
+export const lowRel = (k: string, today = new Date()) => { const r = relDay(k, today); return /^(Today|Tomorrow|Yesterday)$/.test(r) ? r.toLowerCase() : r; };

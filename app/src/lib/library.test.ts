@@ -29,3 +29,17 @@ test('lookups and video thumbnails', () => {
   assert.equal(youTubeThumb('https://www.youtube.com/shorts/dQw4w9WgXcQ?x=1'), 'https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
   assert.equal(youTubeThumb('https://example.com/video.mp4'), null);
 });
+
+test('alternatives: trainer picks first, then similar moves for the same muscle', async () => {
+  const { alternativesFor, builtIn } = await import('./library');
+  const bench = builtIn().find((e) => /^Barbell Bench Press/i.test(e.name))!;
+  const alts = alternativesFor(bench);
+  assert.ok(alts.length > 0 && alts.length <= 6);
+  assert.ok(alts.every((e) => e.ref !== bench.ref && e.primary.includes('chest')));
+  const pick = builtIn().find((e) => e.name === 'Pushups')!;
+  const mine = { ...bench, ref: 'my:x', mine: true, alts: [pick.ref, 'lib:does-not-exist'] };
+  const withPick = alternativesFor(mine);
+  assert.equal(withPick[0].ref, pick.ref);
+  assert.equal(new Set(withPick.map((e) => e.ref)).size, withPick.length);
+  assert.deepEqual(alternativesFor({ ...bench, primary: [], alts: [] }), []);
+});

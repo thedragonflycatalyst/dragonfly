@@ -7,8 +7,9 @@ import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, TextInput
 import { Segmented } from '@/components/bits';
 import { Sheet } from '@/components/sheet';
 import { Button, Chip, Field, Icon, Txt, useToast } from '@/components/ui';
+import { coverUrl } from '@/components/cover';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
+import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
 import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
@@ -18,9 +19,9 @@ const MEDIA = 'coach-media';
 /** The trainer's own exercises (coach_exercises), shaped like library exercises */
 export function toLib(m: MyExercise): LibExercise {
   const thumb = youTubeThumb(m.video_url);
-  return { ref: `my:${m.id}`, name: m.name, category: m.default_metric === 'time' ? 'stretching' : 'strength', equipment: m.equipment[0] ?? 'other',
-    primary: m.muscles, secondary: [], level: '', mechanic: '', steps: m.instructions ? m.instructions.split('\n').filter(Boolean) : [],
-    images: thumb ? [thumb] : [], video: m.video_url, mine: true };
+  return { ref: `my:${m.id}`, name: m.name, category: m.category ?? 'strength', equipment: m.equipment[0] ?? 'other',
+    primary: m.muscles, secondary: m.secondary_muscles ?? [], level: '', mechanic: '', steps: m.instructions ? m.instructions.split('\n').filter(Boolean) : [],
+    images: m.image_path ? [`media:${m.image_path}`] : thumb ? [thumb] : [], video: m.video_url, mine: true, alts: m.alternatives ?? [] };
 }
 export function useMyExercises(trainerId: string | undefined) {
   const [mine, setMine] = useState<LibExercise[]>([]);
@@ -36,7 +37,9 @@ export function useMyExercises(trainerId: string | undefined) {
 /** Square thumbnail: the exercise's start image, a video frame, or an icon. Shows a play badge when there's a video. */
 export function ExerciseThumb({ img, video, size = 64 }: { img?: string | null; video?: string | null; size?: number }) {
   const p = usePalette();
-  const src = img ?? youTubeThumb(video);
+  const [stored, setStored] = useState<string | null>(null);
+  useEffect(() => { if (img?.startsWith('media:')) coverUrl(img.slice(6)).then(setStored); else setStored(null); }, [img]);
+  const src = img?.startsWith('media:') ? stored : img ?? youTubeThumb(video);
   return (
     <View style={{ width: size, height: size, borderRadius: R.sm, overflow: 'hidden', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
       {src ? <Image source={{ uri: src }} style={{ width: size, height: size }} contentFit="cover" transition={120} accessibilityIgnoresInvertColors />
@@ -81,7 +84,7 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
         <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>
           {images.map((src, i) => (
             <View key={src} style={{ flex: 1, gap: 4 }}>
-              <Image source={{ uri: src }} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: R.sm, backgroundColor: p.soft }} contentFit="cover" accessibilityLabel={`${ex?.name}, ${i === 0 ? 'start' : 'finish'} position`} />
+              <AnyImage src={src} label={`${ex?.name}, ${i === 0 ? 'start' : 'finish'} position`} />
               {images.length > 1 && <Txt v="small" center>{i === 0 ? 'Start' : 'Finish'}</Txt>}
             </View>
           ))}
@@ -90,9 +93,18 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
       {full && (
         <Txt v="small" style={{ marginBottom: 8 }}>{[full.primary.map(titleCase).join(', '), titleCase(full.equipment), full.level && titleCase(full.level)].filter(Boolean).join(' · ')}</Txt>
       )}
-      {(full?.steps ?? []).map((s, i) => <Txt key={i} style={{ marginBottom: 8 }}>{i + 1}. {s}</Txt>)}
+      {full?.secondary.length ? <Txt v="small" style={{ marginBottom: 8 }}>Also works: {full.secondary.map(titleCase).join(', ')}</Txt> : null}
+      {(full?.steps ?? []).map((s, i) => <Txt key={i} style={{ marginBottom: 8 }}>{full?.mine ? s : `${i + 1}. ${s}`}</Txt>)}
     </Sheet>
   );
+}
+
+/** A picture from a web address or from the trainer's media ("media:path") */
+function AnyImage({ src, label }: { src: string; label: string }) {
+  const p = usePalette();
+  const [url, setUrl] = useState<string | null>(src.startsWith('media:') ? null : src);
+  useEffect(() => { if (src.startsWith('media:')) coverUrl(src.slice(6)).then(setUrl); else setUrl(src); }, [src]);
+  return <Image source={url ? { uri: url } : null} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: R.sm, backgroundColor: p.soft }} contentFit="cover" accessibilityLabel={label} />;
 }
 
 type Tab = 'search' | 'part' | 'equipment' | 'recent' | 'favorites' | 'mine';
@@ -215,67 +227,106 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   );
 }
 
-const MUSCLE_CHOICES = ['chest', 'lats', 'middle back', 'lower back', 'traps', 'shoulders', 'biceps', 'triceps', 'forearms', 'abdominals', 'quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors'];
+const MUSCLE_CHOICES = ['chest', 'shoulders', 'biceps', 'triceps', 'forearms', 'lats', 'middle back', 'lower back', 'traps', 'abdominals', 'obliques',
+  'quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors', 'hip flexors', 'neck', 'full body'];
 
-/** Create or edit one of the trainer's own exercises, with a demo video link or an uploaded video. */
+/** Create or edit one of the trainer's own exercises: details, muscles, equipment, demo video and image, and alternatives. */
 export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visible: boolean; onClose: () => void; onSaved: () => void; initial?: MyExercise }) {
+  const p = usePalette();
   const toast = useToast();
   const app = useApp();
-  const [name, setName] = useState(initial?.name ?? '');
-  const [muscles, setMuscles] = useState<string[]>(initial?.muscles ?? []);
-  const [equipment, setEquipment] = useState(initial?.equipment[0] ?? 'suspension trainer');
-  const [metric, setMetric] = useState<SetMetric>(initial?.default_metric ?? 'reps');
-  const [steps, setSteps] = useState(initial?.instructions ?? '');
-  const [video, setVideo] = useState(initial?.video_url ?? '');
+  const { mine } = useMyExercises(app.trainer?.user_id);
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('strength');
+  const [metric, setMetric] = useState<SetMetric>('reps');
+  const [steps, setSteps] = useState('');
+  const [main, setMain] = useState<string | null>(null);
+  const [other, setOther] = useState<string[]>([]);
+  const [equipment, setEquipment] = useState<string[]>([]);
+  const [video, setVideo] = useState('');
+  const [image, setImage] = useState<string | null>(null);
+  const [alts, setAlts] = useState<string[]>([]);
+  const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visible) return;
+    setName(initial?.name ?? ''); setCategory(initial?.category ?? 'strength'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
+    setMain(initial?.muscles[0] ?? null); setOther(initial?.secondary_muscles ?? []); setEquipment(initial?.equipment ?? []);
+    setVideo(initial?.video_url ?? ''); setImage(initial?.image_path ?? null); setAlts(initial?.alternatives ?? []);
+  }, [visible, initial]);
+  const tid = app.trainer?.user_id;
 
-  const upload = async () => {
-    setBusy('upload');
+  const uploadMedia = async (kind: 'video' | 'image') => {
+    setBusy(kind);
     try {
-      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], videoMaxDuration: 180, quality: 1 });
+      const res = await ImagePicker.launchImageLibraryAsync(kind === 'video' ? { mediaTypes: ['videos'], videoMaxDuration: 180, quality: 1 } : { mediaTypes: ['images'], quality: 0.85, allowsEditing: true, aspect: [4, 3] });
       if (res.canceled || !res.assets[0]) return;
       const a = res.assets[0];
-      if (a.fileSize && a.fileSize > 100 * 1024 * 1024) throw new Error('That video is over 100 MB. Trim it or record a shorter one.');
-      const ext = (a.fileName?.match(/\.(\w+)$/)?.[1] ?? 'mp4').toLowerCase();
-      const path = `${app.trainer!.user_id}/exercises/${Date.now().toString(36)}.${ext}`;
+      if (a.fileSize && a.fileSize > 100 * 1024 * 1024) throw new Error('That file is over 100 MB. Trim it or choose a smaller one.');
+      const ext = (a.fileName?.match(/\.(\w+)$/)?.[1] ?? (kind === 'video' ? 'mp4' : 'jpg')).toLowerCase();
+      const path = `${tid}/exercises/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.${ext}`;
       const bytes = Platform.OS === 'web' ? await (await fetch(a.uri)).arrayBuffer() : await new (await import('expo-file-system')).File(a.uri).arrayBuffer();
-      const { error } = await sb.storage.from(MEDIA).upload(path, bytes, { contentType: a.mimeType ?? 'video/mp4' });
+      const { error } = await sb.storage.from(MEDIA).upload(path, bytes, { contentType: a.mimeType ?? (kind === 'video' ? 'video/mp4' : 'image/jpeg') });
       if (error) throw error;
-      setVideo(path); toast('Video uploaded');
+      if (kind === 'video') setVideo(path); else setImage(path);
+      toast(kind === 'video' ? 'Video uploaded' : 'Image uploaded');
     } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
   };
   const save = async () => {
     if (!name.trim()) return toast('Name the exercise', false);
     if (video && isLink(video) && !/^https:\/\//i.test(video)) return toast('Use an https link for the video', false);
     setBusy('save');
-    const row = { trainer_id: app.trainer!.user_id, name: name.trim(), muscles, equipment: [equipment], default_metric: metric, instructions: steps.trim() || null, video_url: video.trim() || null };
+    const row = { trainer_id: tid, name: name.trim(), category, default_metric: metric, instructions: steps.trim() || null,
+      muscles: main ? [main] : [], secondary_muscles: other.filter((m) => m !== main), equipment, video_url: video.trim() || null, image_path: image, alternatives: alts };
     const { error } = initial ? await sb.from('coach_exercises').update(row).eq('id', initial.id) : await sb.from('coach_exercises').insert(row);
     setBusy(null);
     if (error) return toast(errText(error), false);
     toast('Exercise saved'); onSaved();
-    if (!initial) { setName(''); setMuscles([]); setSteps(''); setVideo(''); }
   };
+  const chips = (list: string[], on: (m: string) => boolean, tap: (m: string) => void) => (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>{list.map((m) => <Chip key={m} label={titleCase(m)} selected={on(m)} onPress={() => tap(m)} />)}</View>
+  );
+  const toggle = (set: (f: (x: string[]) => string[]) => void) => (m: string) => set((x) => (x.includes(m) ? x.filter((y) => y !== m) : [...x, m]));
 
   return (
-    <Sheet visible={visible} onClose={onClose} title={initial ? 'Edit exercise' : 'New exercise'}>
-      <Field label="Name" value={name} onChangeText={setName} placeholder="TRX Atomic Push-Up" />
-      <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Main muscles</Txt>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-        {MUSCLE_CHOICES.map((m) => <Chip key={m} label={titleCase(m)} selected={muscles.includes(m)} onPress={() => setMuscles((x) => (x.includes(m) ? x.filter((y) => y !== m) : [...x, m]))} />)}
-      </View>
+    <Sheet visible={visible} onClose={onClose} title={initial ? 'Edit exercise' : 'Create exercise'}>
+      <Field label="Exercise name *" value={name} onChangeText={setName} placeholder="TRX Atomic Push-Up" />
+      <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Category *</Txt>
+      {chips(MY_CATEGORIES, (c) => c === category, setCategory)}
+      <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Type *</Txt>
+      <View style={{ marginBottom: 16 }}><Segmented<SetMetric> value={metric} onChange={setMetric} options={[['reps', 'Reps and weight'], ['time', 'Time'], ['distance', 'Distance']]} /></View>
+      <Field label="Description" hint="(how to do it, cues; one step per line)" value={steps} onChangeText={setSteps} multiline placeholder="Write something…" />
+      <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Main muscle worked</Txt>
+      {chips(MUSCLE_CHOICES, (m) => m === main, (m) => setMain(main === m ? null : m))}
+      <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Other muscles worked</Txt>
+      {chips(MUSCLE_CHOICES.filter((m) => m !== main), (m) => other.includes(m), toggle(setOther))}
       <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Equipment</Txt>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-        {EQUIPMENT.map((e) => <Chip key={e} label={titleCase(e)} selected={equipment === e} onPress={() => setEquipment(e)} />)}
-      </View>
-      <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Measured by</Txt>
-      <View style={{ marginBottom: 16 }}><Segmented<SetMetric> value={metric} onChange={setMetric} options={[['reps', 'Reps'], ['time', 'Time'], ['distance', 'Distance']]} /></View>
-      <Field label="How to do it" hint="(one step per line)" value={steps} onChangeText={setSteps} multiline />
-      <Field label="Demo video link" hint="(YouTube or any https link)" value={isLink(video) ? video : ''} onChangeText={setVideo} autoCapitalize="none" placeholder="https://youtu.be/…" />
+      {chips(EQUIPMENT, (m) => equipment.includes(m), toggle(setEquipment))}
+
+      <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Exercise video</Txt>
+      <Field label="Video link" hint="(YouTube or any https link)" value={isLink(video) ? video : ''} onChangeText={setVideo} autoCapitalize="none" placeholder="https://youtu.be/…" />
       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <Button kind="ghost" small icon="video_library" title={video && !isLink(video) ? 'Replace uploaded video' : 'Or upload a video'} busy={busy === 'upload'} onPress={upload} />
-        {video && !isLink(video) ? <Txt v="small">Video uploaded</Txt> : null}
+        <Button kind="ghost" small icon="video_library" title={video && !isLink(video) ? 'Replace uploaded video' : 'Or upload a video'} busy={busy === 'video'} onPress={() => uploadMedia('video')} />
+        {video && !isLink(video) ? <><Txt v="small">Video uploaded</Txt><Button small kind="quiet" title="Remove" onPress={() => setVideo('')} /></> : null}
       </View>
-      <Button title="Save exercise" busy={busy === 'save'} onPress={save} style={{ alignSelf: 'flex-start' }} />
+      <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Exercise image</Txt>
+      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+        <ExerciseThumb img={image ? `media:${image}` : null} size={72} />
+        <Button kind="ghost" small icon="photo_library" title={image ? 'Replace image' : 'Upload an image'} busy={busy === 'image'} onPress={() => uploadMedia('image')} />
+        {image && <Button small kind="quiet" title="Remove" onPress={() => setImage(null)} />}
+      </View>
+
+      <Txt v="bold" style={{ fontSize: 15 }}>Alternatives</Txt>
+      <Txt v="small" style={{ marginBottom: 8 }}>Clients can swap to one of these during a workout (no equipment, a sore joint, a busy gym).</Txt>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+        {alts.map((r) => <Chip key={r} label={`${byRef(r, mine)?.name ?? 'Removed exercise'}  ✕`} selected onPress={() => setAlts((x) => x.filter((y) => y !== r))} />)}
+      </View>
+      <Button small kind="ghost" icon="add" title="Select alternative exercises" disabled={alts.length >= 12} style={{ alignSelf: 'flex-start', marginBottom: 20 }} onPress={() => setPicking(true)} />
+      <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingTop: 16 }}>
+        <Button title="Save exercise" busy={busy === 'save'} onPress={save} style={{ alignSelf: 'flex-start' }} />
+      </View>
+      <ExercisePicker visible={picking} title="Select alternatives" onClose={() => setPicking(false)}
+        onPick={(list) => setAlts((x) => [...new Set([...x, ...list.map((e) => e.ref)])].filter((r) => r !== (initial ? `my:${initial.id}` : '')).slice(0, 12))} />
     </Sheet>
   );
 }

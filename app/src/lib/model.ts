@@ -3,7 +3,9 @@
 export type Units = 'imperial' | 'metric';
 export type Trainer = {
   user_id: string; display_name: string; business_name: string | null; bio: string | null; timezone: string;
-  units: Units; auto_health_form: boolean; auto_freeze_days: number;
+  units: Units; auto_health_form: boolean; auto_freeze_days: number; checkin_every_days?: number;
+  client_perms?: Partial<import('./prefs').ClientPerms>; cancel_hours?: number; brand_color?: string | null; logo?: string | null; welcome?: string | null;
+  unit_prefs?: Partial<import('./prefs').UnitPrefs>; notify?: Record<string, unknown>;
 };
 
 export type ClientStatus = 'lead' | 'invited' | 'active' | 'frozen' | 'archived';
@@ -37,7 +39,7 @@ export type FormRequest = {
   questions: Question[]; answers: Record<string, string>; status: 'pending' | 'completed'; flagged: boolean;
   requested_at: string; completed_at: string | null;
 };
-export type Habit = { id: string; client_id: string; trainer_id: string; title: string; details: string | null; days_per_week: number; active: boolean; created_at: string };
+export type Habit = { id: string; client_id: string; trainer_id: string; title: string; details: string | null; days_per_week: number; active: boolean; created_at: string; library_id?: string | null; icon?: string | null; color?: string | null; once?: boolean };
 
 export const INTERESTS = ['Weight loss', 'Strength', 'Muscle gain', 'Running', 'Endurance', 'Mobility and flexibility',
   'TRX', 'Sports performance', 'Nutrition', 'Injury recovery', 'Healthy habits', 'Stress relief', 'Group training'];
@@ -69,11 +71,14 @@ export type Workout = {
   folder_id: string | null; cover: string | null; last_used_at: string | null; created_at: string; updated_at: string;
 };
 export type Folder = { id: string; trainer_id: string; name: string };
-export type ProgramDay = { week: number; day: number; workout_id: string };
-export type Program = { id: string; trainer_id: string; name: string; description: string | null; weeks: number; schedule: ProgramDay[]; archived: boolean; folder_id: string | null; cover: string | null; updated_at: string };
+export type ProgramItemKind = 'workout' | 'measurements' | 'photo' | 'note';
+/** One thing on a program day. Older programs have workout items without `kind`. */
+export type ProgramDay = { week: number; day: number; kind?: ProgramItemKind; workout_id?: string; title?: string; details?: string; time?: 'am' | 'pm' };
+export type Program = { id: string; trainer_id: string; name: string; description: string | null; weeks: number; schedule: ProgramDay[]; archived: boolean; folder_id: string | null; cover: string | null; updated_at: string; am_time?: string; pm_time?: string; created_at?: string };
 export type MyExercise = {
   id: string; trainer_id: string; name: string; instructions: string | null; video_url: string | null;
   equipment: string[]; muscles: string[]; tags: string[]; default_metric: SetMetric; archived: boolean;
+  category: string; secondary_muscles: string[]; image_path: string | null; alternatives: string[];
 };
 
 export type Assignment = {
@@ -84,14 +89,14 @@ export type Assignment = {
 
 /** What was actually done in one set (weight in the trainer's display unit, recorded in `unit`) */
 export type SetLog = { weight?: number | null; reps?: number | null; time?: number | null; distance?: string | null; done: boolean };
-export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg' };
+export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string };
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
   duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
 };
 
 export type Team = { id: string; owner_id: string; name: string };
-export type TeamMember = { id: string; team_id: string; trainer_id: string | null; email: string; display_name: string; role: 'owner' | 'trainer'; status: 'invited' | 'active' | 'removed'; created_at: string };
+export type TeamMember = { id: string; team_id: string; trainer_id: string | null; email: string; display_name: string; role: 'owner' | 'trainer'; status: 'invited' | 'active' | 'removed'; created_at: string; perms?: { financials?: boolean; packages?: boolean; events?: boolean } };
 
 export type Person = { user_id: string; username: string; relation: 'client' | 'trainer' };
 

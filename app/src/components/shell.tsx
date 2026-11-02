@@ -30,8 +30,8 @@ export function TopBar() {
             ))}
           </View>
         )}
-        {app.user && app.mode === 'coach' && (
-          <Pressable accessibilityRole="button" accessibilityLabel="Notifications" hitSlop={8} onPress={() => router.push('/soon/notifications')}>
+        {app.user && (
+          <Pressable accessibilityRole="button" accessibilityLabel="Notifications" hitSlop={8} onPress={() => router.push('/notifications')}>
             <Icon name="notifications" size={26} />
           </Pressable>
         )}

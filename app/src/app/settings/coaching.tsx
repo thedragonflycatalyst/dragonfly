@@ -1,15 +1,15 @@
 import { router, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Switch, View } from 'react-native';
-import { Pair, Row, SectionLabel, Segmented } from '@/components/bits';
+import { Pair, Row, SectionLabel } from '@/components/bits';
 import { Button, Card, Field, Txt, useToast } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
-import { errText, type Units } from '@/lib/model';
+import { errText } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
 
-/** Settings: coaching profile, client settings, team and account. */
-export default function Settings() {
+/** Coaching settings: profile, client defaults, check-in rhythm, team and account. */
+export default function CoachingSettings() {
   const p = usePalette();
   const toast = useToast();
   const app = useApp();
@@ -17,6 +17,7 @@ export default function Settings() {
   const [name, setName] = useState(t?.display_name ?? '');
   const [business, setBusiness] = useState(t?.business_name ?? '');
   const [freezeDays, setFreezeDays] = useState(String(t?.auto_freeze_days ?? 90));
+  const [every, setEvery] = useState(String(t?.checkin_every_days ?? 14));
   const [busy, setBusy] = useState(false);
   useEffect(() => { setName(t?.display_name ?? ''); setBusiness(t?.business_name ?? ''); setFreezeDays(String(t?.auto_freeze_days ?? 90)); }, [t]);
   if (!t) return null;
@@ -32,7 +33,7 @@ export default function Settings() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 60, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
-      <Stack.Screen options={{ title: 'Settings' }} />
+      <Stack.Screen options={{ title: 'Coaching' }} />
       <View style={{ width: '100%', maxWidth: 640 }}>
         <SectionLabel>Your coaching profile</SectionLabel>
         <Card>
@@ -46,12 +47,6 @@ export default function Settings() {
 
         <SectionLabel>Client settings</SectionLabel>
         <Card style={{ gap: 16 }}>
-          <View style={{ gap: 8 }}>
-            <Txt v="bold">Units</Txt>
-            <Segmented<Units> value={t.units} onChange={(u) => save({ units: u }, u === 'imperial' ? 'Showing pounds and inches' : 'Showing kilograms and centimeters')}
-              options={[['imperial', 'lb, ft, in'], ['metric', 'kg, cm']]} />
-            <Txt v="small">Your clients see the same units.</Txt>
-          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View style={{ flex: 1 }}>
               <Txt v="bold">Send the health questionnaire to new clients</Txt>
@@ -73,6 +68,20 @@ export default function Settings() {
                 save({ auto_freeze_days: d });
               }} />
             </View>
+          </View>
+        </Card>
+
+        <SectionLabel>Check-ins</SectionLabel>
+        <Card>
+          <Txt v="bold">Check in with each client every</Txt>
+          <Txt v="small" style={{ marginBottom: 10 }}>Dragonfly reminds you when someone’s due. You can change it per client.</Txt>
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
+            <View style={{ width: 140 }}><Field label="Days" value={every} onChangeText={setEvery} keyboardType="number-pad" /></View>
+            <Button kind="quiet" title="Save" style={{ marginBottom: 16 }} busy={busy} onPress={() => {
+              const d = Number(every);
+              if (!Number.isInteger(d) || d < 1 || d > 90) return toast('Use 1 to 90 days', false);
+              save({ checkin_every_days: d });
+            }} />
           </View>
         </Card>
 

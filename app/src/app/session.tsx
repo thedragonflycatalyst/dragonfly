@@ -3,16 +3,17 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
-import { ExerciseThumb } from '@/features/exercises';
+import { ExerciseInfo, ExerciseThumb, useMyExercises } from '@/features/exercises';
+import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
-import { errText, type Assignment, type Client, type ExerciseBlock, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
+import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
 import { clock, doneOnly, DRAFT_KEY, readDraft, restAfter, type Draft } from '@/lib/session';
 import { storage } from '@/lib/storage';
 import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
-import { fmtSeconds, parseSeconds, setsDone, setsTotal, startLog, volume } from '@/lib/workouts';
+import { fmtSeconds, parseSeconds, refOf, setsDone, setsTotal, startLog, volume } from '@/lib/workouts';
 import { F, MAX_W, R, usePalette } from '@/lib/theme';
 
 type Source = { title: string; blocks: WorkoutBlock[]; assignment: Assignment | null; workoutId: string | null };
@@ -37,6 +38,8 @@ export default function Session() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const saved = useRef(false);
+  const [swapping, setSwapping] = useState<number | null>(null);
+  const [info, setInfo] = useState<ExerciseRef | null>(null);
 
   // Load the workout (or assignment) and any unfinished draft of it
   useEffect(() => {
@@ -131,8 +134,12 @@ export default function Session() {
             return (
               <Card key={e.block_id} style={{ gap: 10 }}>
                 <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                  <ExerciseThumb img={e.ex?.img} video={e.ex?.video} size={52} />
-                  <Txt v="h3" style={{ flex: 1 }}>{e.ex?.name ?? 'Exercise'}</Txt>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`${e.ex?.name ?? 'Exercise'} details`} onPress={() => e.ex && setInfo(e.ex)}><ExerciseThumb img={e.ex?.img} video={e.ex?.video} size={52} /></Pressable>
+                  <View style={{ flex: 1 }}>
+                    <Txt v="h3">{e.ex?.name ?? 'Exercise'}</Txt>
+                    {e.swapped_from ? <Txt v="small">Instead of {e.swapped_from}</Txt> : null}
+                  </View>
+                  {e.ex && <Button small kind="quiet" icon="swap_horiz" title="Swap" onPress={() => setSwapping(bi)} />}
                 </View>
                 {b?.note ? <Txt v="small">{b.note}</Txt> : null}
                 <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -183,6 +190,9 @@ export default function Session() {
         <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done ? setFinishing(true) : toast('Tick off at least one set first', false))} />
       </View>
 
+      <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)}
+        onSwap={(alt) => { const i = swapping!; setLog((l) => l.map((x, n) => (n === i ? { ...x, ex: refOf(alt), swapped_from: x.swapped_from ?? x.ex?.name } : x))); setSwapping(null); }} />
+      <ExerciseInfo ex={info ? { name: info.name, ref: `${info.src}:${info.id}`, img: info.img, video: info.video } : null} onClose={() => setInfo(null)} />
       <Sheet visible={finishing} onClose={() => setFinishing(false)} title="How did that feel?">
         <Txt v="small" style={{ marginBottom: 8 }}>Effort, from 1 (easy) to 10 (all-out). Optional.</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
@@ -209,5 +219,31 @@ function NumCell({ value, onChange, label, lazy }: { value: string; onChange: (t
       onChangeText={(t) => { setText(t); if (!lazy) onChange(t); }}
       onBlur={() => { setEditing(false); if (lazy) onChange(text); }}
       style={{ width: 72, height: 44, borderWidth: 1.5, borderColor: p.line, borderRadius: R.sm, textAlign: 'center', fontFamily: F.body, fontSize: 17, color: p.ink, backgroundColor: p.surface }} />
+  );
+}
+
+/** Swap an exercise mid-workout: the trainer's chosen alternatives first, then similar moves from the library */
+function SwapSheet({ entry, trainerId, onClose, onSwap }: { entry: LogEntry | null; trainerId?: string; onClose: () => void; onSwap: (e: LibExercise) => void }) {
+  const p = usePalette();
+  const { mine } = useMyExercises(entry ? trainerId : undefined);
+  const current = entry?.ex ? byRef(`${entry.ex.src}:${entry.ex.id}`, mine) : undefined;
+  const options = current ? alternativesFor(current, mine) : [];
+  const chosen = new Set(current?.alts ?? []);
+  return (
+    <Sheet visible={!!entry} onClose={onClose} title={`Swap ${entry?.ex?.name ?? 'exercise'}`}>
+      {options.length === 0 && <Txt>No alternatives for this one.</Txt>}
+      {options.map((e) => (
+        <Pressable key={e.ref} accessibilityRole="button" accessibilityLabel={`Swap to ${e.name}`} onPress={() => onSwap(e)}
+          style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.line, opacity: pressed ? 0.6 : 1 })}>
+          <ExerciseThumb img={e.images[0]} video={e.video} size={52} />
+          <View style={{ flex: 1 }}>
+            <Txt v="bold">{e.name}</Txt>
+            <Txt v="small">{[chosen.has(e.ref) ? 'Picked by your trainer' : null, titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>
+          </View>
+          <Icon name="swap_horiz" color={p.focus} />
+        </Pressable>
+      ))}
+      <Txt v="small" style={{ marginTop: 10 }}>Your sets and numbers stay the same; your trainer sees what you swapped.</Txt>
+    </Sheet>
   );
 }

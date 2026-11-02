@@ -7,7 +7,7 @@ import { F, usePalette } from '@/lib/theme';
 
 const TABS: [name: string, title: string, icon: AndroidSymbol][] = [
   ['index', 'Hub', 'home'], ['clients', 'Clients', 'group'], ['workouts', 'Workouts', 'fitness_center'],
-  ['nutrition', 'Nutrition', 'restaurant'], ['menu', 'Menu', 'menu'],
+  ['nutrition', 'Nutrition', 'restaurant'], ['scale', 'Scale', 'monitor_weight'], ['menu', 'Menu', 'menu'],
 ];
 
 /** Trainer side: bottom tabs (one tab is built per chunk). */

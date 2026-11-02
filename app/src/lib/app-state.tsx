@@ -2,6 +2,7 @@ import type { User } from '@supabase/supabase-js';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { avatarUrl } from './account';
 import type { Client, Team, TeamMember, Trainer, Units } from './model';
+import { DEFAULT_PERMS, unitPrefs, type ClientPerms, type UnitPrefs } from './prefs';
 import { recall, sb, setActing, store, SUPABASE_KEY, USERNAME_LOGIN_FN } from './supabase';
 
 export type Mode = 'coach' | 'client';
@@ -24,7 +25,11 @@ type Ctx = {
   /** The client record in use (first active one, else the first) */
   membership: Client | null;
   /** The trainer of that client record, as the client sees them */
-  myTrainer: { user_id: string; display_name: string; business_name: string | null; units: Units } | null;
+  myTrainer: { user_id: string; display_name: string; business_name: string | null; units: Units; unit_prefs?: Partial<UnitPrefs>; brand_color?: string | null; logo?: string | null; welcome?: string | null; client_perms?: Partial<ClientPerms> } | null;
+  /** Detailed units (lifting weights, bodyweight, lengths, height, distance, number format) */
+  prefs: UnitPrefs;
+  /** What clients may do themselves (the trainer's settings) */
+  perms: ClientPerms;
   /** Units to show in the current mode */
   units: Units;
   /** Which side of the app they're using, for people who are both */
@@ -81,7 +86,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMemberships(mine);
     const primary = mine.find((c) => c.status === 'active') ?? mine[0];
     if (primary) {
-      const { data: tr } = await sb.from('coach_trainers').select('user_id,display_name,business_name,units').eq('user_id', primary.trainer_id).maybeSingle();
+      const { data: tr } = await sb.from('coach_trainers').select('user_id,display_name,business_name,units,unit_prefs,brand_color,logo,welcome,client_perms').eq('user_id', primary.trainer_id).maybeSingle();
       setMyTrainer((tr as Ctx['myTrainer']) ?? null);
     } else setMyTrainer(null);
     return mine.length;
@@ -133,9 +138,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const trainer = viewing?.trainer ?? ownTrainer;
   const units: Units = (mode === 'coach' ? trainer?.units : myTrainer?.units) ?? 'imperial';
   const isOwner = !!team && !!user && team.owner_id === user.id;
+  const prefs = unitPrefs(units, mode === 'coach' ? trainer?.unit_prefs : myTrainer?.unit_prefs);
+  const perms: ClientPerms = { ...DEFAULT_PERMS, ...((mode === 'coach' ? trainer?.client_perms : myTrainer?.client_perms) ?? {}) };
 
   const value = useMemo<Ctx>(() => ({
-    ready, user, username, avatar, trainer, ownTrainer, memberships, membership, myTrainer, units, mode,
+    ready, user, username, avatar, trainer, ownTrainer, memberships, membership, myTrainer, units, prefs, perms, mode,
     team, teamMembers, isOwner, reloadTeam: loadTeam,
     viewing: viewing?.member ?? null, editing,
     startViewing: async (m) => {
@@ -165,7 +172,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await loadFor(u);
     },
     reloadMe: async () => { const { data } = await sb.auth.getUser(); return loadFor(data.user ?? null); },
-  }), [ready, user, username, avatar, trainer, ownTrainer, memberships, membership, myTrainer, units, mode, team, teamMembers, isOwner, loadTeam, viewing, editing, signIn, signUp, loadFor]);
+  }), [ready, user, username, avatar, trainer, ownTrainer, memberships, membership, myTrainer, units, prefs, perms, mode, team, teamMembers, isOwner, loadTeam, viewing, editing, signIn, signUp, loadFor]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }
