@@ -26,3 +26,13 @@ test('artCover: a picked photo wins, otherwise the name decides', () => {
   assert.equal(artCover('media:x/y.jpg', 'Leg day', true), null);
   assert.equal(artCover('art:bogus', 'Swim', true), 'swimming');
 });
+
+test('groups match group photos first', () => {
+  assert.equal(artCover(null, 'Sunday Run Club', true, true), 'runclub');
+  assert.equal(artCover(null, '30-day challenge', true, true), 'trophy');
+  assert.equal(artCover(null, 'Trail hikers', true, true), 'hike');
+  assert.equal(artCover(null, 'Morning crew', true, true), 'team');
+  assert.equal(artCover(null, 'Kettlebell gang', true, true), 'kettlebell');
+  assert.equal(artCover(null, 'Our people', true, true), 'crew');
+  assert.equal(artCover('art:dragonfly', 'Leg day', true), 'dragonfly');
+});

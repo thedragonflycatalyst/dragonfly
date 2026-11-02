@@ -1,5 +1,5 @@
 // Default cover photos and the app background (bundled; made for Dragonfly).
-import { WORKOUT_ART, type ArtKey } from './art-match';
+import { type ArtKey, type CoverKey, type GroupKey } from './art-match';
 
 export const WORKOUT_IMAGES: Record<ArtKey, number> = {
   legs: require('../../assets/art/workout/legs.jpg'), glutes: require('../../assets/art/workout/glutes.jpg'),
@@ -16,6 +16,19 @@ export const ART_LABEL: Record<ArtKey, string> = {
   fullbody: 'Full body', hiit: 'HIIT', running: 'Running', cycling: 'Cycling', yoga: 'Yoga / mobility', kettlebell: 'Kettlebell',
   suspension: 'Suspension', boxing: 'Boxing', swimming: 'Swimming',
 };
+export const GROUP_IMAGES: Record<GroupKey, number> = {
+  crew: require('../../assets/art/group/crew.jpg'), runclub: require('../../assets/art/group/runclub.jpg'),
+  finish: require('../../assets/art/group/finish.jpg'), trophy: require('../../assets/art/group/trophy.jpg'),
+  bootcamp: require('../../assets/art/group/bootcamp.jpg'), circle: require('../../assets/art/group/circle.jpg'),
+  hike: require('../../assets/art/group/hike.jpg'), team: require('../../assets/art/group/team.jpg'),
+  dragonfly: require('../../assets/art/group/dragonfly.jpg'),
+};
+export const GROUP_LABEL: Record<GroupKey, string> = {
+  crew: 'Crew', runclub: 'Run club', finish: 'Finish line', trophy: 'Challenge', bootcamp: 'Bootcamp', circle: 'Yoga circle',
+  hike: 'Hike', team: 'Team', dragonfly: 'Dragonfly',
+};
+export const COVER_IMAGES: Record<CoverKey, number> = { ...WORKOUT_IMAGES, ...GROUP_IMAGES };
+export const COVER_LABEL: Record<CoverKey, string> = { ...ART_LABEL, ...GROUP_LABEL };
 export const BACKGROUND = require('../../assets/art/background.jpg') as number;
-export { artCover, WORKOUT_ART } from './art-match';
+export { artCover, GROUP_ART, WORKOUT_ART } from './art-match';
 

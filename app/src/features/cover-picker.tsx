@@ -9,10 +9,10 @@ import { errText } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { R, usePalette } from '@/lib/theme';
 import { Image } from 'expo-image';
-import { ART_LABEL, WORKOUT_ART, WORKOUT_IMAGES } from '@/lib/art';
+import { COVER_IMAGES, COVER_LABEL, GROUP_ART, WORKOUT_ART } from '@/lib/art';
 
 /** Choose a Dragonfly photo or upload your own art (stored in coach-media/{trainer}/covers). Left alone, the photo follows the name. */
-export function CoverPicker({ name, value, trainerId, onChange }: { name: string; value: string | null; trainerId: string; onChange: (cover: string | null) => void }) {
+export function CoverPicker({ name, value, trainerId, onChange, group }: { name: string; value: string | null; trainerId: string; onChange: (cover: string | null) => void; group?: boolean }) {
   const p = usePalette();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -34,19 +34,19 @@ export function CoverPicker({ name, value, trainerId, onChange }: { name: string
     <View style={{ gap: 10, marginBottom: 16 }}>
       <Txt v="bold" style={{ fontSize: 15 }}>Cover</Txt>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-        <Cover name={name || '?'} cover={value} size={84} photo />
+        <Cover name={name || '?'} cover={value} size={84} photo group={group} />
         <View style={{ gap: 8 }}>
           <Button small kind="ghost" icon="photo_camera" title={isUploaded(value) ? 'Change image' : 'Upload your own art'} busy={busy} onPress={upload} />
           {value && <Button small kind="quiet" title="Match the name automatically" onPress={() => onChange(null)} />}
         </View>
       </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {WORKOUT_ART.map((k) => {
+        {(group ? [...GROUP_ART, ...WORKOUT_ART] : WORKOUT_ART).map((k) => {
           const on = value === `art:${k}`;
           return (
-            <Pressable key={k} accessibilityRole="radio" accessibilityLabel={`${ART_LABEL[k]} photo`} accessibilityState={{ selected: on }} onPress={() => onChange(`art:${k}`)}
+            <Pressable key={k} accessibilityRole="radio" accessibilityLabel={`${COVER_LABEL[k]} photo`} accessibilityState={{ selected: on }} onPress={() => onChange(`art:${k}`)}
               style={{ borderRadius: R.sm, borderWidth: 2, borderColor: on ? p.focus : 'transparent', padding: 1 }}>
-              <Image source={WORKOUT_IMAGES[k]} style={{ width: 56, height: 56, borderRadius: R.sm - 2 }} contentFit="cover" />
+              <Image source={COVER_IMAGES[k]} style={{ width: 56, height: 56, borderRadius: R.sm - 2 }} contentFit="cover" />
             </Pressable>
           );
         })}

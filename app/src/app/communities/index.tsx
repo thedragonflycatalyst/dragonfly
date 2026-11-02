@@ -44,7 +44,7 @@ export default function Communities() {
               {shown.map((c) => (
                 <Pressable key={c.id} accessibilityRole="link" accessibilityLabel={c.name} onPress={() => router.push({ pathname: '/communities/[id]', params: { id: c.id } })}
                   style={({ pressed }) => ({ flexGrow: 1, flexBasis: 220, maxWidth: 460, gap: 8, opacity: pressed ? 0.8 : 1 })}>
-                  <View style={{ aspectRatio: 2.2, borderRadius: R.md, overflow: 'hidden', alignItems: 'stretch' }}><Cover name={c.name} cover={c.cover} size={460} photo /></View>
+                  <View style={{ aspectRatio: 2.2, borderRadius: R.md, overflow: 'hidden', alignItems: 'stretch' }}><Cover name={c.name} cover={c.cover} size={460} photo group /></View>
                   <View><Txt v="bold">{c.name}</Txt>{c.description ? <Txt v="small" numberOfLines={2}>{c.description}</Txt> : null}</View>
                 </Pressable>
               ))}
@@ -95,7 +95,7 @@ export function CommunitySheet({ visible, onClose, onSaved, initial, members = [
       <Field label="Name" value={f.name} onChangeText={(name) => setF({ ...f, name })} placeholder="Spring Shred Challenge" />
       <Field label="Description" hint="(optional)" value={f.description} onChangeText={(description) => setF({ ...f, description })} multiline placeholder="Six weeks, three workouts a week. Post your wins!" />
       <Txt v="bold" style={{ marginBottom: 8 }}>Cover art</Txt>
-      <CoverPicker name={f.name || 'Community'} value={f.cover} trainerId={tid} onChange={(cover) => setF({ ...f, cover })} />
+      <CoverPicker name={f.name || 'Community'} value={f.cover} trainerId={tid} onChange={(cover) => setF({ ...f, cover })} group />
       <Txt v="bold" style={{ marginTop: 14, marginBottom: 8 }}>Members</Txt>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
         <Chip label="All my clients" selected={f.all} onPress={() => setF({ ...f, all: true })} />
