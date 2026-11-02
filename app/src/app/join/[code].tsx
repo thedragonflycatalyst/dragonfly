@@ -2,6 +2,8 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { JoinDone, PENDING_KEY } from '@/features/join-done';
+import { storage } from '@/lib/storage';
 import { Ambient } from '@/components/ambient';
 import { Button, Card, Field, Icon, Txt, useToast } from '@/components/ui';
 import { e164 } from '@/lib/contact';
@@ -11,7 +13,6 @@ import { errText, isEmail } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
 
-export const APK_URL = 'https://github.com/thedragonflycatalyst/dragonfly/releases/download/android-preview/dragonfly.apk';
 const JOIN_TEXT: Record<string, string> = {
   bad_code: 'This sign-up code isn’t valid any more. Ask your trainer to show it again.',
   own_code: 'That’s your own sign-up code.', email_in_use: 'Your trainer already has a different account for this email.',
@@ -31,7 +32,6 @@ function OtherWay({ open, onToggle, label, onPick }: { open: boolean; onToggle: 
   );
 }
 const phoneOk = (s: string) => { const n = s.replace(/\D/g, '').length; return n >= 7 && n <= 15; };
-const device = () => (Platform.OS !== 'web' ? Platform.OS : /android/i.test(navigator.userAgent) ? 'android' : /iphone|ipad|ipod/i.test(navigator.userAgent) ? 'ios' : 'desktop');
 
 /**
  * In-person sign-up: the page a trainer's QR code opens. Name, email and password, the code from the email, and
@@ -85,13 +85,16 @@ export default function Join() {
     if (!phone) throw new Error('Enter your phone number with its area code.');
     const { data: free } = await sb.rpc('dragonfly_username_available', { wanted: f.uname });
     if (free === false) throw new Error('dragonfly_username_taken');
-    const { data, error } = await sb.auth.signUp({ phone, password: f.pw, options: { data: { username: f.uname } } });
+    // What to join is kept on the account, so the link in the text can finish it (even in another browser)
+    const pending = { code, first: f.first.trim(), last: f.last.trim(), phone: f.phone.trim(), email: f.email.trim().toLowerCase() };
+    const { data, error } = await sb.auth.signUp({ phone, password: f.pw, options: { data: { username: f.uname, join: pending } } });
     if (error) {
       if (/provider|phone sign|sms|disabled|unsupported/i.test(error.message)) { toast('Text codes aren’t set up yet, so we emailed you a code'); return false; }
       throw error;
     }
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) throw new Error('That phone number already has a Dragonfly account. Tap “I already have an account”.');
     if (data.session) { await afterText(); return true; }
+    try { storage.setItem(PENDING_KEY, phone); } catch { /* private window */ }
     setOtp(''); setStep('sms'); return true;
   };
   const verifyText = (token: string) => run(async () => {
@@ -109,7 +112,6 @@ export default function Join() {
     }
   };
 
-  const dev = device();
   return (
     <View style={{ flex: 1, backgroundColor: p.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -120,17 +122,7 @@ export default function Join() {
             {who === undefined ? null : who === null ? (
               <Card style={{ gap: 8 }}><Txt v="h2">This code doesn’t work</Txt><Txt>Ask your trainer to show their sign-up QR code again.</Txt></Card>
             ) : step === 'done' ? (
-              <Card style={{ gap: 12 }}>
-                <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>You’re in</Txt>
-                <Txt v="h1">Welcome to {name}</Txt>
-                {dev === 'android' ? <>
-                  <Txt>Get the Dragonfly app for your workouts, food diary, scale and chat. Tap below, then open the download and tap Install (allow installing from your browser if your phone asks).</Txt>
-                  <Button title="Download the app" icon="download" onPress={() => Linking.openURL(APK_URL)} />
-                </> : dev === 'ios' ? (
-                  <Txt>The iPhone app is on the way. For now Dragonfly works right here: tap the Share button, then “Add to Home Screen” to keep it one tap away.</Txt>
-                ) : <Txt>Open this page on your phone to download the app, or keep going here.</Txt>}
-                <Button kind={dev === 'android' ? 'ghost' : 'solid'} title="Continue" onPress={() => router.replace('/')} />
-              </Card>
+              <JoinDone name={name} />
             ) : app.user && step === 'form' ? (
               <Card style={{ gap: 12 }}>
                 <Txt v="h2">Join {name}</Txt>
@@ -144,7 +136,7 @@ export default function Join() {
             ) : step === 'sms' ? (
               <Card style={{ gap: 12 }}>
                 <Txt v="h2">Check your texts</Txt>
-                <Txt>We texted a code to <Txt v="bold">{f.phone.trim()}</Txt>. Tap the code your keyboard suggests, or type it in.</Txt>
+                <Txt>We texted <Txt v="bold">{f.phone.trim()}</Txt>. Tap the link in the message to finish, or enter the code from it here.</Txt>
                 <Field label="Code from the text" value={otp} autoFocus keyboardType="number-pad" autoComplete="sms-otp" textContentType="oneTimeCode"
                   onChangeText={(v) => { const d = v.replace(/\D/g, '').slice(0, 8); setOtp(d); if (d.length === 6 && !busy) verifyText(d); }} />
                 {err ? <Txt color={p.danger}>{err}</Txt> : null}
