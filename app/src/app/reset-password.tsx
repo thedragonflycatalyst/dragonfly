@@ -16,7 +16,7 @@ export default function ResetPassword() {
   const p = usePalette();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const [state, setState] = useState<'checking' | 'ready' | 'bad' | 'done'>('checking');
+  const [state, setState] = useState<'checking' | 'ready' | 'bad' | 'done' | 'confirmed'>('checking');
   const [why, setWhy] = useState('');
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
@@ -38,7 +38,8 @@ export default function ResetPassword() {
         const { error } = await sb.auth.setSession({ access_token: access, refresh_token: refresh });
         if (Platform.OS === 'web') window.history.replaceState(null, '', window.location.pathname);
         if (error) { setWhy('This link has expired or was already used.'); return setState('bad'); }
-        return setState('ready');
+        // Sign-up confirmations and email changes from any app land here too: nothing more to do
+        return setState(q.get('type') === 'recovery' ? 'ready' : 'confirmed');
       }
       // Opened without a link: only useful if already signed in
       const { data } = await sb.auth.getSession();
@@ -72,7 +73,11 @@ export default function ResetPassword() {
         <View style={{ width: '100%', maxWidth: 460 }}>
           <Card style={{ gap: 12 }}>
             <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>Your Dragonfly account</Txt>
-            {state === 'checking' ? <Txt>One moment…</Txt> : state === 'done' ? <>
+            {state === 'checking' ? <Txt>One moment…</Txt> : state === 'confirmed' ? <>
+              <Txt v="h2">You’re confirmed</Txt>
+              <Txt>Your Dragonfly account is all set. Go back to the app you were using and sign in.</Txt>
+              <Button title="Continue" onPress={() => router.replace('/')} />
+            </> : state === 'done' ? <>
               <Txt v="h2">Password changed</Txt>
               <Txt>Your new password works in every Dragonfly app: the coaching app, Lapis, the Uploader and the Phoenix app.</Txt>
               <Button title="Continue" onPress={() => router.replace('/')} />
