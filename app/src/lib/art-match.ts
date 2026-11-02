@@ -27,3 +27,15 @@ export function artFor(name: string): ArtKey | null {
   const s = name.toLowerCase();
   return RULES.find(([re]) => re.test(s))?.[1] ?? null;
 }
+
+/**
+ * The cover photo to show: one the trainer picked ("art:legs"), or one that fits the name ("Leg day" → legs).
+ * With `always`, anything else gets the full-body photo instead of a colour.
+ */
+export function artCover(cover: string | null | undefined, name: string, always = false): ArtKey | null {
+  const m = (cover ?? '').match(/^art:([a-z]+)$/);
+  if (m && (WORKOUT_ART as readonly string[]).includes(m[1])) return m[1] as ArtKey;
+  if (cover && !/^(preset:|#|art:)/.test(cover)) return null;
+  if (cover?.startsWith('preset:') && !always) return null;
+  return artFor(name) ?? (always ? 'fullbody' : null);
+}

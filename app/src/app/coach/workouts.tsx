@@ -101,7 +101,7 @@ export default function WorkoutsTab() {
               {list.map((w, i) => (
                 <Pressable key={w.id} accessibilityRole="link" onPress={() => router.push({ pathname: '/workouts/[id]', params: { id: w.id } })}
                   style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, borderBottomWidth: i === list.length - 1 ? 0 : 1, borderBottomColor: p.line, opacity: pressed ? 0.7 : 1 })}>
-                  <Cover name={w.name} cover={w.cover} />
+                  <Cover name={w.name} cover={w.cover} photo />
                   <View style={{ flex: 1, gap: 2 }}>
                     <Txt v="bold" numberOfLines={2}>{w.name}</Txt>
                     <Txt v="small">{exerciseCount(w.blocks)} exercises · about {estimateMinutes(w.blocks)} min{w.folder_id ? ` · ${folders.find((f) => f.id === w.folder_id)?.name ?? ''}` : ''}</Txt>
@@ -121,7 +121,7 @@ export default function WorkoutsTab() {
               {programs.map((pr, i) => (
                 <Pressable key={pr.id} accessibilityRole="link" onPress={() => router.push({ pathname: '/programs/[id]', params: { id: pr.id } })}
                   style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, borderBottomWidth: i === programs.length - 1 ? 0 : 1, borderBottomColor: p.line, opacity: pressed ? 0.7 : 1 })}>
-                  <Cover name={pr.name} cover={pr.cover} />
+                  <Cover name={pr.name} cover={pr.cover} photo />
                   <View style={{ flex: 1, gap: 2 }}><Txt v="bold" numberOfLines={2}>{pr.name}</Txt><Txt v="small">{pr.weeks} weeks · {pr.schedule.length} workouts</Txt></View>
                   <Icon name="chevron_right" color={p.muted} />
                 </Pressable>
@@ -157,7 +157,7 @@ export default function WorkoutsTab() {
           <Txt v="small">Starter workouts built from the exercise library. Copy one, then adjust it for your client.</Txt>
           {TEMPLATES.map((t) => (
             <Card key={t.key} style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
-              <Cover name={t.name} cover={t.cover} />
+              <Cover name={t.name} cover={t.cover} photo />
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt v="bold">{t.name}</Txt>
                 <Txt v="small">{exerciseCount(t.blocks)} exercises · about {estimateMinutes(t.blocks)} min</Txt>

@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import { sb } from '@/lib/supabase';
 import { F, R } from '@/lib/theme';
+import { artCover, WORKOUT_IMAGES } from '@/lib/art';
 import { coverColors } from '@/lib/workouts';
 import { Txt } from './ui';
 
@@ -17,14 +18,19 @@ export async function coverUrl(path: string): Promise<string | null> {
 }
 export const isUploaded = (cover: string | null | undefined): cover is string => !!cover?.startsWith('media:');
 
-/** Cover art: the trainer's own uploaded image, or a gradient with the item's initials */
-export function Cover({ name, cover, size = 64 }: { name: string; cover: string | null; size?: number }) {
+/**
+ * Cover art: the trainer's own uploaded image; a Dragonfly photo (picked, or matched from the name: "Leg day" → legs);
+ * otherwise a gradient with the item's initials. `photo` (routines, programs, groups) never falls back to a colour.
+ */
+export function Cover({ name, cover, size = 64, photo }: { name: string; cover: string | null; size?: number; photo?: boolean }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => { if (isUploaded(cover)) coverUrl(cover.slice(6)).then(setUrl); else setUrl(null); }, [cover]);
   if (isUploaded(cover)) {
     return <Image source={url ? { uri: url } : null} accessibilityLabel={`${name} cover`} contentFit="cover"
       style={{ width: size, height: size, borderRadius: R.sm, backgroundColor: '#8884' }} />;
   }
+  const art = artCover(cover, name, photo);
+  if (art) return <Image source={WORKOUT_IMAGES[art]} accessibilityLabel={`${name} cover`} contentFit="cover" style={{ width: size, height: size, borderRadius: R.sm, backgroundColor: '#111' }} />;
   const [a, b] = coverColors(cover, name);
   const letters = name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
   return (

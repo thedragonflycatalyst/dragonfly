@@ -88,7 +88,7 @@ export default function Programs() {
                     <Pressable key={x.id} accessibilityRole="link" accessibilityLabel={x.name} onPress={() => router.push({ pathname: '/programs/[id]', params: { id: x.id } })}
                       style={({ pressed }) => ({ flexGrow: 1, flexBasis: 160, maxWidth: 320, gap: 8, opacity: pressed ? 0.8 : 1 })}>
                       <View style={{ aspectRatio: 16 / 10, borderRadius: R.md, overflow: 'hidden', alignItems: 'stretch' }}>
-                        <Cover name={x.name} cover={x.cover} size={320} />
+                        <Cover name={x.name} cover={x.cover} size={320} photo />
                       </View>
                       <View>
                         <Txt v="bold" numberOfLines={2}>{x.name}</Txt>

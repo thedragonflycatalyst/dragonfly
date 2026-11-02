@@ -44,7 +44,7 @@ export default function Communities() {
               {shown.map((c) => (
                 <Pressable key={c.id} accessibilityRole="link" accessibilityLabel={c.name} onPress={() => router.push({ pathname: '/communities/[id]', params: { id: c.id } })}
                   style={({ pressed }) => ({ flexGrow: 1, flexBasis: 220, maxWidth: 460, gap: 8, opacity: pressed ? 0.8 : 1 })}>
-                  <View style={{ aspectRatio: 2.2, borderRadius: R.md, overflow: 'hidden', alignItems: 'stretch' }}><Cover name={c.name} cover={c.cover} size={460} /></View>
+                  <View style={{ aspectRatio: 2.2, borderRadius: R.md, overflow: 'hidden', alignItems: 'stretch' }}><Cover name={c.name} cover={c.cover} size={460} photo /></View>
                   <View><Txt v="bold">{c.name}</Txt>{c.description ? <Txt v="small" numberOfLines={2}>{c.description}</Txt> : null}</View>
                 </Pressable>
               ))}

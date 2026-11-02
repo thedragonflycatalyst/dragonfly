@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { artFor } from './art-match';
+import { artCover, artFor } from './art-match';
 
 test('artFor picks a picture from the routine name', () => {
   assert.equal(artFor('Leg Day'), 'legs');
@@ -14,4 +14,15 @@ test('artFor picks a picture from the routine name', () => {
   assert.equal(artFor('Morning Mobility'), 'yoga');
   assert.equal(artFor('Arms & Abs'), 'arms');
   assert.equal(artFor('Something else'), null);
+});
+
+test('artCover: a picked photo wins, otherwise the name decides', () => {
+  assert.equal(artCover('art:yoga', 'Leg day'), 'yoga');
+  assert.equal(artCover(null, 'Leg day'), 'legs');
+  assert.equal(artCover(null, 'Monday plan'), null);
+  assert.equal(artCover(null, 'Monday plan', true), 'fullbody');
+  assert.equal(artCover('preset:2', 'Leg day'), null);
+  assert.equal(artCover('preset:2', 'Leg day', true), 'legs');
+  assert.equal(artCover('media:x/y.jpg', 'Leg day', true), null);
+  assert.equal(artCover('art:bogus', 'Swim', true), 'swimming');
 });

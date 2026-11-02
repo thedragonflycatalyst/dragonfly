@@ -8,9 +8,10 @@ import { bytesOf, rand } from '@/lib/files';
 import { errText } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { R, usePalette } from '@/lib/theme';
-import { COVERS } from '@/lib/workouts';
+import { Image } from 'expo-image';
+import { ART_LABEL, WORKOUT_ART, WORKOUT_IMAGES } from '@/lib/art';
 
-/** Choose a colour cover or upload your own art (stored in coach-media/{trainer}/covers) */
+/** Choose a Dragonfly photo or upload your own art (stored in coach-media/{trainer}/covers). Left alone, the photo follows the name. */
 export function CoverPicker({ name, value, trainerId, onChange }: { name: string; value: string | null; trainerId: string; onChange: (cover: string | null) => void }) {
   const p = usePalette();
   const toast = useToast();
@@ -33,17 +34,22 @@ export function CoverPicker({ name, value, trainerId, onChange }: { name: string
     <View style={{ gap: 10, marginBottom: 16 }}>
       <Txt v="bold" style={{ fontSize: 15 }}>Cover</Txt>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-        <Cover name={name || '?'} cover={value} size={84} />
+        <Cover name={name || '?'} cover={value} size={84} photo />
         <View style={{ gap: 8 }}>
           <Button small kind="ghost" icon="photo_camera" title={isUploaded(value) ? 'Change image' : 'Upload your own art'} busy={busy} onPress={upload} />
-          {isUploaded(value) && <Button small kind="quiet" title="Use a colour instead" onPress={() => onChange('preset:0')} />}
+          {value && <Button small kind="quiet" title="Match the name automatically" onPress={() => onChange(null)} />}
         </View>
       </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-        {COVERS.map(([a, b], i) => (
-          <Pressable key={i} accessibilityRole="radio" accessibilityLabel={`Colour cover ${i + 1}`} accessibilityState={{ selected: value === `preset:${i}` }} onPress={() => onChange(`preset:${i}`)}
-            style={{ width: 44, height: 44, borderRadius: R.sm, backgroundColor: b, borderWidth: 4, borderColor: value === `preset:${i}` ? p.ink : a }} />
-        ))}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {WORKOUT_ART.map((k) => {
+          const on = value === `art:${k}`;
+          return (
+            <Pressable key={k} accessibilityRole="radio" accessibilityLabel={`${ART_LABEL[k]} photo`} accessibilityState={{ selected: on }} onPress={() => onChange(`art:${k}`)}
+              style={{ borderRadius: R.sm, borderWidth: 2, borderColor: on ? p.focus : 'transparent', padding: 1 }}>
+              <Image source={WORKOUT_IMAGES[k]} style={{ width: 56, height: 56, borderRadius: R.sm - 2 }} contentFit="cover" />
+            </Pressable>
+          );
+        })}
       </View>
     </View>
   );
