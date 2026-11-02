@@ -13,7 +13,7 @@ $$
 $$;
 
 -- After signing up (email confirmed): become this trainer's client, or link the record they already made for you
-create function public.coach_join(p_code text, p_first text, p_last text) returns uuid
+create function public.coach_join(p_code text, p_first text, p_last text, p_phone text) returns uuid
 language plpgsql security definer set search_path = '' as
 $$
 declare v_email text; v_trainer uuid; c public.coach_clients; v_id uuid;
@@ -26,6 +26,8 @@ begin
   if v_trainer = auth.uid() then raise exception 'own_code' using errcode = '22023'; end if;
   p_first := nullif(left(trim(coalesce(p_first, '')), 60), ''); p_last := left(trim(coalesce(p_last, '')), 60);
   if p_first is null then raise exception 'name_required' using errcode = '22023'; end if;
+  p_phone := left(trim(coalesce(p_phone, '')), 30);
+  if length(regexp_replace(p_phone, '\D', '', 'g')) not between 7 and 15 then raise exception 'phone_required' using errcode = '22023'; end if;
 
   perform set_config('coach.linking', 'on', true);
   select * into c from public.coach_clients x where x.trainer_id = v_trainer and lower(x.email) = lower(v_email);
@@ -34,16 +36,17 @@ begin
     if c.user_id is null then
       update public.coach_clients set user_id = auth.uid(), status = 'active', started_on = coalesce(started_on, current_date) where id = c.id;
     end if;
+    update public.coach_clients set phone = p_phone where id = c.id;
     v_id := c.id;
   else
-    insert into public.coach_clients (trainer_id, first_name, last_name, email, user_id, status, started_on, source)
-    values (v_trainer, p_first, p_last, lower(v_email), auth.uid(), 'active', current_date, 'QR sign-up') returning id into v_id;
+    insert into public.coach_clients (trainer_id, first_name, last_name, email, phone, user_id, status, started_on, source)
+    values (v_trainer, p_first, p_last, lower(v_email), p_phone, auth.uid(), 'active', current_date, 'QR sign-up') returning id into v_id;
   end if;
   perform set_config('coach.linking', '', true);
   return v_id;
 end
 $$;
 
-revoke execute on function public.coach_join_info(text), public.coach_join(text, text, text) from public;
+revoke execute on function public.coach_join_info(text), public.coach_join(text, text, text, text) from public;
 grant execute on function public.coach_join_info(text) to anon, authenticated;
-grant execute on function public.coach_join(text, text, text) to authenticated;
+grant execute on function public.coach_join(text, text, text, text) to authenticated;

@@ -14,9 +14,10 @@ export const APK_URL = 'https://github.com/thedragonflycatalyst/dragonfly/releas
 const JOIN_TEXT: Record<string, string> = {
   bad_code: 'This sign-up code isn’t valid any more. Ask your trainer to show it again.',
   own_code: 'That’s your own sign-up code.', email_in_use: 'Your trainer already has a different account for this email.',
-  name_required: 'Enter your first name.', confirm_email_first: 'Confirm your email first.',
+  name_required: 'Enter your first name.', phone_required: 'Enter your phone number.', confirm_email_first: 'Confirm your email first.',
 };
 const joinErr = (e: unknown) => { const m = errText(e); return Object.entries(JOIN_TEXT).find(([k]) => m.includes(k))?.[1] ?? m; };
+const phoneOk = (s: string) => { const n = s.replace(/\D/g, '').length; return n >= 7 && n <= 15; };
 const device = () => (Platform.OS !== 'web' ? Platform.OS : /android/i.test(navigator.userAgent) ? 'android' : /iphone|ipad|ipod/i.test(navigator.userAgent) ? 'ios' : 'desktop');
 
 /**
@@ -31,7 +32,7 @@ export default function Join() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const [who, setWho] = useState<{ trainer_name: string; business_name: string | null } | null | undefined>(undefined);
   const [step, setStep] = useState<'form' | 'confirm' | 'done'>('form');
-  const [f, setF] = useState({ first: '', last: '', email: '', uname: '', pw: '' });
+  const [f, setF] = useState({ first: '', last: '', phone: '', email: '', uname: '', pw: '' });
   const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -41,8 +42,8 @@ export default function Join() {
   const name = who ? who.business_name || who.trainer_name : '';
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: k === 'uname' ? v.replace(/\s+/g, '') : v, ...(k === 'first' && (!x.uname || x.uname.startsWith(x.first.toLowerCase().replace(/[^a-z0-9]/g, ''))) ? { uname: `${v.toLowerCase().replace(/[^a-z0-9]/g, '')}${v ? Math.floor(100 + Math.random() * 900) : ''}` } : {}) }));
   const run = async (fn: () => Promise<void>) => { setErr(''); setBusy(true); try { await fn(); } catch (e) { setErr(joinErr(e)); } finally { setBusy(false); } };
-  const join = async (first = f.first, last = f.last) => {
-    const { error } = await sb.rpc('coach_join', { p_code: code, p_first: first, p_last: last });
+  const join = async () => {
+    const { error } = await sb.rpc('coach_join', { p_code: code, p_first: f.first, p_last: f.last, p_phone: f.phone });
     if (error) throw error;
     await app.reloadMe();
     setStep('done');
@@ -50,6 +51,7 @@ export default function Join() {
 
   const signUp = () => run(async () => {
     if (!f.first.trim()) throw new Error('Enter your first name.');
+    if (!phoneOk(f.phone)) throw new Error('Enter your phone number.');
     if (!isEmail(f.email.trim())) throw new Error('Enter a valid email address.');
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{2,29}$/.test(f.uname)) throw new Error('Pick a username: 3–30 letters or numbers, no spaces.');
     if (f.pw.length < 8) throw new Error('Use a password with at least 8 characters.');
@@ -85,8 +87,9 @@ export default function Join() {
                 <Txt>You’re signed in as {app.username ?? app.user.email}. Join as {who.trainer_name}’s client?</Txt>
                 <Field label="First name" value={f.first} onChangeText={set('first')} autoComplete="given-name" />
                 <Field label="Last name" value={f.last} onChangeText={set('last')} autoComplete="family-name" />
+                <Field label="Phone number" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" autoComplete="tel" />
                 {err ? <Txt color={p.danger}>{err}</Txt> : null}
-                <Button title="Join" busy={busy} onPress={() => run(() => join())} />
+                <Button title="Join" busy={busy} onPress={() => run(async () => { if (!phoneOk(f.phone)) throw new Error('Enter your phone number.'); await join(); })} />
               </Card>
             ) : step === 'confirm' ? (
               <Card style={{ gap: 12 }}>
@@ -103,6 +106,7 @@ export default function Join() {
                 <Txt v="h1" style={{ marginBottom: 10 }}>Join {name}</Txt>
                 <Field label="First name" value={f.first} onChangeText={set('first')} autoComplete="given-name" autoFocus />
                 <Field label="Last name" value={f.last} onChangeText={set('last')} autoComplete="family-name" />
+                <Field label="Phone number" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" autoComplete="tel" />
                 <Field label="Email" value={f.email} onChangeText={set('email')} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
                 <Field label="Username" hint="(can’t be changed later)" value={f.uname} onChangeText={set('uname')} autoCapitalize="none" autoCorrect={false} autoComplete="username-new" />
                 <Field label="Password" hint="(8+ characters)" value={f.pw} onChangeText={set('pw')} secureTextEntry autoComplete="new-password" />
