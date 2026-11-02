@@ -324,6 +324,42 @@ begin
 end
 $$;
 
+-- When a booking (one-off or repeating) happens on a local day, as a time range; null if it doesn't
+create function public.coach_booking_on(b public.coach_bookings, p_day date, p_tz text) returns tstzrange
+language plpgsql stable set search_path = '' as
+$$
+declare first_day date := (b.starts_at at time zone p_tz)::date; t time := (b.starts_at at time zone p_tz)::time; s timestamptz;
+begin
+  if p_day < first_day or p_day = any (b.skipped) or (b.repeat_until is not null and p_day > b.repeat_until) then return null; end if;
+  if not (case b.repeat
+      when 'none' then p_day = first_day
+      when 'daily' then true
+      when 'weekly' then (p_day - first_day) % 7 = 0
+      when 'biweekly' then (p_day - first_day) % 14 = 0
+      when 'monthly' then extract(day from p_day) = extract(day from first_day)
+      else false end) then return null; end if;
+  s := (p_day + t) at time zone p_tz;
+  return tstzrange(s, s + make_interval(mins => b.duration_min));
+end
+$$;
+
+-- Client booking screen: the trainer's busy times over the next days (no details about who or what)
+create function public.coach_trainer_busy(p_trainer uuid, p_days int default 21) returns table (starts_at timestamptz, ends_at timestamptz)
+language plpgsql stable security definer set search_path = '' as
+$$
+declare tz text; d date;
+begin
+  if public.coach_my_client_id(p_trainer) is null then raise exception 'not your trainer' using errcode = '42501'; end if;
+  select timezone into tz from public.coach_trainers where user_id = p_trainer;
+  tz := coalesce(tz, 'UTC');
+  for d in select generate_series((now() at time zone tz)::date, (now() at time zone tz)::date + least(greatest(p_days, 1), 60), interval '1 day')::date loop
+    return query select lower(r), upper(r) from (select public.coach_booking_on(b, d, tz) r from public.coach_bookings b where b.trainer_id = p_trainer) x where r is not null;
+  end loop;
+  return query select e.starts_at, e.starts_at + make_interval(mins => e.duration_min) from public.coach_events e
+    where e.trainer_id = p_trainer and not e.cancelled and e.starts_at > now() and e.starts_at < now() + make_interval(days => p_days + 1);
+end
+$$;
+
 -- Client books a session in the trainer's open hours (no overlap with the trainer's other bookings)
 create function public.coach_book_session(p_trainer uuid, p_starts timestamptz, p_minutes int, p_note text default null) returns uuid
 language plpgsql security definer set search_path = '' as
@@ -342,9 +378,10 @@ begin
     raise exception 'outside_hours' using errcode = '22023';
   end if;
   perform pg_advisory_xact_lock(hashtext(p_trainer::text));
-  if exists (select 1 from public.coach_bookings b where b.trainer_id = p_trainer and b.repeat = 'none'
-              and not ((b.starts_at::date) = any (b.skipped))
-              and tstzrange(b.starts_at, b.starts_at + make_interval(mins => b.duration_min)) && tstzrange(p_starts, p_starts + make_interval(mins => p_minutes))) then
+  if exists (select 1 from public.coach_bookings b where b.trainer_id = p_trainer
+              and public.coach_booking_on(b, loc::date, coalesce(tz, 'UTC')) && tstzrange(p_starts, p_starts + make_interval(mins => p_minutes)))
+     or exists (select 1 from public.coach_events e where e.trainer_id = p_trainer and not e.cancelled
+              and tstzrange(e.starts_at, e.starts_at + make_interval(mins => e.duration_min)) && tstzrange(p_starts, p_starts + make_interval(mins => p_minutes))) then
     raise exception 'slot_taken' using errcode = '22023';
   end if;
   select first_name into nm from public.coach_clients where id = c;
@@ -382,9 +419,9 @@ $$ select p_group is not null and exists (select 1 from public.coach_group_membe
 
 revoke execute on function public.coach_payment_guard(), public.coach_booking_guard(), public.coach_event_count(),
   public.coach_use_credits(uuid, int), public.coach_event_promote(uuid) from public, anon, authenticated;
-revoke execute on function public.coach_in_my_group(uuid), public.coach_perm(uuid, text), public.coach_my_client_id(uuid), public.coach_event_join(uuid),
+revoke execute on function public.coach_trainer_busy(uuid, int), public.coach_in_my_group(uuid), public.coach_perm(uuid, text), public.coach_my_client_id(uuid), public.coach_event_join(uuid),
   public.coach_event_leave(uuid, uuid), public.coach_book_session(uuid, timestamptz, int, text), public.coach_cancel_session(uuid, date) from public, anon;
-grant execute on function public.coach_in_my_group(uuid), public.coach_perm(uuid, text), public.coach_my_client_id(uuid), public.coach_event_join(uuid),
+grant execute on function public.coach_trainer_busy(uuid, int), public.coach_in_my_group(uuid), public.coach_perm(uuid, text), public.coach_my_client_id(uuid), public.coach_event_join(uuid),
   public.coach_event_leave(uuid, uuid), public.coach_book_session(uuid, timestamptz, int, text), public.coach_cancel_session(uuid, date) to authenticated;
 
 alter table public.coach_packages enable row level security;

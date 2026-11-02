@@ -69,7 +69,7 @@ export function Habits({ client, role }: SectionProps) {
           <Card key={h.id} style={{ gap: 10 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
               <View style={{ flex: 1 }}>
-                <Txt v="bold">{h.title}</Txt>
+                <Txt v="bold">{h.icon ? `${h.icon} ` : ""}{h.title}</Txt>
                 {h.details ? <Txt v="small">{h.details}</Txt> : null}
                 <Txt v="small" color={done >= h.days_per_week ? p.good : p.muted}>{done} of {h.days_per_week} days in the last week</Txt>
               </View>

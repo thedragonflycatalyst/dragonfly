@@ -39,7 +39,7 @@ export type FormRequest = {
   questions: Question[]; answers: Record<string, string>; status: 'pending' | 'completed'; flagged: boolean;
   requested_at: string; completed_at: string | null;
 };
-export type Habit = { id: string; client_id: string; trainer_id: string; title: string; details: string | null; days_per_week: number; active: boolean; created_at: string };
+export type Habit = { id: string; client_id: string; trainer_id: string; title: string; details: string | null; days_per_week: number; active: boolean; created_at: string; library_id?: string | null; icon?: string | null; color?: string | null; once?: boolean };
 
 export const INTERESTS = ['Weight loss', 'Strength', 'Muscle gain', 'Running', 'Endurance', 'Mobility and flexibility',
   'TRX', 'Sports performance', 'Nutrition', 'Injury recovery', 'Healthy habits', 'Stress relief', 'Group training'];
