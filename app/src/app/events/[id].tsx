@@ -214,7 +214,7 @@ function EventDetails() {
   const leave = async () => {
     if (!(await confirm('Cancel your place?', e.credits ? 'Your credits go back to your package.' : undefined, 'Cancel my place', true))) return;
     const { error } = await sb.rpc('coach_event_leave', { p_event: e.id });
-    if (error) toast(errText(error), false); else { toast('Cancelled'); load(); }
+    if (error) toast(/too_late/.test(error.message) ? `It’s too close to the start to cancel here. Message ${app.myTrainer?.display_name ?? 'your trainer'}.` : errText(error), false); else { toast('Cancelled'); load(); }
   };
   const d = new Date(e.starts_at);
   return (

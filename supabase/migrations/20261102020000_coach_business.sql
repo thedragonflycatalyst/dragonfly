@@ -316,6 +316,11 @@ begin
   if c is null then raise exception 'not your event' using errcode = '42501'; end if;
   select * into s from public.coach_event_signups where event_id = p_event and client_id = c for update;
   if not found or s.status = 'cancelled' then return; end if;
+  -- Clients can't drop out (and get credits back) once it's too close to the start, or after it
+  if p_client is null and s.status = 'booked'
+     and e.starts_at < now() + make_interval(hours => coalesce((select cancel_hours from public.coach_trainers where user_id = e.trainer_id), 12)) then
+    raise exception 'too_late_to_cancel' using errcode = '22023';
+  end if;
   if s.client_package_id is not null then
     update public.coach_client_packages set credits_used = greatest(credits_used - coalesce(e.credits, 0), 0) where id = s.client_package_id;
   end if;
@@ -395,15 +400,16 @@ $$;
 create function public.coach_cancel_session(p_booking uuid, p_on date) returns void
 language plpgsql security definer set search_path = '' as
 $$
-declare b public.coach_bookings%rowtype; hrs int; tz text;
+declare b public.coach_bookings%rowtype; hrs int; tz text; r tstzrange;
 begin
   select * into b from public.coach_bookings where id = p_booking for update;
   if not found or not public.coach_is_client(b.client_id) then raise exception 'not your session' using errcode = '42501'; end if;
   if not public.coach_perm(b.trainer_id, 'cancel_sessions') then raise exception 'cancel_closed' using errcode = '42501'; end if;
   select cancel_hours, timezone into hrs, tz from public.coach_trainers where user_id = b.trainer_id;
-  if (p_on + (b.starts_at at time zone coalesce(tz, 'UTC'))::time) at time zone coalesce(tz, 'UTC') < now() + make_interval(hours => hrs) then
-    raise exception 'too_late_to_cancel' using errcode = '22023';
-  end if;
+  -- The session must really happen on that day, and far enough ahead
+  r := public.coach_booking_on(b, p_on, coalesce(tz, 'UTC'));
+  if r is null then raise exception 'no session that day' using errcode = '22023'; end if;
+  if lower(r) < now() + make_interval(hours => coalesce(hrs, 12)) then raise exception 'too_late_to_cancel' using errcode = '22023'; end if;
   if b.repeat = 'none' and b.booked_by = 'client' then delete from public.coach_bookings where id = p_booking;
   else update public.coach_bookings set skipped = array_append(skipped, p_on) where id = p_booking and not (p_on = any (skipped)); end if;
 end
@@ -455,9 +461,10 @@ create policy coach_event_signups_trainer on public.coach_event_signups for all 
 -- Trainers record cash and other payments themselves; Stripe payments only come from the payment function
 create policy coach_payments_trainer_read on public.coach_payments for select to authenticated using (trainer_id = (select public.coach_acting()));
 create policy coach_payments_trainer_add on public.coach_payments for insert to authenticated
-  with check (trainer_id = (select public.coach_acting_write()) and method <> 'stripe' and stripe_session_id is null);
+  with check (trainer_id = (select public.coach_acting_write()) and method <> 'stripe' and stripe_session_id is null and stripe_payment_intent is null and stripe_subscription_id is null);
 create policy coach_payments_trainer_change on public.coach_payments for update to authenticated
-  using (trainer_id = (select public.coach_acting()) and method <> 'stripe') with check (trainer_id = (select public.coach_acting_write()) and method <> 'stripe');
+  using (trainer_id = (select public.coach_acting()) and method <> 'stripe')
+  with check (trainer_id = (select public.coach_acting_write()) and method <> 'stripe' and stripe_session_id is null and stripe_payment_intent is null and stripe_subscription_id is null);
 create policy coach_payments_trainer_remove on public.coach_payments for delete to authenticated
   using (trainer_id = (select public.coach_acting_write()) and method <> 'stripe');
 

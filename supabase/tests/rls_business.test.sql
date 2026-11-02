@@ -192,4 +192,23 @@ insert into public.dragonfly_admins select v from t.ids where k = 'trainer';
 select t.as_user('trainer');
 select t.ok((select count(*) from public.dragonfly_issue_reports) = 1, 'the app admin reads every report');
 select t.as_admin();
+-- ---------------------------------------------------------------- review fixes
+select t.as_user('trainer');
+insert into public.coach_events (trainer_id, title, starts_at, credits) select v, 'Soon class', now() + interval '2 hours', 1 from t.ids where k = 'trainer';
+insert into public.coach_client_packages (trainer_id, client_id, name, credits_total) select v, (select id from ana), 'Late test', 5 from t.ids where k = 'trainer';
+select t.as_admin();
+create temp table soon as select id from public.coach_events where title = 'Soon class';
+grant select on soon to authenticated;
+select t.as_user('client');
+select t.ok(public.coach_event_join((select id from soon)) = 'booked', 'client books a class starting soon');
+select t.ok(t.refused($$select public.coach_event_leave((select id from soon))$$), 'clients cannot drop out (and get credits back) inside the notice period');
+select t.ok(t.refused($$select public.coach_cancel_session((select id from public.coach_bookings where booked_by = 'client' limit 1), current_date + 90)$$), 'cancelling must name the session''s real date');
+select t.as_user('trainer2');
+select t.ok(t.refused($$insert into public.coach_resources (trainer_id, kind, title, file_path) select v, 'media', 'Stolen', (select v from t.ids where k = 'trainer') || '/resources/x.pdf' from t.ids where k = 'trainer2'$$), 'resources can only point at your own files');
+select t.as_user('trainer');
+select t.ok(t.refused($$update public.coach_payments set stripe_session_id = 'cs_test_x' where method = 'cash'$$), 'trainers cannot attach Stripe checkouts to their records');
+update public.coach_clients set status = 'frozen' where first_name = 'Ben';
+select t.as_user('client2');
+select t.ok((select count(*) from public.coach_messages) = 0, 'frozen clients lose chat access');
+select t.as_admin();
 \echo 'ALL BUSINESS AND SOCIAL TESTS PASSED'

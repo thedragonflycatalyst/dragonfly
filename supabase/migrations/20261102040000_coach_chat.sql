@@ -68,7 +68,12 @@ alter table public.coach_messages add constraint coach_messages_broadcast_fk for
 
 create function public.coach_chat_member(p_chat uuid) returns boolean
 language sql stable security definer set search_path = '' as
-$$ select exists (select 1 from public.coach_chat_members where chat_id = p_chat and user_id = auth.uid()) $$;
+$$
+  -- Clients only while they're an active client of the chat's trainer (archived or frozen clients lose access)
+  select exists (select 1 from public.coach_chat_members m join public.coach_chats c on c.id = m.chat_id
+                  where m.chat_id = p_chat and m.user_id = auth.uid()
+                    and (m.role = 'trainer' or exists (select 1 from public.coach_clients cl where cl.user_id = auth.uid() and cl.trainer_id = c.trainer_id and cl.status = 'active')))
+$$;
 -- Members, or a team owner viewing the trainer whose chat it is (read only)
 create function public.coach_chat_visible(p_chat uuid) returns boolean
 language sql stable security definer set search_path = '' as

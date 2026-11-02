@@ -145,6 +145,18 @@ create table public.coach_resources (
   updated_at timestamptz not null default now()
 );
 create trigger coach_resources_touch before update on public.coach_resources for each row execute function public.coach_touch();
+-- A resource's file must be in its own trainer's resources folder
+create function public.coach_resource_guard() returns trigger
+language plpgsql security definer set search_path = '' as
+$$
+begin
+  if new.file_path is not null and (split_part(new.file_path, '/', 1) <> new.trainer_id::text or split_part(new.file_path, '/', 2) <> 'resources') then
+    raise exception 'file path does not match this trainer' using errcode = '42501';
+  end if;
+  return new;
+end
+$$;
+create trigger coach_resources_guard before insert or update on public.coach_resources for each row execute function public.coach_resource_guard();
 
 -- ---------------------------------------------------------------- file library (Files)
 
@@ -239,8 +251,10 @@ $$
                   where f.path = p_name and c.user_id = auth.uid() and c.status = 'active')
     when 'resources' then
       public.coach_manages_text(split_part(p_name, '/', 1))
-      or exists (select 1 from public.coach_resources r where r.file_path = p_name and not r.archived and r.kind <> 'template'
-                    and r.trainer_id in (select public.coach_my_trainer_ids()))
+      or exists (select 1 from public.coach_resources r where r.file_path = p_name and r.trainer_id::text = split_part(p_name, '/', 1)
+                    and not r.archived and r.kind <> 'template' and r.audience <> 'none' and (r.expires_on is null or r.expires_on >= current_date)
+                    and r.trainer_id in (select public.coach_my_trainer_ids())
+                    and (r.audience = 'all' or public.coach_my_client_id(r.trainer_id) = any (r.client_ids)))
     else split_part(p_name, '/', 2) in ('exercises', 'covers', 'branding') and (
       public.coach_manages_text(split_part(p_name, '/', 1)) or public.coach_teammate_text(split_part(p_name, '/', 1))
       or exists (select 1 from public.coach_clients c
@@ -250,7 +264,7 @@ $$;
 
 -- ---------------------------------------------------------------- privileges and policies
 
-revoke execute on function public.coach_post_fill(), public.coach_post_count(), public.coach_library_guard() from public, anon, authenticated;
+revoke execute on function public.coach_post_fill(), public.coach_post_count(), public.coach_library_guard(), public.coach_resource_guard() from public, anon, authenticated;
 revoke execute on function public.coach_in_community(uuid), public.coach_can_post(uuid), public.coach_post_community(uuid),
   public.coach_moderates_post(uuid), public.dragonfly_is_admin() from public, anon;
 grant execute on function public.coach_in_community(uuid), public.coach_can_post(uuid), public.coach_post_community(uuid),

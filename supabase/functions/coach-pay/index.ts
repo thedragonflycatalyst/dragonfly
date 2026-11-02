@@ -89,7 +89,10 @@ async function record(admin: SupabaseClient, s: Record<string, any>): Promise<'r
     }
   }
   if (md.event_id) {
-    await admin.from('coach_event_signups').upsert({ event_id: md.event_id, client_id: md.client_id, trainer_id: md.trainer_id, status: 'booked', paid: true }, { onConflict: 'event_id,client_id' });
+    // If it filled up or was cancelled while they paid, they go on the waiting list (paid) and the trainer can refund
+    const { data: e } = await admin.from('coach_events').select('spaces, booked, cancelled').eq('id', md.event_id).maybeSingle();
+    const full = !e || e.cancelled || (e.spaces != null && e.booked >= e.spaces);
+    await admin.from('coach_event_signups').upsert({ event_id: md.event_id, client_id: md.client_id, trainer_id: md.trainer_id, status: full ? 'waitlist' : 'booked', paid: true }, { onConflict: 'event_id,client_id' });
   }
   return 'recorded';
 }
