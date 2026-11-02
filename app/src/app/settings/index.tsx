@@ -21,8 +21,7 @@ const GROUPS: Group[] = [
   { key: 'custom', title: 'Customisation', icon: 'star', items: [['Branding', 'Your logo and colour in your clients’ app', '/settings/branding']] },
   { key: 'features', title: 'Feature settings', icon: 'notifications', items: [['Notifications', 'What you’re told about, and how', '/settings/notifications'], ['Unit of measurement', 'Weights, bodyweight, lengths, distance', '/settings/units'], ['Permissions', 'What clients (and your trainers) can do', '/settings/permissions']] },
   { key: 'money', title: 'Payments & packages', icon: 'payments', items: [['Packages & vouchers', 'Session packs, memberships, discount codes', '/packages'], ['Payments', 'Income, payments, refunds, subscriptions', '/financials']] },
-  { key: 'look', title: 'Appearance', icon: 'palette', items: [['Theme', 'Dark (default), light, or match your phone', '/settings/appearance']] },
-  { key: 'coaching', title: 'Coaching', icon: 'fitness_center', items: [['Coaching settings', 'Profile, health questionnaire, freezing, check-in rhythm', '/settings/coaching'], ['Team', 'Your trainers, invites, viewing their accounts', '/team']] },
+  { key: 'coaching', title: 'Coaching', icon: 'fitness_center', items: [['Check-ins', 'Who’s due a personal check-in, with AI talking points', '/checkins'], ['Coaching settings', 'Profile, health questionnaire, freezing, check-in rhythm', '/settings/coaching'], ['Team', 'Your trainers, invites, viewing their accounts', '/team']] },
 ];
 
 /** Settings home: profile header, grouped sections that open, report an issue, about, log out */

@@ -1,3 +1,4 @@
+import { TimeField } from '@/components/pickers';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
@@ -245,9 +246,3 @@ export default function ProgramScreen() {
   );
 }
 
-/** HH:MM box that only saves valid times */
-function TimeField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  const [t, setT] = useState(value);
-  return <Field label={label} value={t} placeholder="07:00" keyboardType="numbers-and-punctuation"
-    onChangeText={(x) => { setT(x); if (/^([01]?\d|2[0-3]):[0-5]\d$/.test(x)) onChange(x.padStart(5, '0')); }} />;
-}

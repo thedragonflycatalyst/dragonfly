@@ -1,6 +1,3 @@
-import { useSyncExternalStore } from 'react';
-import { useColorScheme } from 'react-native';
-import { storage } from './storage';
 
 // Dragonfly: the Uploader's look. Deep ink with a violet accent (dark, the default), and a matching light version.
 const dark = {
@@ -15,27 +12,12 @@ const light: typeof dark = {
 };
 export type Palette = typeof dark;
 
-/* ---------- appearance: dark (default), light, or follow the phone ---------- */
-export type Appearance = 'dark' | 'light' | 'system';
-const KEY = 'dragonfly.appearance';
-const read = (): Appearance => { try { const v = storage.getItem(KEY); return v === 'light' || v === 'system' ? v : 'dark'; } catch { return 'dark'; } };
-let current: Appearance = read();
-const subs = new Set<() => void>();
-export const getAppearance = () => current;
-export function setAppearance(a: Appearance) {
-  current = a;
-  try { storage.setItem(KEY, a); } catch { /* private window */ }
-  subs.forEach((f) => f());
-}
-const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; };
-export const useAppearance = () => useSyncExternalStore(subscribe, getAppearance, getAppearance);
-
+/** Dark only (the Dragonfly look). The light palette is kept for reference. */
 export function usePalette(): Palette & { scheme: 'light' | 'dark' } {
-  const sys = useColorScheme();
-  const a = useAppearance();
-  const s = a === 'system' ? (sys === 'light' ? 'light' : 'dark') : a;
-  return { ...(s === 'dark' ? dark : light), scheme: s };
+  return DARK;
 }
+const DARK = { ...dark, scheme: 'dark' as const };
+void light;
 
 export const F = {
   display: 'Inter_700Bold',

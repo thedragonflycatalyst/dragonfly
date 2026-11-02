@@ -8,3 +8,4 @@ export async function connectHealth(): Promise<boolean> { return false; }
 export async function readHealth(_since: Date): Promise<HealthReadings> { return { weight: [], bodyFat: [], leanMass: [], boneMass: [], bodyWater: [], bmr: [] }; }
 export function openHealthSettings() {}
 export async function readDevice(_since: Date): Promise<DeviceHealth> { return emptyHealth(); }
+export async function readHeight(): Promise<number | null> { return null; }

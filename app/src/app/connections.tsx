@@ -9,6 +9,8 @@ import { Toggle } from '@/components/pickers';
 import { Button, Card, Field, Txt, useToast } from '@/components/ui';
 import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from '@/features/health-connect';
 import { deviceSync, saveFood, setDeviceSync, syncDevice } from '@/features/health-sync';
+import { syncHealth } from '@/features/scale-sync';
+import type { Weighin } from '@/lib/scale';
 import { Page } from '@/features/settings-page';
 import { useApp } from '@/lib/app-state';
 import { confirm } from '@/lib/ask';
@@ -64,7 +66,11 @@ function PhoneCard() {
       if (!st.on && !(await connectHealth())) return toast('Allow Dragonfly to read your data in Health Connect to sync', false);
       const r = await syncDevice(uid, app.membership, kind === 'history' ? new Date(Date.now() - 365 * 864e5) : undefined);
       setSt(deviceSync(uid));
-      toast(r.days + r.workouts + r.food ? `Synced ${r.days} day${r.days === 1 ? '' : 's'}, ${r.workouts} workout${r.workouts === 1 ? '' : 's'}${r.food ? `, ${r.food} food${r.food === 1 ? '' : 's'}` : ''}` : 'All caught up');
+      // Weigh-ins (and height) too, so one Connect covers the Scale as well
+      const { data: wl } = await sb.from('coach_weighins').select('*').eq('user_id', uid).gte('measured_at', new Date(Date.now() - 800 * 864e5).toISOString());
+      const w = await syncHealth(uid, (wl ?? []) as Weighin[], kind === 'history' ? new Date(Date.now() - 10 * 365 * 864e5) : undefined).catch(() => 0);
+      const parts = [r.days && `${r.days} day${r.days === 1 ? '' : 's'}`, r.workouts && `${r.workouts} workout${r.workouts === 1 ? '' : 's'}`, r.food && `${r.food} food${r.food === 1 ? '' : 's'}`, w && `${w} weigh-in${w === 1 ? '' : 's'}`].filter(Boolean);
+      toast(parts.length ? `Synced ${parts.join(', ')}` : 'All caught up');
     } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
   };
   const feeds = 'Garmin Connect, Fitbit, Samsung Health, Google Fit, Strava, Oura, WHOOP, Withings, Polar, COROS, Peloton, MyFitnessPal, Cronometer, MacroFactor, Lose It and more';

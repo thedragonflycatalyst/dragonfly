@@ -37,6 +37,7 @@ function CoachCalendar() {
   const [menu, setMenu] = useState<Occurrence | null>(null);
   const [hours, setHours] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importMenu, setImportMenu] = useState(false);
   const { clients, groups } = useClientList();
   const week = weekOf(anchor);
 
@@ -86,9 +87,13 @@ function CoachCalendar() {
     const { error } = await sb.from('coach_bookings').update({ repeat_until: dayKey(addDays(fromKey(o.day), -1)) }).eq('id', o.booking.id);
     if (error) toast(errText(error), false); else { toast('Stopped repeating from this date'); load(); }
   };
-  const importShot = async () => {
+  // A screenshot of texts, or a photo of a paper schedule, whiteboard or another screen
+  const importShot = async (from: 'camera' | 'library') => {
+    setImportMenu(false);
     try {
-      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+      if (from === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) return toast('Allow camera access to take a photo', false);
+      const res = from === 'camera' ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 })
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
       if (res.canceled || !res.assets[0]) return;
       setImporting(true);
       const a = res.assets[0];
@@ -133,7 +138,7 @@ function CoachCalendar() {
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <Button small kind="quiet" title="Today" onPress={() => { setAnchor(new Date()); setDay(dayKey(new Date())); }} />
-            <Button small kind="ghost" icon="document_scanner" title="Import from screenshot" busy={importing} onPress={importShot} />
+            <Button small kind="ghost" icon="document_scanner" title="Import appointments" busy={importing} onPress={() => setImportMenu(true)} />
             <Button small kind="ghost" icon="schedule" title="Open hours" onPress={() => setHours(true)} />
           </View>
           {bookings === null ? <ActivityIndicator color={p.ink} style={{ marginTop: 30 }} /> : week.filter((d) => d >= day).map((d) => {
@@ -182,6 +187,10 @@ function CoachCalendar() {
         </View>
       </ScrollView>
       <BookSheet open={book} onClose={() => setBook(null)} onSaved={() => { setBook(null); load(); }} events={events} />
+      <ActionMenu visible={importMenu} onClose={() => setImportMenu(false)} title="Import appointments" items={[
+        { label: 'Take a photo', icon: 'photo_camera', onPress: () => importShot('camera') },
+        { label: 'Choose a screenshot', icon: 'photo_library', onPress: () => importShot('library') },
+      ]} />
       <ActionMenu visible={!!menu} onClose={() => setMenu(null)} title={menu ? `${menu.booking.title} · ${t12(menu.start)}` : ''} items={menu ? [
         { label: menu.done ? 'Mark not done' : 'Mark done', icon: 'task_alt', onPress: () => toggleDone(menu) },
         { label: 'Edit', icon: 'edit', onPress: () => setBook({ day: menu.day, edit: menu.booking }) },

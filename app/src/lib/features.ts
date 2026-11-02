@@ -17,10 +17,11 @@ export const COACH_TABS: NavItem[] = [
 export const COACH_SIDEBAR: NavSection[] = [
   { title: 'Coaching', items: [
     { key: 'routines', title: 'Routines', icon: 'list_alt', href: '/coach/workouts?tab=workouts' },
-    { key: 'programs', title: 'Programs', icon: 'calendar_month', href: '/coach/workouts?tab=programs' },
-    { key: 'habits', title: 'Habits', icon: 'checklist', href: '/habits' },
+    { key: 'programs', title: 'Programs', icon: 'date_range', href: '/coach/workouts?tab=programs' },
+    { key: 'exercises', title: 'Exercise library', icon: 'sports_gymnastics', href: '/exercises' },
+    { key: 'reminders', title: 'Reminders', icon: 'checklist', href: '/habits' },
     { key: 'nutrition', title: 'Nutrition', icon: 'restaurant', href: '/coach/nutrition' },
-    { key: 'checkins', title: 'Check-ins', icon: 'inbox', href: '/checkins' },
+    { key: 'calendar', title: 'Calendar', icon: 'calendar_month', href: '/calendar' },
   ] },
   { title: 'Together', items: [
     { key: 'social', title: 'Social', icon: 'groups', href: '/communities' },
@@ -40,7 +41,8 @@ export const CLIENT_SIDEBAR: NavSection[] = [
     { key: 'scale', title: 'Scale', icon: 'monitor_weight', href: '/me/scale' },
     { key: 'nutrition', title: 'Nutrition', icon: 'restaurant', href: '/me/nutrition' },
     { key: 'activity', title: 'Activity & sleep', icon: 'directions_walk', href: '/me/activity' },
-    { key: 'habits', title: 'Habits', icon: 'checklist', href: '/me/habits' },
+    { key: 'reminders', title: 'Reminders', icon: 'checklist', href: '/me/habits' },
+    { key: 'calendar', title: 'Sessions', icon: 'calendar_month', href: '/calendar' },
   ] },
   { title: 'Together', items: [
     { key: 'social', title: 'Social', icon: 'groups', href: '/communities' },
@@ -59,3 +61,19 @@ export function canSee(key: 'financials' | 'packages' | 'events', member: { perm
   if (key === 'financials') return !!member.perms?.financials;
   return member.perms?.[key] ?? true;
 }
+
+/** Trainer Home: shortcut panels they choose (every one is also in the menu, or in Settings) */
+export const SHORTCUTS: NavItem[] = [
+  { key: 'add-client', title: 'Add client', icon: 'person_add', href: '/clients/new' },
+  { key: 'qr', title: 'QR sign-up', icon: 'qr_code_2', href: '/join-qr' },
+  { key: 'workout', title: 'Start a workout', icon: 'fitness_center', href: '/coach/workouts' },
+  { key: 'book', title: 'Book a session', icon: 'event', href: '/calendar' },
+  { key: 'message', title: 'Message a client', icon: 'chat_bubble', href: '/coach/chat' },
+  { key: 'checkins', title: 'Check-ins', icon: 'inbox', href: '/checkins' },
+  { key: 'clients', title: 'Clients', icon: 'group', href: '/coach/clients' },
+  ...COACH_SIDEBAR.flatMap((s) => s.items).filter((i) => !['calendar'].includes(i.key)),
+  { key: 'scale', title: 'Scale', icon: 'monitor_weight', href: '/coach/scale' },
+  { key: 'packages', title: 'Packages', icon: 'redeem', href: '/packages' },
+  { key: 'payments', title: 'Payments', icon: 'payments', href: '/financials' },
+];
+export const DEFAULT_SHORTCUTS = ['add-client', 'qr', 'workout', 'book', 'message', 'checkins'];

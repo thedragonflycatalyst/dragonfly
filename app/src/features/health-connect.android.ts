@@ -5,7 +5,7 @@ import { emptyHealth, mealName, type DeviceHealth } from '@/lib/health';
 import type { HealthReadings } from '@/lib/scale';
 
 export type HealthStatus = 'unsupported' | 'not_installed' | 'update_needed' | 'ready';
-const TYPES = ['Weight', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate',
+const TYPES = ['Weight', 'Height', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate',
   'Steps', 'ActiveCaloriesBurned', 'Distance', 'SleepSession', 'RestingHeartRate', 'HeartRateVariabilityRmssd', 'Hydration', 'ExerciseSession', 'Nutrition'] as const;
 
 export async function healthStatus(): Promise<HealthStatus> {
@@ -59,6 +59,18 @@ export async function readHealth(since: Date): Promise<HealthReadings> {
   };
 }
 export const openHealthSettings = () => openHealthConnectSettings();
+
+/** Their most recent height in Health Connect (cm), if any app shared one */
+export async function readHeight(): Promise<number | null> {
+  try {
+    await initialize();
+    const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
+    if (!ok.has('Height')) return null;
+    const list = await all<{ time: string; height: { inMeters: number } }>('Height', new Date(Date.now() - 20 * 365 * 864e5));
+    const last = list.sort((a, b) => b.time.localeCompare(a.time))[0];
+    return last ? Math.round(last.height.inMeters * 1000) / 10 : null;
+  } catch { return null; }
+}
 
 const EXERCISE_NAMES = Object.fromEntries(Object.entries(ExerciseType).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())]));
 const AWAKE = new Set<number>([SleepStageType.AWAKE, SleepStageType.OUT_OF_BED]);

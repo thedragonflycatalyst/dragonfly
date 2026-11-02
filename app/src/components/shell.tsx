@@ -5,7 +5,7 @@ import { Animated, Modal, Pressable, RefreshControl, ScrollView, Text, useWindow
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/lib/app-state';
 import { CLIENT_SIDEBAR, COACH_SIDEBAR, COACH_TABS, type NavItem } from '@/lib/features';
-import { F, MAX_W, R, setAppearance, useAppearance, usePalette, WIDE } from '@/lib/theme';
+import { F, MAX_W, R, usePalette, WIDE } from '@/lib/theme';
 import { Ambient } from './ambient';
 import { Avatar } from './avatar';
 import { Icon, Txt } from './ui';
@@ -54,6 +54,11 @@ export function TopBar() {
       </View>
       {app.user && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {app.mode === 'coach' && (
+            <Pressable accessibilityRole="button" accessibilityLabel="QR sign-up" hitSlop={6} onPress={() => router.push('/join-qr')} style={btn}>
+              <Icon name="qr_code_2" size={21} color={p.focus} />
+            </Pressable>
+          )}
           {app.mode && (
             <Pressable accessibilityRole="button" accessibilityLabel="Calendar" hitSlop={6} onPress={() => router.push('/calendar')} style={btn}>
               <Icon name="calendar_month" size={21} color={p.focus} />
@@ -93,7 +98,6 @@ function SidebarBody({ onGo }: { onGo?: () => void }) {
   const wide = useWide();
   const path = usePathname();
   const insets = useSafeAreaInsets();
-  const look = useAppearance();
   const coach = app.mode === 'coach';
   const both = !!app.trainer && app.memberships.length > 0;
   const go = (href: string) => { onGo?.(); router.push(href as Href); };
@@ -121,14 +125,6 @@ function SidebarBody({ onGo }: { onGo?: () => void }) {
         </View>
       ))}
       <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: p.line, gap: 8 }}>
-        <View accessibilityRole="radiogroup" accessibilityLabel="Theme" style={{ flexDirection: 'row', backgroundColor: p.soft, borderRadius: R.md, padding: 3 }}>
-          {([['dark', 'Dark'], ['light', 'Light'], ['system', 'Auto']] as const).map(([k, l]) => (
-            <Pressable key={k} accessibilityRole="radio" accessibilityState={{ checked: look === k }} onPress={() => setAppearance(k)}
-              style={{ flex: 1, height: 30, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: look === k ? p.surface : 'transparent' }}>
-              <Txt v={look === k ? 'smallBold' : 'small'} color={p.ink}>{l}</Txt>
-            </Pressable>
-          ))}
-        </View>
         {coach && <NavRow item={{ key: 'team', title: app.team ? app.team.name : 'Team', icon: 'groups', href: '/team' }} active={isActive('/team')} onGo={() => go('/team')} />}
         <NavRow item={{ key: 'guide', title: 'Quickstart guide', icon: 'school', href: '/guide' }} active={false} onGo={() => go('/guide')} />
         <NavRow item={{ key: 'out', title: 'Sign out', icon: 'logout', href: '/' }} active={false} onGo={async () => { onGo?.(); await app.signOut(); router.replace('/'); }} />

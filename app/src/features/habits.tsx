@@ -57,14 +57,14 @@ export function Habits({ client, role }: SectionProps) {
     <View style={{ gap: 14 }}>
       {role === 'coach' && (
         <Card>
-          <Txt v="h3" style={{ marginBottom: 12 }}>New habit</Txt>
+          <Txt v="h3" style={{ marginBottom: 12 }}>New reminder</Txt>
           <Field label="Habit" value={title} onChangeText={setTitle} placeholder="Drink 80 oz of water" />
           <Field label="Details" hint="(optional)" value={details} onChangeText={setDetails} placeholder="Keep a bottle at your desk" />
           <View style={{ width: 160 }}><Field label="Days per week" value={days} onChangeText={setDays} keyboardType="number-pad" /></View>
-          <Button title="Add habit" style={{ alignSelf: 'flex-start' }} onPress={add} />
+          <Button title="Add reminder" style={{ alignSelf: 'flex-start' }} onPress={add} />
         </Card>
       )}
-      {habits && active.length === 0 && <Empty emoji="🌿" title="No habits yet" body={role === 'coach' ? 'Small daily habits, like water, steps or sleep, that your client ticks off.' : 'Your trainer will add daily habits here for you to tick off.'} />}
+      {habits && active.length === 0 && <Empty emoji="🌿" title="No reminders yet" body={role === 'coach' ? 'Small daily reminders, like water, steps or sleep, that your client ticks off.' : 'Your trainer will add daily reminders here for you to tick off.'} />}
       {active.map((h) => {
         const done = week.filter((d) => checks.has(`${h.id}:${d}`)).length;
         return (
@@ -76,7 +76,7 @@ export function Habits({ client, role }: SectionProps) {
                 {h.auto_metric ? <Txt v="small" color={p.focus}>⚡ Ticks itself at {Number(h.auto_target).toLocaleString()} {AUTO_UNIT[h.auto_metric]} (from synced data)</Txt> : null}
                 <Txt v="small" color={done >= h.days_per_week ? p.good : p.muted}>{done} of {h.days_per_week} days in the last week</Txt>
               </View>
-              {role === 'coach' && <Button small kind="quiet" title="Stop" onPress={() => ask('Stop this habit?', 'It moves to past habits. Its history is kept.', [
+              {role === 'coach' && <Button small kind="quiet" title="Stop" onPress={() => ask('Stop this reminder?', 'It moves to past reminders. Its history is kept.', [
                 { text: 'Cancel', style: 'cancel' }, { text: 'Stop', onPress: async () => { await sb.from('coach_habits').update({ active: false }).eq('id', h.id); load(); } }])} />}
             </View>
             <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -98,7 +98,7 @@ export function Habits({ client, role }: SectionProps) {
           </Card>
         );
       })}
-      {past.length > 0 && <Txt v="small">Past habits: {past.map((h) => h.title).join(', ')}</Txt>}
+      {past.length > 0 && <Txt v="small">Past reminders: {past.map((h) => h.title).join(', ')}</Txt>}
     </View>
   );
 }

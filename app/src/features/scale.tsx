@@ -5,7 +5,7 @@ import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native
 import { Segmented, SectionLabel } from '@/components/bits';
 import { ChangeBars, Gauge, LineChart, type Series } from '@/components/charts';
 import { DateField } from '@/components/date-field';
-import { Fab, TimeField, Toggle } from '@/components/pickers';
+import { Fab, time12, TimeField, Toggle } from '@/components/pickers';
 import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from './health-connect';
 import { healthSync, setHealthSync, syncHealth } from './scale-sync';
 import { Sheet } from '@/components/sheet';
@@ -333,7 +333,7 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
       if (!perm.granted) return toast('Allow notifications for Dragonfly in your phone’s settings', false);
       const [hh, mm] = time.split(':').map(Number);
       await N.scheduleNotificationAsync({ content: { title: 'Time to weigh in', body: 'Step on the scale and log it in Dragonfly.', data: { kind: 'weigh-in' } }, trigger: { type: N.SchedulableTriggerInputTypes.DAILY, hour: hh, minute: mm } });
-      toast(`Daily reminder at ${time}`);
+      toast(`Daily reminder at ${time12(time)}`);
     } catch (e) { toast(errText(e), false); }
   };
   return (
@@ -392,6 +392,7 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
 /* ---------------- Health Connect ---------------- */
 function HealthCard({ userId, list, reload }: { userId: string; list: Weighin[]; reload: () => void }) {
   const toast = useToast();
+  const p = usePalette();
   const [status, setStatus] = useState<HealthStatus | null>(null);
   const [on, setOn] = useState(() => healthSync(userId).on);
   const [busy, setBusy] = useState<'connect' | 'history' | null>(null);
@@ -402,7 +403,9 @@ function HealthCard({ userId, list, reload }: { userId: string; list: Weighin[];
     try {
       if (kind === 'connect' && !(await connectHealth())) return toast('Allow Dragonfly to read your weight in Health Connect to sync', false);
       const n = await syncHealth(userId, list, kind === 'history' ? new Date(Date.now() - 10 * 365 * 86_400_000) : undefined);
-      setOn(true); toast(n ? `Added ${n} weigh-in${n === 1 ? '' : 's'}` : 'All caught up'); if (n) reload();
+      setOn(true); reload();
+      if (n) toast(`Added ${n} weigh-in${n === 1 ? '' : 's'}`);
+      else toast(list.length ? 'All caught up' : 'No weigh-ins in Health Connect yet. In the RENPHO app, turn on sharing Weight to Health Connect, weigh in, then Sync now.', !!list.length);
     } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
   };
   if (status === null) return null;
@@ -419,6 +422,7 @@ function HealthCard({ userId, list, reload }: { userId: string; list: Weighin[];
     <Card style={{ gap: 10 }}>
       <Txt v="small">Your RENPHO app (or Libra, Samsung Health, Fitbit, Withings…) shares each weigh-in with Health Connect, and Dragonfly picks it up whenever you open the Scale: weight, body fat, bone mass, body water and BMR. In the RENPHO app, switch on sharing to Health Connect (in its settings, under connected apps or integrations).</Txt>
       {on ? <>
+        {list.length === 0 && <Txt v="small" color={p.gold}>Nothing has come in yet. Open the RENPHO app → Me → Health Connect (or Settings → Connected apps), allow it to write Weight, Body fat and the rest, then tap Sync now.</Txt>}
         <Txt v="bold">✓ Syncing{last ? ` · last checked ${new Date(last).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           <Button kind="ghost" icon="sync" title="Sync now" busy={busy === 'connect'} onPress={() => run('connect')} />

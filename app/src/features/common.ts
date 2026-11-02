@@ -24,7 +24,7 @@ export const SECTIONS = {
   activity: { title: 'Activity', icon: 'timeline' },
   measurements: { title: 'Measurements', icon: 'straighten' },
   photos: { title: 'Progress photos', icon: 'photo_camera' },
-  habits: { title: 'Habits', icon: 'task_alt' },
+  habits: { title: 'Reminders', icon: 'task_alt' },
   goals: { title: 'Goals and interests', icon: 'flag' },
   forms: { title: 'Forms', icon: 'description' },
   files: { title: 'Files', icon: 'attach_file' },

@@ -52,13 +52,13 @@ export default function HabitsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: p.bg }}>
-      <Stack.Screen options={{ title: 'Habits' }} />
+      <Stack.Screen options={{ title: 'Reminders' }} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 110, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
         <View style={{ width: '100%', maxWidth: MAX_W, gap: 12 }}>
           <Segmented value={shelf} onChange={setShelf} options={[['current', 'Current'], ['archived', 'Archived']]} />
-          <SearchBox value={q} onChange={setQ} placeholder="Search habits" />
+          <SearchBox value={q} onChange={setQ} placeholder="Search reminders" />
           {lib === null ? <ActivityIndicator color={p.ink} style={{ marginTop: 30 }} /> : list.length === 0 ? (
-            <Empty emoji="🌱" title={shelf === 'archived' ? 'Nothing archived' : 'Build your habit library'} body="Small daily wins like 8,000 steps, 3 litres of water or 7 hours of sleep. Create a habit once, give it to as many clients as you like, and see who’s keeping up." />
+            <Empty emoji="🌱" title={shelf === 'archived' ? 'Nothing archived' : 'Build your reminders'} body="Small daily wins like 8,000 steps, 3 litres of water or 7 hours of sleep. Create a reminder once, give it to as many clients as you like, and see who’s keeping up." />
           ) : (
             <Card style={{ padding: 0 }}>
               {list.map((l, i) => {
@@ -79,7 +79,7 @@ export default function HabitsScreen() {
           )}
         </View>
       </ScrollView>
-      {shelf === 'current' && <Fab title="Create habit" onPress={() => setOpen('new')} />}
+      {shelf === 'current' && <Fab title="Create reminder" onPress={() => setOpen('new')} />}
       <HabitSheet h={open} onClose={() => setOpen(null)} onSaved={load} assigned={open && open !== 'new' ? of(open) : []} checks={checks}
         clients={(clients ?? []).map((c) => ({ id: c.id, name: c.name }))} />
     </View>
@@ -140,7 +140,7 @@ function HabitSheet({ h, onClose, onSaved, assigned, checks, clients }: {
   };
   const weekTicks = (hid: string) => checks.filter((c) => c.habit_id === hid).length;
   return (
-    <Sheet visible={!!h} onClose={onClose} title={ed ? ed.name : 'Create habit'}>
+    <Sheet visible={!!h} onClose={onClose} title={ed ? ed.name : 'Create reminder'}>
       <Field label="Name" value={f.name} onChangeText={(name) => setF({ ...f, name })} placeholder="Drink 3 litres of water" />
       <Field label="Details" hint="(optional)" value={f.details} onChangeText={(details) => setF({ ...f, details })} placeholder="Keep a bottle at your desk" />
       <Txt v="bold" style={{ marginBottom: 8 }}>How often</Txt>
@@ -177,7 +177,7 @@ function HabitSheet({ h, onClose, onSaved, assigned, checks, clients }: {
           <Button kind="danger" icon="delete" title="Delete" onPress={remove} />
         </View>
       </>}
-      <ClientPicker visible={pick} onClose={() => setPick(false)} title="Who’s doing this habit" value={assigned.map((a) => a.client_id)} onDone={assign} />
+      <ClientPicker visible={pick} onClose={() => setPick(false)} title="Who gets this reminder" value={assigned.map((a) => a.client_id)} onDone={assign} />
     </Sheet>
   );
 }

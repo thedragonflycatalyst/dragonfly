@@ -49,19 +49,58 @@ export function Toggle({ label, sub, value, onChange }: { label: string; sub?: s
 }
 
 /** HH:MM time box. Accepts "7:30", "19:30" or "7:30 pm"; only valid times are passed on. */
+/** "7:30 PM" from "19:30" */
+export const time12 = (hhmm: string) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  if (!Number.isFinite(h)) return hhmm;
+  return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
+/** A time picked with taps (hour, minutes, AM/PM): shown in 12-hour time, stored as "HH:MM" */
 export function TimeField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  const [t, setT] = useState(value);
-  useEffect(() => setT(value), [value]);
-  const parse = (x: string) => {
-    const m = x.trim().match(/^(\d{1,2})(?::?(\d{2}))?\s*(am|pm|a|p)?$/i);
-    if (!m) return null;
-    let h = Number(m[1]); const mi = Number(m[2] ?? 0);
-    if (m[3]) { const pm = /^p/i.test(m[3]); if (h > 12 || h === 0) return null; if (pm && h < 12) h += 12; if (!pm && h === 12) h = 0; }
-    if (h > 23 || mi > 59) return null;
-    return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
-  };
-  return <Field label={label} value={t} placeholder="09:00" keyboardType="numbers-and-punctuation"
-    onChangeText={(x) => { setT(x); const v = parse(x); if (v) onChange(v); }} onBlur={() => { const v = parse(t); if (v) setT(v); }} />;
+  const p = usePalette();
+  const [open, setOpen] = useState(false);
+  const [h24, m] = (/^\d{1,2}:\d{2}/.test(value) ? value : '09:00').split(':').map(Number);
+  const pm = h24 >= 12, h12 = h24 % 12 || 12;
+  const set = (hh: number, mm: number, isPm: boolean) => onChange(`${String((hh % 12) + (isPm ? 12 : 0)).padStart(2, '0')}:${String(mm).padStart(2, '0')}`);
+  const cell = (on: boolean) => ({ minWidth: 52, height: 42, borderRadius: R.md, alignItems: 'center' as const, justifyContent: 'center' as const,
+    backgroundColor: on ? p.focus : p.soft, borderWidth: 1, borderColor: on ? p.focus : p.line });
+  return (
+    <View style={{ marginBottom: 16 }}>
+      <Txt v="bold" style={{ marginBottom: 6, fontSize: 14 }}>{label}</Txt>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${time12(value)}. Change`} onPress={() => setOpen(true)}
+        style={{ minHeight: 46, borderWidth: 1, borderColor: p.line, borderRadius: R.md, backgroundColor: p.raise, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Icon name="schedule" size={20} color={p.focus} /><Txt style={{ flex: 1 }}>{time12(value)}</Txt><Icon name="expand_more" size={20} color={p.muted} />
+      </Pressable>
+      <Sheet visible={open} onClose={() => setOpen(false)} title={label}>
+        <Txt v="h1" center style={{ marginBottom: 14 }}>{time12(value)}</Txt>
+        <Txt v="smallBold" style={{ marginBottom: 6 }}>Hour</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hh) => (
+            <Pressable key={hh} accessibilityRole="button" accessibilityState={{ selected: hh === h12 }} onPress={() => set(hh, m, pm)} style={cell(hh === h12)}>
+              <Txt v="bold" color={hh === h12 ? p.onAccent : p.ink}>{hh}</Txt>
+            </Pressable>
+          ))}
+        </View>
+        <Txt v="smallBold" style={{ marginBottom: 6 }}>Minutes</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((mm) => (
+            <Pressable key={mm} accessibilityRole="button" accessibilityState={{ selected: mm === m }} onPress={() => set(h12, mm, pm)} style={cell(mm === m)}>
+              <Txt v="bold" color={mm === m ? p.onAccent : p.ink}>:{String(mm).padStart(2, '0')}</Txt>
+            </Pressable>
+          ))}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+          {([false, true] as const).map((x) => (
+            <Pressable key={String(x)} accessibilityRole="button" accessibilityState={{ selected: pm === x }} onPress={() => set(h12, m, x)} style={[cell(pm === x), { flex: 1 }]}>
+              <Txt v="bold" color={pm === x ? p.onAccent : p.ink}>{x ? 'PM' : 'AM'}</Txt>
+            </Pressable>
+          ))}
+        </View>
+        <Button title="Done" onPress={() => setOpen(false)} />
+      </Sheet>
+    </View>
+  );
 }
 
 /** Swatches */

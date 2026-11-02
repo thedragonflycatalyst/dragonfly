@@ -11,11 +11,14 @@ export const avatarPath = (uid: string) => `${uid}/avatar.jpg`;
 
 /** Signed link to the person's own profile picture, or null when they have none. */
 export async function avatarUrl(uid: string): Promise<string | null> {
+  // Signed URLs exist for missing files too, so confirm the picture is there (HEAD isn't reliable on storage links)
+  const { data: files } = await sb.storage.from(AVATAR_BUCKET).list(uid, { search: 'avatar.jpg', limit: 1 });
+  const file = files?.find((f) => f.name === 'avatar.jpg');
+  if (!file) return null;
   const { data, error } = await sb.storage.from(AVATAR_BUCKET).createSignedUrl(avatarPath(uid), 3600);
   if (error || !data?.signedUrl) return null;
-  // Signed URLs exist for missing files too, so confirm the picture is there
-  const head = await fetch(data.signedUrl, { method: 'HEAD' }).catch(() => null);
-  return head?.ok ? data.signedUrl : null;
+  // Changes from another app show up: the file's update time is part of the link
+  return `${data.signedUrl}&v=${encodeURIComponent(file.updated_at ?? '')}`;
 }
 
 /** Squares, shrinks and uploads a picture as the shared Dragonfly avatar (256px JPEG under 30 KB). */

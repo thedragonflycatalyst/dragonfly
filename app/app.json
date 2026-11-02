@@ -6,7 +6,7 @@
     "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "dragonfly",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "backgroundColor": "#0a1214",
     "ios": {
       "supportsTablet": true,
@@ -21,6 +21,7 @@
       },
       "permissions": [
         "android.permission.health.READ_WEIGHT",
+        "android.permission.health.READ_HEIGHT",
         "android.permission.health.READ_BODY_FAT",
         "android.permission.health.READ_LEAN_BODY_MASS",
         "android.permission.health.READ_BONE_MASS",
