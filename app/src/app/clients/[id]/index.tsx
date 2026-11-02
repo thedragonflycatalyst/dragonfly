@@ -16,13 +16,9 @@ import { MAX_W, usePalette } from '@/lib/theme';
 
 type Summary = { weight: number | null; photos: number; files: number; pendingForms: number; flagged: boolean; habits: number; notes: number; groups: string[] };
 
-// Sections that arrive with later tabs, so they're listed but not open yet
+// Sections that arrive later
 const LATER: { title: string; icon: Parameters<typeof Row>[0]['icon']; with: string }[] = [
-  { title: 'Sessions', icon: 'event', with: 'the Hub and your schedule' },
-  { title: 'Credits', icon: 'payments', with: 'payments' },
-  { title: 'Check-ins', icon: 'inbox', with: 'the Hub' },
   { title: 'Watch and app data', icon: 'watch', with: 'watch pairing' },
-  { title: 'Communities', icon: 'groups', with: 'the Hub' },
 ];
 
 /** One client, from the trainer's side: who they are, every section of their profile, and account actions. */
@@ -160,8 +156,12 @@ export default function ClientProfile() {
         <Card style={{ padding: 0 }}>
           <Row icon="fitness_center" title="Workouts and programs" sub="Calendar, history and assigning" onPress={() => router.push({ pathname: '/clients/[id]/workouts', params: { id: c.id } })} />
           <Row icon="restaurant" title="Nutrition" sub="Food diary, water and meal plans" onPress={() => router.push({ pathname: '/clients/[id]/nutrition', params: { id: c.id } })} />
-          {LATER.map((l, i) => <Row key={l.title} icon={l.icon} title={l.title} disabled last={i === LATER.length - 1} right={<ComingWith what={l.with} />} />)}
-          <Row icon="chat_bubble" title={`Message ${first}`} disabled last right={<ComingWith what="the Hub" />} />
+          <Row icon="monitor_weight" title="Scale" sub="Weigh-ins, body fat, muscle and trend" onPress={() => router.push({ pathname: '/clients/[id]/scale', params: { id: c.id } })} />
+          <Row icon="inbox" title="Check-ins" sub="Rhythm, talking points and history" onPress={() => router.push({ pathname: '/checkins/[id]', params: { id: c.id } })} />
+          <Row icon="redeem" title="Packages and payments" sub="Credits left, purchases and payments" onPress={() => router.push({ pathname: '/clients/[id]/billing', params: { id: c.id } })} />
+          <Row icon="event" title="Sessions" sub="Book or see them on your calendar" onPress={() => router.push('/calendar')} />
+          {LATER.map((l) => <Row key={l.title} icon={l.icon} title={l.title} disabled right={<ComingWith what={l.with} />} />)}
+          <Row icon="chat_bubble" title={`Message ${first}`} last onPress={() => router.push({ pathname: '/chat/new', params: { client: c.id } })} />
         </Card>
 
         <SectionLabel>Account</SectionLabel>

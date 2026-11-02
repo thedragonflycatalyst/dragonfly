@@ -97,7 +97,7 @@ export function fmtMetric(k: MetricKey, v: number, u: BodyUnit, format: 'dot' | 
   if (r.unit === 'mass') return fmtMass(v, u, format);
   if (r.unit === '%') return `${fmtNum(v, 1, format)} %`;
   if (r.unit === 'kcal') return `${fmtNum(v, 0, format)} kcal`;
-  return `${fmtNum(v, r.unit === 'bpm' || r.unit === 'yrs' ? 0 : 1, format)}${r.unit ? ` ${r.unit}` : ''}`;
+  return `${fmtNum(v, r.unit === 'bpm' || r.unit === 'yrs' || Number.isInteger(v) ? 0 : 1, format)}${r.unit ? ` ${r.unit}` : ''}`;
 }
 
 /* ---------------- BMI ---------------- */

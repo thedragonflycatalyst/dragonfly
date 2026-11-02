@@ -72,6 +72,18 @@ export default function AssignmentScreen() {
                 {[log.duration_seconds != null && clock(log.duration_seconds), log.rpe && `effort ${log.rpe}/10`, volume(log.entries) && `${volume(log.entries).toLocaleString()} ${log.entries[0]?.unit ?? ''} lifted`].filter(Boolean).join(' · ')}
               </Txt>
               {log.note ? <Txt>“{log.note}”</Txt> : null}
+              <Button small kind="ghost" icon="chat_bubble" title={mine ? 'Cheer them on in chat' : 'Share with your trainer'} style={{ alignSelf: 'flex-start', marginTop: 4 }} onPress={async () => {
+                try {
+                  const other = mine ? (await sb.from('coach_clients').select('user_id').eq('id', a.client_id).maybeSingle()).data?.user_id : app.myTrainer?.user_id;
+                  if (!other) return toast('They haven’t signed in to Dragonfly yet', false);
+                  const { data: chat, error } = await sb.rpc('coach_chat_direct', { p_user: other });
+                  if (error) throw error;
+                  const summary = [log.duration_seconds != null && clock(log.duration_seconds), log.rpe && `effort ${log.rpe}/10`].filter(Boolean).join(' · ');
+                  const { error: e2 } = await sb.from('coach_messages').insert({ chat_id: chat, kind: 'workout', body: null, meta: { title: a.title, assignment_id: a.id, date: log.performed_at, summary } });
+                  if (e2) throw e2;
+                  router.push({ pathname: '/chat/[id]', params: { id: chat as string } });
+                } catch (e) { toast(errText(e), false); }
+              }} />
             </Card>
           )}
 

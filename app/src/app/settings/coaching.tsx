@@ -1,15 +1,15 @@
 import { router, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Switch, View } from 'react-native';
-import { Pair, Row, SectionLabel, Segmented } from '@/components/bits';
+import { Pair, Row, SectionLabel } from '@/components/bits';
 import { Button, Card, Field, Txt, useToast } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
-import { errText, type Units } from '@/lib/model';
+import { errText } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
 
-/** Settings: coaching profile, client settings, team and account. */
-export default function Settings() {
+/** Coaching settings: profile, client defaults, check-in rhythm, team and account. */
+export default function CoachingSettings() {
   const p = usePalette();
   const toast = useToast();
   const app = useApp();
@@ -33,7 +33,7 @@ export default function Settings() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 60, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
-      <Stack.Screen options={{ title: 'Settings' }} />
+      <Stack.Screen options={{ title: 'Coaching' }} />
       <View style={{ width: '100%', maxWidth: 640 }}>
         <SectionLabel>Your coaching profile</SectionLabel>
         <Card>
@@ -47,12 +47,6 @@ export default function Settings() {
 
         <SectionLabel>Client settings</SectionLabel>
         <Card style={{ gap: 16 }}>
-          <View style={{ gap: 8 }}>
-            <Txt v="bold">Units</Txt>
-            <Segmented<Units> value={t.units} onChange={(u) => save({ units: u }, u === 'imperial' ? 'Showing pounds and inches' : 'Showing kilograms and centimeters')}
-              options={[['imperial', 'lb, ft, in'], ['metric', 'kg, cm']]} />
-            <Txt v="small">Your clients see the same units.</Txt>
-          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View style={{ flex: 1 }}>
               <Txt v="bold">Send the health questionnaire to new clients</Txt>

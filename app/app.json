@@ -82,7 +82,8 @@
     "extra": {
       "supabaseUrl": "https://fkksaivdznqbfsfsagsj.supabase.co",
       "supabaseKey": "sb_publishable_ME6Xg1mtUBA4994aC0n6Uw_LKsJDTXu",
-      "webUrl": "https://thedragonflycatalyst.github.io/dragonfly/"
+      "webUrl": "https://thedragonflycatalyst.github.io/dragonfly/",
+      "giphyKey": ""
     }
   }
 }

@@ -73,6 +73,7 @@ export default function Me() {
                 last={i === forms.length - 1} onPress={() => router.push({ pathname: '/forms/[rid]', params: { rid: f.id } })} />)}
             </Card>
           )}
+          {app.myTrainer?.welcome ? <Card style={{ borderLeftWidth: 4, borderLeftColor: app.myTrainer.brand_color ?? p.focus }}><Txt>{app.myTrainer.welcome}</Txt></Card> : null}
           <ResumeBanner />
           <Txt v="h2">Today</Txt>
           {todays.length ? todays.map((a) => <WorkoutCard key={a.id} a={a} />) : (

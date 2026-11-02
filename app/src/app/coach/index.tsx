@@ -1,5 +1,8 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
+import { occurrences, type Booking, type CoachEvent } from '@/lib/business';
+import { dayKey } from '@/lib/dates';
+import { sb } from '@/lib/supabase';
 import { useCheckins } from '@/features/checkin-data';
 import { dueLabel } from '@/lib/checkins';
 import type { AndroidSymbol } from 'expo-symbols';
@@ -14,8 +17,8 @@ const ACTIONS: { icon: AndroidSymbol; title: string; go?: () => void; later?: st
   { icon: 'person_add', title: 'Add client', go: () => router.push('/clients/new') },
   { icon: 'fitness_center', title: 'Start a workout', go: () => router.push('/coach/workouts') },
   { icon: 'inbox', title: 'Check-ins', go: () => router.push('/checkins') },
-  { icon: 'event', title: 'Book a session', later: 'the Hub' },
-  { icon: 'chat_bubble', title: 'Message a client', later: 'the Hub' },
+  { icon: 'event', title: 'Book a session', go: () => router.push('/calendar') },
+  { icon: 'chat_bubble', title: 'Message a client', go: () => router.push('/chat') },
 ];
 
 /** Trainer home. Quick actions now; today's schedule, activity and compliance come with the Hub chunk. */
@@ -36,8 +39,38 @@ export default function Hub() {
       </View>
       <DueCard />
       <Txt v="h2" style={{ marginTop: 24, marginBottom: 10 }}>Today’s schedule</Txt>
-      <Card><Txt v="small" style={{ fontSize: 15 }}>Your sessions, client activity and compliance will show here when we build the Hub.</Txt></Card>
+      <Today />
     </Screen>
+  );
+}
+
+/** Today's sessions and events, from the calendar */
+function Today() {
+  const p = usePalette();
+  const [items, setItems] = useState<{ key: string; t: Date; title: string; sub: string; done?: boolean }[] | null>(null);
+  const load = useCallback(async () => {
+    const today = dayKey(new Date());
+    const [b, e] = await Promise.all([
+      sb.from('coach_bookings').select('*'),
+      sb.from('coach_events').select('*').eq('cancelled', false).gte('starts_at', new Date(`${today}T00:00:00`).toISOString()).lt('starts_at', new Date(`${today}T23:59:59`).toISOString()),
+    ]);
+    const occ = occurrences((b.data as Booking[]) ?? [], today, today).map((o) => ({ key: o.booking.id, t: o.start, title: o.booking.title, sub: o.booking.location ?? '', done: o.done }));
+    const evs = ((e.data as CoachEvent[]) ?? []).map((x) => ({ key: x.id, t: new Date(x.starts_at), title: x.title, sub: `${x.booked}${x.spaces ? `/${x.spaces}` : ''} going` }));
+    setItems([...occ, ...evs].sort((a, b2) => a.t.getTime() - b2.t.getTime()));
+  }, []);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+  if (items === null) return null;
+  return (
+    <Pressable accessibilityRole="link" onPress={() => router.push('/calendar')}>
+      <Card style={{ padding: items.length ? 0 : 16 }}>
+        {items.length === 0 ? <Txt v="small" style={{ fontSize: 15 }}>Nothing booked today. Tap to open your calendar.</Txt> : items.map((x, i) => (
+          <View key={x.key} style={{ flexDirection: 'row', gap: 12, padding: 14, borderBottomWidth: i === items.length - 1 ? 0 : 1, borderBottomColor: p.line, opacity: x.done ? 0.6 : 1 }}>
+            <Txt v="bold" style={{ width: 76 }}>{x.t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</Txt>
+            <View style={{ flex: 1 }}><Txt v="bold">{x.title}{x.done ? ' ✓' : ''}</Txt>{x.sub ? <Txt v="small">{x.sub}</Txt> : null}</View>
+          </View>
+        ))}
+      </Card>
+    </Pressable>
   );
 }
 

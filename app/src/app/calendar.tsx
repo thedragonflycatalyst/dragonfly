@@ -341,7 +341,7 @@ function ClientCalendar() {
           <SectionLabel>Coming up</SectionLabel>
           {mine === null ? <ActivityIndicator color={p.ink} /> : upcoming.length === 0 ? <Empty emoji="📅" title="Nothing booked" body="Your sessions with your trainer show here." /> : (
             <Card style={{ padding: 0 }}>
-              {upcoming.slice(0, 20).map((o, i, a) => (
+              {upcoming.slice(0, 10).map((o, i, a) => (
                 <View key={`${o.booking.id}-${o.day}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderBottomWidth: i === a.length - 1 ? 0 : 1, borderBottomColor: p.line }}>
                   <View style={{ flex: 1 }}>
                     <Txt v="bold">{o.start.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</Txt>
