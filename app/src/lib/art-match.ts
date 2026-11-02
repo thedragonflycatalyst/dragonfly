@@ -15,11 +15,13 @@ const RULES: [RegExp, ArtKey][] = [
   [/\b(glute|booty|hip thrust|hips?)\b/, 'glutes'],
   [/\b(leg|legs|squat|quad|hamstring|calf|calves|lower)/, 'legs'],
   [/\b(chest|push|bench|press day|pecs?)\b/, 'chest'],
-  [/\b(back|pull|row|lats?|deadlift)/, 'back'],
+  [/\b(deadlifts?|rdls?|hinge|posterior)\b/, 'fullbody'],
+  [/\b(back|pull|row|lats?)/, 'back'],
   [/\b(shoulder|delts?|overhead)/, 'shoulders'],
   [/\b(arm|arms|bicep|tricep|curl|guns)/, 'arms'],
   [/\b(core|abs?|plank|midsection)\b/, 'core'],
-  [/\b(full|total|whole|strength|upper)/, 'fullbody'],
+  [/\b(upper)/, 'back'],
+  [/\b(full|total|whole|strength)/, 'fullbody'],
 ];
 
 /** The picture that fits a name best, or null when nothing matches */

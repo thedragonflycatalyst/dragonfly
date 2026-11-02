@@ -84,7 +84,9 @@ Deno.serve(async (req) => {
       model: Deno.env.get('AI_MODEL') ?? 'claude-sonnet-5-5',
       max_tokens: 1200,
       tools: [TOOL],
-      tool_choice: { type: 'tool', name: 'record_meal' },
+      // Newer models don't accept a forced tool, so ask for it and allow it
+      tool_choice: { type: 'auto' },
+      system: 'Answer only by calling the record_meal tool exactly once. Do not reply with plain text.',
       messages: [{
         role: 'user',
         content: [

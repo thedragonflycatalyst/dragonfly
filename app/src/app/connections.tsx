@@ -18,6 +18,7 @@ import { callFn, fnText } from '@/lib/fn';
 import { foodRows, parseFoodCsv } from '@/lib/health';
 import { errText } from '@/lib/model';
 import { sb, SUPABASE_URL } from '@/lib/supabase';
+import { randomCode } from '@/lib/random';
 import { usePalette } from '@/lib/theme';
 
 type Conn = { provider: 'strava' | 'oura' | 'whoop'; account: string | null; last_sync_at: string | null; status: string };
@@ -27,7 +28,7 @@ const ACCOUNTS: { key: Conn['provider']; name: string; what: string }[] = [
   { key: 'whoop', name: 'WHOOP', what: 'Recovery, sleep, HRV, resting heart rate and workouts' },
 ];
 const when = (s: string | null) => (s ? new Date(s).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'not yet');
-const secret = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[b % 62]).join('');
+const secret = () => randomCode(24, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
 
 /** Everything Dragonfly can sync with: the phone's health store, Strava/Oura/WHOOP, food trackers and calendars */
 export default function Connections() {

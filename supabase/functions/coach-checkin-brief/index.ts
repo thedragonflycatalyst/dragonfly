@@ -107,7 +107,9 @@ Deno.serve(async (req) => {
       model: Deno.env.get('AI_MODEL') ?? 'claude-sonnet-5-5',
       max_tokens: 900,
       tools: [TOOL],
-      tool_choice: { type: 'tool', name: 'checkin_brief' },
+      // Newer models don't accept a forced tool, so ask for it and allow it
+      tool_choice: { type: 'auto' },
+      system: 'Answer only by calling the checkin_brief tool exactly once. Do not reply with plain text.',
       messages: [{ role: 'user', content: `You help a personal trainer prepare to check in personally with a client. Use only these facts from the last three weeks (JSON). Be specific and kind, never preachy; no medical advice. If there's little data, say so and suggest questions to learn more.\n\n${JSON.stringify(facts)}` }],
     }),
   });

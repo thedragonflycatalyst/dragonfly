@@ -36,3 +36,11 @@ test('groups match group photos first', () => {
   assert.equal(artCover(null, 'Our people', true, true), 'crew');
   assert.equal(artCover('art:dragonfly', 'Leg day', true), 'dragonfly');
 });
+
+test('upper body and hinges', () => {
+  assert.equal(artFor('Upper Body'), 'back');
+  assert.equal(artFor('Upper push'), 'chest');
+  assert.equal(artFor('RDL day'), 'fullbody');
+  assert.equal(artFor('Deadlift focus'), 'fullbody');
+  assert.equal(artFor('Leg Day'), 'legs');
+});

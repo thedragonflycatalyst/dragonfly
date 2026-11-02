@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   const admin = createClient(url, adminKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: me } = await admin.auth.getUser((req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, ''));
   if (!me?.user) return reply(401, { error: 'sign_in_required' });
-  const { data: tr } = await admin.from('coach_trainers').select('user_id').eq('user_id', me.user.id).maybeSingle();
+  const { data: tr } = await admin.from('coach_trainers').select('user_id, display_name, business_name').eq('user_id', me.user.id).maybeSingle();
   if (!tr) return reply(403, { error: 'trainers_only' });
 
   let body: { image?: unknown; today?: unknown; clients?: unknown };
@@ -74,12 +74,16 @@ Deno.serve(async (req) => {
       model: Deno.env.get('AI_MODEL') ?? 'claude-sonnet-5-5',
       max_tokens: 1500,
       tools: [TOOL],
-      tool_choice: { type: 'tool', name: 'sessions' },
+      // Newer models don't accept a forced tool, so ask for it and allow it
+      tool_choice: { type: 'auto' },
+      system: 'Answer only by calling the sessions tool exactly once. Do not reply with plain text.',
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
-          { type: 'text', text: `A personal trainer took this screenshot (text messages, a planner or a calendar). List every training session or appointment it agrees to or schedules. Ignore cancelled ones. Today is ${today}. Known clients: ${JSON.stringify(clients)}. If there are none, return an empty list.` },
+          { type: 'text', text: `A personal trainer took this picture: a screenshot or a phone photo (possibly at an angle) of text messages, a paper planner, or a calendar or booking system on a computer screen. List every training session or appointment it shows, agrees to or schedules. Ignore cancelled ones and blocked time.
+The trainer is ${JSON.stringify(tr.display_name ?? '')}${tr.business_name ? ` (business: ${JSON.stringify(tr.business_name)})` : ''}. If the picture shows several trainers' schedules (e.g. a gym booking system with columns or labels like "PL: <name>"), list only this trainer's sessions; if one appointment's details are open, list that one.
+Today is ${today}; when no date is visible, use today. Known clients: ${JSON.stringify(clients)}. The client is the person being trained, not the trainer or organizer. If there are none, return an empty list.` },
         ],
       }],
     }),

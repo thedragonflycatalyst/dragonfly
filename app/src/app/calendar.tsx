@@ -1,8 +1,7 @@
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { router, Stack, useFocusEffect } from 'expo-router';
+import { router, Stack, useFocusEffect, type Href } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
 import { DateField } from '@/components/date-field';
 import { ClientPicker, ColorPicker, TimeField, Toggle, useClientList } from '@/components/pickers';
@@ -13,6 +12,7 @@ import { useApp } from '@/lib/app-state';
 import { at, COLORS, fmtDuration, hhmm, KINDS, occurrences, openSlots, REPEATS, weekOf, type Availability, type Booking, type CoachEvent, type Occurrence } from '@/lib/business';
 import { addDays, dayKey, fromKey } from '@/lib/dates';
 import { callFn, fnText } from '@/lib/fn';
+import { addBookings, bookingLine, readAppointments, toBookings } from '@/features/calendar-import';
 import { errText } from '@/lib/model';
 import { recall, sb, store } from '@/lib/supabase';
 import { MAX_W, R, usePalette } from '@/lib/theme';
@@ -90,6 +90,7 @@ function CoachCalendar() {
   // A screenshot of texts, or a photo of a paper schedule, whiteboard or another screen
   const importShot = async (from: 'camera' | 'library') => {
     setImportMenu(false);
+    if (from === 'camera' && Platform.OS !== 'web') { router.push('/calendar-scan' as Href); return; }
     try {
       if (from === 'camera' && !(await ImagePicker.requestCameraPermissionsAsync()).granted) return toast('Allow camera access to take a photo', false);
       const res = from === 'camera' ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 })
@@ -97,18 +98,11 @@ function CoachCalendar() {
       if (res.canceled || !res.assets[0]) return;
       setImporting(true);
       const a = res.assets[0];
-      const out = await ImageManipulator.manipulateAsync(a.uri, Math.max(a.width, a.height) > 1600 ? [{ resize: a.width >= a.height ? { width: 1600 } : { height: 1600 } }] : [], { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true });
-      const r = await callFn<{ sessions: { client: string; title: string; date: string; time: string; minutes: number; location: string }[] }>('coach-calendar-import', {
-        image: out.base64, today: dayKey(new Date()), clients: (clients ?? []).map((c) => c.name) });
-      if (!r.sessions.length) return toast('No sessions found in that picture', false);
-      const rows = r.sessions.map((s) => {
-        const c = (clients ?? []).find((x) => x.name.toLowerCase() === s.client.toLowerCase()) ?? (clients ?? []).find((x) => s.client && x.name.toLowerCase().startsWith(s.client.toLowerCase().split(' ')[0]));
-        return { trainer_id: app.trainer?.user_id, client_id: c?.id ?? null, title: c ? `Session with ${c.first_name}` : s.client ? `${s.title} · ${s.client}` : s.title, kind: 'session', starts_at: at(s.date, s.time).toISOString(), duration_min: s.minutes, location: s.location || null };
-      });
-      const list = rows.map((x) => `• ${new Date(x.starts_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}: ${x.title}`).join('\n');
-      if (!(await confirm(`Add ${rows.length} session${rows.length === 1 ? '' : 's'}?`, list, 'Add them'))) return;
-      const { error } = await sb.from('coach_bookings').insert(rows);
-      if (error) throw error;
+      const found = await readAppointments(a.uri, a.width, a.height, clients ?? []);
+      if (!found.length) return toast('No sessions found in that picture', false);
+      const rows = toBookings(found, clients ?? [], app.trainer?.user_id);
+      if (!(await confirm(`Add ${rows.length} session${rows.length === 1 ? '' : 's'}?`, rows.map((x) => `• ${bookingLine(x)}`).join('\n'), 'Add them'))) return;
+      await addBookings(rows);
       toast('Added to your calendar'); load();
     } catch (e) { toast(fnText(e), false); } finally { setImporting(false); }
   };
@@ -188,7 +182,7 @@ function CoachCalendar() {
       </ScrollView>
       <BookSheet open={book} onClose={() => setBook(null)} onSaved={() => { setBook(null); load(); }} events={events} />
       <ActionMenu visible={importMenu} onClose={() => setImportMenu(false)} title="Import appointments" items={[
-        { label: 'Take a photo', icon: 'photo_camera', onPress: () => importShot('camera') },
+        { label: Platform.OS === 'web' ? 'Take a photo' : 'Scan with the camera', icon: 'document_scanner', onPress: () => importShot('camera') },
         { label: 'Choose a screenshot', icon: 'photo_library', onPress: () => importShot('library') },
       ]} />
       <ActionMenu visible={!!menu} onClose={() => setMenu(null)} title={menu ? `${menu.booking.title} · ${t12(menu.start)}` : ''} items={menu ? [
