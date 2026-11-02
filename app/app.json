@@ -69,7 +69,8 @@
       [
         "expo-notifications",
         {
-          "color": "#0a7a70"
+          "color": "#0a7a70",
+          "sounds": ["./assets/sounds/bell_ring2.wav"]
         }
       ],
       [

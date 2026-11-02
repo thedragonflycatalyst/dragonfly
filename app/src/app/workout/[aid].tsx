@@ -12,6 +12,7 @@ import { clock, DRAFT_KEY, readDraft } from '@/lib/session';
 import { storage } from '@/lib/storage';
 import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
+import { setLine } from '@/lib/history';
 import { fmtSeconds, volume } from '@/lib/workouts';
 import { MAX_W, usePalette } from '@/lib/theme';
 
@@ -20,8 +21,6 @@ const planned = (b: ExerciseBlock, i: number, unit: string) => {
   const what = b.metric === 'time' ? fmtSeconds(s.time) : b.metric === 'distance' ? s.distance : s.reps && `${s.reps} reps`;
   return [s.weight && (/^[\d.]+$/.test(s.weight) ? `${s.weight} ${unit}` : s.weight), what, s.tempo && `tempo ${s.tempo}`, s.rest != null && `rest ${fmtSeconds(s.rest)}`].filter(Boolean).join(' · ') || '—';
 };
-const did = (s: SetLog, unit?: string) =>
-  [s.weight != null && `${s.weight} ${unit ?? ''}`.trim(), s.reps != null && `${s.reps} reps`, s.time != null && fmtSeconds(s.time), s.distance].filter(Boolean).join(' × ');
 
 /** One scheduled workout: what's planned, Start or Skip, and the log once it's done. */
 export default function AssignmentScreen() {
@@ -99,7 +98,8 @@ export default function AssignmentScreen() {
                 {log
                   ? (done?.sets.length ? <>
                       {done.swapped_from || (done.ex && done.ex.name !== b.ex.name) ? <Txt v="smallBold" color={p.focus}>Swapped to {done.ex?.name}</Txt> : null}
-                      {done.sets.map((s, i) => <Txt key={i}>Set {i + 1}: {did(s, done.unit)}</Txt>)}
+                      {done.sets.map((s, i) => <Txt key={i}>Set {i + 1}: {setLine(s, done.unit)}</Txt>)}
+                      {done.note ? <Txt v="small" style={{ fontStyle: 'italic' }}>“{done.note}”</Txt> : null}
                     </> : <Txt v="small">Not done</Txt>)
                   : b.sets.map((_, i) => <Txt key={i}>Set {i + 1}: {planned(b, i, weightUnit(app.units))}</Txt>)}
               </Card>

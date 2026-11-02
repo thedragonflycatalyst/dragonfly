@@ -57,11 +57,23 @@ test('logs start from the plan and add up', () => {
   const b = newBlock(lib('Dumbbell Bench Press'));
   b.sets = [{ reps: '8-10', weight: '40 lb', rest: 90 }, { reps: '8', weight: '45', rest: 90 }];
   const log = startLog([b], 'lb');
-  assert.deepEqual(log[0].sets[0], { weight: 40, reps: 8, time: null, distance: null, done: false });
+  assert.deepEqual(log[0].sets[0], { weight: 40, reps: 8, time: null, distance: null, done: false, rest: 90 });
+  assert.equal(log[0].sides, false);
   assert.equal(setsTotal(log), 2);
   log[0].sets[0].done = true; log[0].sets[1].done = true;
   assert.equal(setsDone(log), 2);
   assert.equal(volume(log), 40 * 8 + 45 * 8);
+});
+
+test('single-arm moves log left and right', () => {
+  const b = newBlock(lib('Dumbbell Bench Press'));
+  b.ex = { ...b.ex, name: 'Single arm cable curl' };
+  b.sets = [{ reps: '10', weight: '20', rest: 60 }];
+  const log = startLog([b], 'lb');
+  assert.equal(log[0].sides, true);
+  assert.deepEqual(log[0].sets[0], { weight: 20, reps_l: 10, reps_r: 10, time_l: null, time_r: null, distance: null, done: false, rest: 60 });
+  log[0].sets[0] = { ...log[0].sets[0], reps_l: 8, done: true };
+  assert.equal(volume(log), 20 * 18);
 });
 
 test('every starter template uses real library exercises', () => {

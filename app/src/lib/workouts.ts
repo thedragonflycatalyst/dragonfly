@@ -1,6 +1,7 @@
 // Pure helpers for building, editing and logging workouts (no UI, no network).
 import type { ExerciseBlock, ExerciseRef, LogEntry, SetLog, SetMetric, SetSpec, WorkoutBlock } from './model';
 import type { LibExercise } from './library';
+import { repsOf, usesSides } from './sides';
 
 let seq = 0;
 export const newId = () => `b${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -103,15 +104,24 @@ export const exerciseCount = (blocks: WorkoutBlock[]) => blocks.filter((b) => b.
 /** A blank log for a workout, pre-filled with the planned numbers so the client only adjusts what changed */
 export function startLog(blocks: WorkoutBlock[], unit: 'lb' | 'kg'): LogEntry[] {
   const n = (v?: string) => { const m = (v ?? '').match(/\d+(\.\d+)?/); return m ? Number(m[0]) : null; };
-  return blocks.filter((b): b is ExerciseBlock => b.kind === 'exercise').map((b) => ({
-    block_id: b.id, ex: b.ex, unit,
-    sets: b.sets.map((s): SetLog => ({ weight: n(s.weight), reps: b.metric === 'reps' ? n(s.reps) : null, time: b.metric === 'time' ? s.time ?? null : null, distance: b.metric === 'distance' ? s.distance ?? null : null, done: false })),
-  }));
+  return blocks.filter((b): b is ExerciseBlock => b.kind === 'exercise').map((b) => {
+    const sides = usesSides(b.sides, b.ex.name);
+    return {
+      block_id: b.id, ex: b.ex, unit, sides,
+      sets: b.sets.map((s): SetLog => {
+        const reps = b.metric === 'reps' ? n(s.reps) : null, time = b.metric === 'time' ? s.time ?? null : null;
+        const rest = s.rest ?? b.sets[b.sets.length - 1]?.rest ?? null;
+        return sides
+          ? { weight: n(s.weight), reps_l: reps, reps_r: reps, time_l: time, time_r: time, distance: b.metric === 'distance' ? s.distance ?? null : null, done: false, rest }
+          : { weight: n(s.weight), reps, time, distance: b.metric === 'distance' ? s.distance ?? null : null, done: false, rest };
+      }),
+    };
+  });
 }
 export const setsDone = (log: LogEntry[]) => log.reduce((n, e) => n + e.sets.filter((s) => s.done).length, 0);
 export const setsTotal = (log: LogEntry[]) => log.reduce((n, e) => n + e.sets.length, 0);
 /** Total weight moved (weight × reps over done sets), in the log's unit */
-export const volume = (log: LogEntry[]) => Math.round(log.reduce((v, e) => v + e.sets.reduce((w, s) => w + (s.done && s.weight && s.reps ? s.weight * s.reps : 0), 0), 0));
+export const volume = (log: LogEntry[]) => Math.round(log.reduce((v, e) => v + e.sets.reduce((w, s) => w + (s.done && s.weight ? s.weight * repsOf(s) : 0), 0), 0));
 
 /** Cover art: gradient presets (no stock photos) */
 export const COVERS: [string, string][] = [

@@ -127,6 +127,7 @@ function SidebarBody({ onGo }: { onGo?: () => void }) {
       <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: p.line, gap: 8 }}>
         {coach && <NavRow item={{ key: 'team', title: app.team ? app.team.name : 'Team', icon: 'groups', href: '/team' }} active={isActive('/team')} onGo={() => go('/team')} />}
         <NavRow item={{ key: 'guide', title: 'Quickstart guide', icon: 'school', href: '/guide' }} active={false} onGo={() => go('/guide')} />
+        <NavRow item={{ key: 'feedback', title: 'Send feedback', icon: 'lightbulb', href: '/feedback' }} active={isActive('/feedback')} onGo={() => go(`/feedback?from=${encodeURIComponent(path)}`)} />
         <NavRow item={{ key: 'out', title: 'Sign out', icon: 'logout', href: '/' }} active={false} onGo={async () => { onGo?.(); await app.signOut(); router.replace('/'); }} />
       </View>
     </ScrollView>

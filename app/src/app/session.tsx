@@ -1,15 +1,23 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import { ExerciseInfo, ExerciseThumb, useMyExercises } from '@/features/exercises';
+import { CUE_LINES, hush } from '@/features/lapis/audio';
+import { warm } from '@/features/lapis/clips';
+import { useLapisPrefs } from '@/features/lapis/prefs';
+import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
+import { ExerciseHistory } from '@/features/exercise-history';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
 import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
-import { clock, doneOnly, DRAFT_KEY, readDraft, restAfter, type Draft } from '@/lib/session';
+import { exKey, ghostSet, historyOf, notesOf, setLine, type PastLog } from '@/lib/history';
+import { clock, doneOnly, DRAFT_KEY, readDraft, type Draft } from '@/lib/session';
+import { weakSide } from '@/lib/sides';
 import { storage } from '@/lib/storage';
 import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
@@ -32,7 +40,12 @@ export default function Session() {
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [now, setNow] = useState(Date.now());
-  const [rest, setRest] = useState<{ until: number; total: number } | null>(null);
+  const lapis = useLapisPrefs(app.user?.id);
+  const rest = useRest();
+  const [past, setPast] = useState<PastLog[]>([]);
+  const [historyFor, setHistoryFor] = useState<number | null>(null);
+  const [noteIdx, setNoteIdx] = useState<Record<string, number>>({});
+  const [manualTime, setManualTime] = useState<Record<string, boolean>>({});
   const [finishing, setFinishing] = useState(false);
   const [rpe, setRpe] = useState<number | null>(null);
   const [note, setNote] = useState('');
@@ -71,8 +84,20 @@ export default function Session() {
   }, [log, clientId, src, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
-  const left = rest ? Math.ceil((rest.until - now) / 1000) : 0;
-  useEffect(() => { if (rest && left <= 0) setRest(null); }, [rest, left]);
+  // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
+  useEffect(() => { void warm(CUE_LINES, lapis.voice, lapis.voiceSpeed); }, [lapis.voice, lapis.voiceSpeed]);
+  useEffect(() => {
+    if (!lapis.keepAwake) return;
+    activateKeepAwakeAsync('workout').catch(() => {});
+    return () => { deactivateKeepAwake('workout').catch(() => {}); };
+  }, [lapis.keepAwake]);
+  useEffect(() => () => hush(), []);
+  // This client's past workouts, for last time's numbers and notes
+  useEffect(() => {
+    if (!clientId) { setPast([]); return; }
+    sb.from('coach_logs').select('performed_at, entries').eq('client_id', clientId).order('performed_at', { ascending: false }).limit(60)
+      .then(({ data }) => setPast((data as PastLog[] | null) ?? []));
+  }, [clientId]);
 
   if (src === undefined) return <View style={{ flex: 1, backgroundColor: p.bg, justifyContent: 'center' }}><ActivityIndicator color={p.ink} /></View>;
   if (!src) return <View style={{ flex: 1, backgroundColor: p.bg, padding: 16 }}><Empty emoji="🔎" title="Workout not found" /></View>;
@@ -86,6 +111,14 @@ export default function Session() {
   const setSet = (bi: number, si: number, patch: Partial<SetLog>) =>
     setLog((l) => l.map((e, n) => (n === bi ? { ...e, sets: e.sets.map((s, m) => (m === si ? { ...s, ...patch } : s)) } : e)));
   const done = setsDone(log), total = setsTotal(log);
+  /** Tick a set off: mark it done and start the Lapis rest from its rest box */
+  const tick = (bi: number, si: number, s: SetLog, patch: Partial<SetLog>) => {
+    setSet(bi, si, { ...patch, done: true });
+    if (!lapis.autoRest) return;
+    const e = log[bi];
+    const next = si + 1 < e.sets.length ? `Next: set ${si + 2}` : log[bi + 1]?.ex ? `Next: ${log[bi + 1].ex?.name}` : 'Last set done';
+    rest.start(s.rest ?? lapis.defaultRest, next);
+  };
 
   const clearDraft = () => { try { if (readDraft((k) => storage.getItem(k))?.key === key) storage.removeItem(DRAFT_KEY); } catch { /* nothing to clear */ } };
   const save = async () => {
@@ -131,6 +164,10 @@ export default function Session() {
           {log.map((e, bi) => {
             const b = blocks.find((x) => x.id === e.block_id);
             const metric = b?.metric ?? 'reps';
+            const sides = !!e.sides;
+            const hist = historyOf(past, exKey(e.ex));
+            const notes = notesOf(hist);
+            const ni = Math.min(noteIdx[e.block_id] ?? 0, Math.max(0, notes.length - 1));
             return (
               <Card key={e.block_id} style={{ gap: 10 }}>
                 <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
@@ -139,33 +176,91 @@ export default function Session() {
                     <Txt v="h3">{e.ex?.name ?? 'Exercise'}</Txt>
                     {e.swapped_from ? <Txt v="small">Instead of {e.swapped_from}</Txt> : null}
                   </View>
+                  {hist.length > 0 && <Pressable accessibilityRole="button" accessibilityLabel={`${e.ex?.name ?? 'Exercise'} history`} hitSlop={8} onPress={() => setHistoryFor(bi)}><Icon name="history" color={p.focus} /></Pressable>}
                   {e.ex && <Button small kind="quiet" icon="swap_horiz" title="Swap" onPress={() => setSwapping(bi)} />}
                 </View>
                 {b?.note ? <Txt v="small">{b.note}</Txt> : null}
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Txt v="smallBold" style={{ width: 34 }}>Set</Txt>
-                  {metric !== 'distance' && <Txt v="smallBold" style={{ width: 72, textAlign: 'center' }}>{unit}</Txt>}
-                  <Txt v="smallBold" style={{ width: 72, textAlign: 'center' }}>{metric === 'reps' ? 'Reps' : metric === 'time' ? 'Time' : 'Distance'}</Txt>
-                </View>
-                {e.sets.map((s, si) => (
-                  <View key={si} style={{ flexDirection: 'row', gap: 8, alignItems: 'center', opacity: s.done ? 0.7 : 1 }}>
-                    <Txt v="bold" style={{ width: 34 }}>{si + 1}</Txt>
-                    {metric !== 'distance' && <NumCell label={`Set ${si + 1} weight`} value={s.weight == null ? '' : String(s.weight)} onChange={(t) => setSet(bi, si, { weight: toNum(t) })} />}
-                    {metric === 'reps' && <NumCell label={`Set ${si + 1} reps`} value={s.reps == null ? '' : String(s.reps)} onChange={(t) => setSet(bi, si, { reps: toNum(t) })} />}
-                    {metric === 'time' && <NumCell label={`Set ${si + 1} time`} value={fmtSeconds(s.time)} onChange={(t) => setSet(bi, si, { time: parseSeconds(t) })} lazy />}
-                    {metric === 'distance' && <NumCell label={`Set ${si + 1} distance`} value={s.distance ?? ''} onChange={(t) => setSet(bi, si, { distance: t.slice(0, 20) || null })} />}
-                    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: s.done }} accessibilityLabel={`Set ${si + 1} done`} hitSlop={8}
-                      onPress={() => {
-                        setSet(bi, si, { done: !s.done });
-                        if (!s.done) { const r = restAfter(src.blocks, e.block_id, si); if (r > 0) setRest({ until: Date.now() + r * 1000, total: r }); }
-                      }}
-                      style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: s.done ? p.good : p.surface, borderWidth: 1.5, borderColor: s.done ? p.good : p.line }}>
-                      <Icon name="check" size={22} color={s.done ? '#fff' : p.muted} />
-                    </Pressable>
+                {hist[0] ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel={`${e.ex?.name ?? 'Exercise'} history`} onPress={() => setHistoryFor(bi)}>
+                    <Txt v="small" style={{ opacity: 0.6 }} numberOfLines={2}>Last time ({shortDate(hist[0].at)}): {hist[0].sets.map((x) => setLine(x, hist[0].unit)).join(', ')}</Txt>
+                  </Pressable>
+                ) : null}
+                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                  <Txt v="smallBold" style={{ width: 26 }}>Set</Txt>
+                  {metric !== 'distance' && <Txt v="smallBold" style={{ flex: 1, textAlign: 'center' }}>{unit}</Txt>}
+                  {sides ? <>
+                    <Txt v="smallBold" style={{ flex: 1, textAlign: 'center' }}>Right</Txt>
+                    <Txt v="smallBold" style={{ flex: 1, textAlign: 'center' }}>Left</Txt>
+                  </> : <Txt v="smallBold" style={{ flex: 1, textAlign: 'center' }}>{metric === 'reps' ? 'Reps' : metric === 'time' ? 'Time' : 'Distance'}</Txt>}
+                  <Txt v="smallBold" style={{ width: 58, textAlign: 'center' }}>Rest</Txt>
+                  <View style={{ width: 44, alignItems: 'center' }}>
+                    {metric === 'time' && (
+                      <Pressable accessibilityRole="switch" accessibilityState={{ checked: !manualTime[e.block_id] }} accessibilityLabel="Use the Lapis timer for time" hitSlop={8}
+                        onPress={() => setManualTime((m) => ({ ...m, [e.block_id]: !m[e.block_id] }))}>
+                        <Icon name={manualTime[e.block_id] ? 'keyboard' : 'timer'} size={20} color={p.focus} />
+                      </Pressable>
+                    )}
                   </View>
-                ))}
+                </View>
+                {e.sets.map((s, si) => {
+                  const g = ghostSet(hist, si);
+                  const gh = (v: number | null | undefined, f: (n: number) => string = String) => (v == null ? undefined : f(v));
+                  const lapisTime = metric === 'time' && !manualTime[e.block_id];
+                  const gap = sides ? (metric === 'time' ? weakSide(s.time_l, s.time_r) : weakSide(s.reps_l, s.reps_r)) : null;
+                  const cell = (side: 'l' | 'r' | null) => {
+                    const rk = side ? (`reps_${side}` as const) : 'reps';
+                    const tk = side ? (`time_${side}` as const) : 'time';
+                    const who = side === 'l' ? ' left' : side === 'r' ? ' right' : '';
+                    const short = gap && side && gap.side === side.toUpperCase();
+                    if (metric === 'reps') return <NumCell key={rk} label={`Set ${si + 1}${who} reps`} warn={!!short} placeholder={gh(g?.[rk] ?? g?.reps)} value={s[rk] == null ? '' : String(s[rk])} onChange={(t) => setSet(bi, si, { [rk]: toNum(t) })} />;
+                    if (metric === 'time') {
+                      if (lapisTime) return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side}
+                        onDone={(sec) => {
+                          const patch: Partial<SetLog> = { [tk]: sec };
+                          const other = side === 'l' ? s.time_r : side === 'r' ? s.time_l : sec;
+                          if (!side || other != null) tick(bi, si, { ...s, ...patch }, patch); else setSet(bi, si, patch);
+                        }} />;
+                      return <NumCell key={tk} label={`Set ${si + 1}${who} time`} warn={!!short} placeholder={gh(g?.[tk] ?? g?.time, (n) => fmtSeconds(n))} value={fmtSeconds(s[tk])} onChange={(t) => setSet(bi, si, { [tk]: parseSeconds(t) })} lazy />;
+                    }
+                    return <NumCell key="d" label={`Set ${si + 1} distance`} placeholder={g?.distance ?? undefined} value={s.distance ?? ''} onChange={(t) => setSet(bi, si, { distance: t.slice(0, 20) || null })} />;
+                  };
+                  return (
+                    <View key={si} style={{ gap: 2 }}>
+                      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', opacity: s.done ? 0.7 : 1 }}>
+                        <Txt v="bold" style={{ width: 26 }}>{si + 1}</Txt>
+                        {metric !== 'distance' && <NumCell label={`Set ${si + 1} weight`} placeholder={gh(g?.weight)} value={s.weight == null ? '' : String(s.weight)} onChange={(t) => setSet(bi, si, { weight: toNum(t) })} />}
+                        {sides ? <>{cell('r')}{cell('l')}</> : cell(null)}
+                        <NumCell label={`Rest after set ${si + 1}`} width={58} placeholder={fmtSeconds(lapis.defaultRest)} value={s.rest == null ? '' : fmtSeconds(s.rest)} onChange={(t) => setSet(bi, si, { rest: parseSeconds(t) })} lazy />
+                        <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: s.done }} accessibilityLabel={`Set ${si + 1} done`} hitSlop={8}
+                          onPress={() => (s.done ? setSet(bi, si, { done: false }) : tick(bi, si, s, {}))}
+                          style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: s.done ? p.good : p.surface, borderWidth: 1.5, borderColor: s.done ? p.good : p.line }}>
+                          <Icon name="check" size={22} color={s.done ? '#fff' : p.muted} />
+                        </Pressable>
+                      </View>
+                      {gap ? <Txt v="smallBold" color={p.gold} style={{ marginLeft: 32 }}>{gap.side === 'L' ? 'Left' : 'Right'} {metric === 'time' ? `${gap.by}s` : gap.by} short</Txt> : null}
+                    </View>
+                  );
+                })}
                 <Button small kind="ghost" title="Add set" icon="add" style={{ alignSelf: 'flex-start' }}
                   onPress={() => setLog((l) => l.map((x, n) => (n === bi ? { ...x, sets: [...x.sets, { ...(x.sets[x.sets.length - 1] ?? {}), done: false }] } : x)))} />
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
+                  <TextInput value={e.note ?? ''} onChangeText={(t) => setLog((l) => l.map((x, n) => (n === bi ? { ...x, note: t.slice(0, 500) } : x)))} multiline
+                    accessibilityLabel={`${e.ex?.name ?? 'Exercise'} note`} placeholder={notes[ni] ? notes[ni].note : 'Note for next time'} placeholderTextColor={notes[ni] ? p.muted : `${p.muted}99`}
+                    style={{ flex: 1, minHeight: 44, borderWidth: 1, borderColor: p.line, borderRadius: R.sm, paddingHorizontal: 10, paddingVertical: 10, fontFamily: F.body, fontSize: 15, color: p.ink, backgroundColor: p.surface }} />
+                  {notes.length > 0 && !(e.note ?? '') ? (
+                    <View style={{ alignItems: 'center', minWidth: 44 }}>
+                      <View style={{ flexDirection: 'row' }}>
+                        <Pressable accessibilityRole="button" accessibilityLabel="Older note" disabled={ni >= notes.length - 1} hitSlop={6} onPress={() => setNoteIdx((m) => ({ ...m, [e.block_id]: ni + 1 }))}>
+                          <Icon name="chevron_left" size={20} color={ni >= notes.length - 1 ? p.line : p.muted} />
+                        </Pressable>
+                        <Pressable accessibilityRole="button" accessibilityLabel="Newer note" disabled={ni === 0} hitSlop={6} onPress={() => setNoteIdx((m) => ({ ...m, [e.block_id]: ni - 1 }))}>
+                          <Icon name="chevron_right" size={20} color={ni === 0 ? p.line : p.muted} />
+                        </Pressable>
+                      </View>
+                      <Txt v="small" style={{ fontSize: 11, opacity: 0.7 }}>{shortDate(notes[ni].at)}</Txt>
+                    </View>
+                  ) : null}
+                </View>
               </Card>
             );
           })}
@@ -176,22 +271,13 @@ export default function Session() {
       </ScrollView>
 
       <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16, alignItems: 'center', gap: 10 }} pointerEvents="box-none">
-        {rest && (
-          <Card style={{ width: '100%', maxWidth: 520, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: p.focus }}>
-            <Icon name="timer" color={p.focus} />
-            <View style={{ flex: 1 }}>
-              <Txt v="smallBold">Rest</Txt>
-              <Txt v="h2" accessibilityLiveRegion="polite" style={{ fontVariant: ['tabular-nums'] }}>{clock(left)}</Txt>
-            </View>
-            <Button small kind="ghost" title="+15s" onPress={() => setRest((r) => r && { ...r, until: r.until + 15000 })} />
-            <Button small title="Skip" onPress={() => setRest(null)} />
-          </Card>
-        )}
+        <RestBar t={rest} />
         <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done ? setFinishing(true) : toast('Tick off at least one set first', false))} />
       </View>
 
       <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)}
         onSwap={(alt) => { const i = swapping!; setLog((l) => l.map((x, n) => (n === i ? { ...x, ex: refOf(alt), swapped_from: x.swapped_from ?? x.ex?.name } : x))); setSwapping(null); }} />
+      <ExerciseHistory entry={historyFor !== null ? log[historyFor] : null} history={historyFor !== null ? historyOf(past, exKey(log[historyFor]?.ex)) : []} onClose={() => setHistoryFor(null)} />
       <ExerciseInfo ex={info ? { name: info.name, ref: `${info.src}:${info.id}`, img: info.img, video: info.video } : null} onClose={() => setInfo(null)} />
       <Sheet visible={finishing} onClose={() => setFinishing(false)} title="How did that feel?">
         <Txt v="small" style={{ marginBottom: 8 }}>Effort, from 1 (easy) to 10 (all-out). Optional.</Txt>
@@ -206,19 +292,20 @@ export default function Session() {
   );
 }
 
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const toNum = (t: string) => { const n = Number(t.replace(',', '.')); return t.trim() && Number.isFinite(n) && n >= 0 ? n : null; };
 
 /** Number box; `lazy` commits on blur (for m:ss times) */
-function NumCell({ value, onChange, label, lazy }: { value: string; onChange: (t: string) => void; label: string; lazy?: boolean }) {
+function NumCell({ value, onChange, label, lazy, placeholder, warn, width }: { value: string; onChange: (t: string) => void; label: string; lazy?: boolean; placeholder?: string; warn?: boolean; width?: number }) {
   const p = usePalette();
   const [text, setText] = useState(value);
   const [editing, setEditing] = useState(false);
   return (
-    <TextInput value={editing ? text : value} accessibilityLabel={label} keyboardType={lazy ? 'numbers-and-punctuation' : 'decimal-pad'} selectTextOnFocus
+    <TextInput value={editing ? text : value} accessibilityLabel={label} placeholder={placeholder} placeholderTextColor={`${p.muted}88`} keyboardType={lazy ? 'numbers-and-punctuation' : 'decimal-pad'} selectTextOnFocus
       onFocus={() => { setText(value); setEditing(true); }}
       onChangeText={(t) => { setText(t); if (!lazy) onChange(t); }}
       onBlur={() => { setEditing(false); if (lazy) onChange(text); }}
-      style={{ width: 72, height: 44, borderWidth: 1.5, borderColor: p.line, borderRadius: R.sm, textAlign: 'center', fontFamily: F.body, fontSize: 17, color: p.ink, backgroundColor: p.surface }} />
+      style={{ ...(width ? { width } : { flex: 1, minWidth: 0 }), height: 44, borderWidth: 1.5, borderColor: warn ? p.gold : p.line, borderRadius: R.sm, textAlign: 'center', fontFamily: F.body, fontSize: 17, color: p.ink, backgroundColor: p.surface }} />
   );
 }
 

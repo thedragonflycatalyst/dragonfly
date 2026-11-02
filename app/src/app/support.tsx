@@ -13,7 +13,8 @@ export default function Support() {
       <View style={{ width: '100%', maxWidth: MAX_W }}>
         <Card style={{ padding: 0 }}>
           <Row icon="school" title="Quickstart guide" sub="A short tour of the main features" onPress={() => router.push('/guide')} />
-          <Row icon="person" title="Account help" sub="Email, password, signing in on other devices" last onPress={() => router.push('/account')} />
+          <Row icon="person" title="Account help" sub="Email, password, signing in on other devices" onPress={() => router.push('/account')} />
+          <Row icon="lightbulb" title="Send feedback" sub="Suggest a feature or a design change, or report a problem" last onPress={() => router.push('/feedback?from=/support')} />
         </Card>
         <SectionLabel>Common questions</SectionLabel>
         <Card style={{ gap: 14 }}>

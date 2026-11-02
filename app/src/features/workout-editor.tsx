@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usesSides } from '@/lib/sides';
 import { Pressable, TextInput, View } from 'react-native';
 import { ActionMenu } from '@/components/sheet';
 import { Button, Card, Field, Icon, Txt } from '@/components/ui';
@@ -61,6 +62,7 @@ export function BlocksEditor({ blocks, onChange, weightUnit }: { blocks: Workout
                 <View style={{ flex: 1 }}>
                   {label ? <Txt v="kicker" color={p.focus}>Superset {label}</Txt> : null}
                   <Txt v="h3">{b.ex.name}</Txt>
+                  {usesSides(b.sides, b.ex.name) ? <Txt v="small" color={p.focus}>Left and right logged separately</Txt> : null}
                 </View>
                 <Pressable accessibilityRole="button" accessibilityLabel={`More options for ${b.ex.name}`} onPress={() => setMenu(i)} hitSlop={10}><Icon name="more_horiz" size={26} /></Pressable>
               </View>
@@ -113,6 +115,9 @@ export function BlocksEditor({ blocks, onChange, weightUnit }: { blocks: Workout
           { label: 'Measure by reps', icon: 'fitness_center', hidden: m.metric === 'reps', onPress: () => set(menu, withMetric(m, 'reps')) },
           { label: 'Measure by time', icon: 'timer', hidden: m.metric === 'time', onPress: () => set(menu, withMetric(m, 'time')) },
           { label: 'Measure by distance', icon: 'straighten', hidden: m.metric === 'distance', onPress: () => set(menu, withMetric(m, 'distance')) },
+          usesSides(m.sides, m.ex.name)
+            ? { label: 'Log both sides together', icon: 'join_inner', onPress: () => set(menu, { ...m, sides: false }) }
+            : { label: 'Log left and right separately', icon: 'compare_arrows', onPress: () => set(menu, { ...m, sides: true }) },
           { label: 'Duplicate', icon: 'content_copy', onPress: () => onChange([...blocks.slice(0, menu + 1), { ...JSON.parse(JSON.stringify(m)), id: `${m.id}c${Date.now().toString(36)}`, group: null }, ...blocks.slice(menu + 1)]) },
           { label: 'Remove exercise', icon: 'delete', danger: true, onPress: () => onChange(normalizeGroups(blocks.filter((_, n) => n !== menu))) },
         ]} />

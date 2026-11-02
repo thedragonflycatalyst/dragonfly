@@ -62,7 +62,8 @@ export type SetMetric = 'reps' | 'time' | 'distance';
 export type SetSpec = { weight?: string; reps?: string; tempo?: string; rest?: number; time?: number; distance?: string };
 
 export type WorkoutBlock =
-  | { id: string; kind: 'exercise'; ex: ExerciseRef; metric: SetMetric; sets: SetSpec[]; note?: string; group?: string | null }
+  /** sides: log left and right separately (unset: worked out from the name, e.g. "Single arm cable curl") */
+  | { id: string; kind: 'exercise'; ex: ExerciseRef; metric: SetMetric; sets: SetSpec[]; note?: string; group?: string | null; sides?: boolean }
   | { id: string; kind: 'timed'; name: string; exercise_ids: string[]; timer: TimerSpec; note?: string }
   | { id: string; kind: 'note'; text: string };
 export type ExerciseBlock = Extract<WorkoutBlock, { kind: 'exercise' }>;
@@ -88,9 +89,14 @@ export type Assignment = {
   status: 'scheduled' | 'done' | 'skipped'; completed_at: string | null;
 };
 
-/** What was actually done in one set (weight in the trainer's display unit, recorded in `unit`) */
-export type SetLog = { weight?: number | null; reps?: number | null; time?: number | null; distance?: string | null; done: boolean };
-export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string };
+/** What was actually done in one set (weight in the trainer's display unit, recorded in `unit`).
+ * Two-sided exercises use reps_l/reps_r (or time_l/time_r) instead of reps/time. rest: seconds rested after it. */
+export type SetLog = {
+  weight?: number | null; reps?: number | null; time?: number | null; distance?: string | null; done: boolean;
+  reps_l?: number | null; reps_r?: number | null; time_l?: number | null; time_r?: number | null; rest?: number | null;
+};
+/** One exercise in a logged workout. sides: logged left/right. note: the trainer's or client's note for this exercise. */
+export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; sides?: boolean; note?: string };
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
   duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
