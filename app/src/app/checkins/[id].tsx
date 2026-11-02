@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import { lowRel } from '@/lib/dates';
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, ScrollView, Switch, View } from 'react-native';
@@ -78,7 +79,7 @@ export default function ClientCheckin() {
             <Txt v="h3">{c.name}</Txt>
             <Badge text={dueLabel(row.due)} color={row.due.status === 'overdue' ? p.danger : row.due.status === 'today' ? p.gold : p.focus} />
           </View>
-          <Txt v="small">{row.last ? `Last check-in ${relDay(row.last.done_on).toLowerCase()}` : 'No check-ins yet'} · next {fmtShort(fromKey(row.due.due))}</Txt>
+          <Txt v="small">{row.last ? `Last check-in ${lowRel(row.last.done_on)}` : 'No check-ins yet'} · next {fmtShort(fromKey(row.due.due))}</Txt>
           {row.signals.map((s) => <Txt key={s.text} v="smallBold" color={s.level === 'warn' ? p.danger : p.good}>{s.level === 'warn' ? '• ' : '✓ '}{s.text}</Txt>)}
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
             {phone ? <Button small kind="ghost" icon="sms" title="Text" onPress={() => text('')} /> : null}

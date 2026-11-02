@@ -18,10 +18,7 @@
         "backgroundColor": "#0a1214",
         "foregroundImage": "./assets/adaptive-icon.png",
         "monochromeImage": "./assets/adaptive-icon.png"
-      },
-      "blockedPermissions": [
-        "android.permission.RECORD_AUDIO"
-      ]
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -69,6 +66,12 @@
         {
           "cameraPermission": "Dragonfly uses the camera to scan food barcodes and take meal and progress photos.",
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Dragonfly uses the microphone to record voice messages in chat."
         }
       ]
     ],

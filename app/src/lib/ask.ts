@@ -10,8 +10,14 @@ export function ask(title: string, message: string, choices: Choice[]) {
   if (Platform.OS !== 'web') return Alert.alert(title, message, choices);
   const actions = choices.filter((c) => c.style !== 'cancel');
   if (!actions.length) { window.alert(`${title}\n\n${message}`); return; }
-  if (actions.length === 1) { if (window.confirm(`${title}\n\n${message}`)) actions[0].onPress?.(); return; }
+  if (actions.length === 1) { if (window.confirm(`${title}\n\n${message}`)) actions[0].onPress?.(); else choices.find((c) => c.style === 'cancel')?.onPress?.(); return; }
   const pick = window.prompt(`${title}\n\n${message}\n\n${actions.map((a, i) => `${i + 1}. ${a.text}`).join('\n')}\n\nType a number:`);
   const n = Number(pick);
   if (n >= 1 && n <= actions.length) actions[n - 1].onPress?.();
+}
+
+/** Yes/no question as a promise: resolves true when they pick the action */
+export function confirm(title: string, message: string | undefined, action: string, destructive = false): Promise<boolean> {
+  return new Promise((done) => ask(title, message ?? '', [{ text: 'Cancel', style: 'cancel', onPress: () => done(false) }, { text: action, style: destructive ? 'destructive' : 'default', onPress: () => done(true) }]))
+    .then((v) => v as boolean);
 }

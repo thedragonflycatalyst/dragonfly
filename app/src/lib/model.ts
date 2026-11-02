@@ -4,6 +4,8 @@ export type Units = 'imperial' | 'metric';
 export type Trainer = {
   user_id: string; display_name: string; business_name: string | null; bio: string | null; timezone: string;
   units: Units; auto_health_form: boolean; auto_freeze_days: number; checkin_every_days?: number;
+  client_perms?: Partial<import('./prefs').ClientPerms>; cancel_hours?: number; brand_color?: string | null; logo?: string | null; welcome?: string | null;
+  unit_prefs?: Partial<import('./prefs').UnitPrefs>; notify?: Record<string, unknown>;
 };
 
 export type ClientStatus = 'lead' | 'invited' | 'active' | 'frozen' | 'archived';
@@ -94,7 +96,7 @@ export type WorkoutLog = {
 };
 
 export type Team = { id: string; owner_id: string; name: string };
-export type TeamMember = { id: string; team_id: string; trainer_id: string | null; email: string; display_name: string; role: 'owner' | 'trainer'; status: 'invited' | 'active' | 'removed'; created_at: string };
+export type TeamMember = { id: string; team_id: string; trainer_id: string | null; email: string; display_name: string; role: 'owner' | 'trainer'; status: 'invited' | 'active' | 'removed'; created_at: string; perms?: { financials?: boolean; packages?: boolean; events?: boolean } };
 
 export type Person = { user_id: string; username: string; relation: 'client' | 'trainer' };
 

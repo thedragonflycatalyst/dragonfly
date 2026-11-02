@@ -1,3 +1,4 @@
+import { lowRel } from '@/lib/dates';
 import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
@@ -63,7 +64,7 @@ export default function Checkins() {
                     <Txt v="bold">{r.client.name}</Txt>
                     <Badge text={dueLabel(r.due)} color={r.due.status === 'overdue' ? p.danger : r.due.status === 'today' ? p.gold : r.due.status === 'paused' ? undefined : p.focus} />
                   </View>
-                  <Txt v="small">{r.last ? `Last: ${relDay(r.last.done_on).toLowerCase()} by ${CHANNELS.find(([k]) => k === r.last!.channel)?.[1].toLowerCase()}` : 'No check-ins yet'} · next {fmtShort(fromKey(r.due.due))}</Txt>
+                  <Txt v="small">{r.last ? `Last: ${lowRel(r.last.done_on)} by ${CHANNELS.find(([k]) => k === r.last!.channel)?.[1].toLowerCase()}` : 'No check-ins yet'} · next {fmtShort(fromKey(r.due.due))}</Txt>
                   {r.signals.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                     {r.signals.map((s) => <Txt key={s.text} v="smallBold" color={s.level === 'warn' ? p.danger : p.good}>{s.level === 'warn' ? '• ' : '✓ '}{s.text}</Txt>)}
                   </View>}
