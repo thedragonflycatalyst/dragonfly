@@ -15,9 +15,9 @@
     "android": {
       "package": "com.thedragonflycatalyst.dragonfly",
       "adaptiveIcon": {
-        "backgroundColor": "#0a1214",
+        "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/adaptive-icon.png",
-        "monochromeImage": "./assets/adaptive-icon.png"
+        "monochromeImage": "./assets/adaptive-icon-monochrome.png"
       },
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
