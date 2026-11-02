@@ -1,7 +1,7 @@
 // coach-calendar-import: reads a screenshot (texts, a paper planner, another app's calendar) and lists the sessions in it.
 //
 // POST { image: base64 JPEG, today: 'YYYY-MM-DD', clients: string[] }  (Authorization: a trainer's session)
-// → { sessions: [{ client, title, date, time, minutes, location }] }  Nothing is saved: the trainer reviews and adds them.
+// → { sessions: [{ client, title, date, dated, time, minutes, location }] }  (dated false: no date in the picture, date is '')  Nothing is saved: the trainer reviews and adds them.
 // Needs ANTHROPIC_API_KEY (answers { error: 'not_configured' } without it). 30 imports per trainer per day.
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0';
 
@@ -29,12 +29,13 @@ const TOOL = {
           properties: {
             client: { type: 'string', description: 'The person the session is with, matched to one of the known client names when possible, else as written ("" if none).' },
             title: { type: 'string', description: 'Short title, e.g. "PT session" or "Consult".' },
-            date: { type: 'string', description: 'YYYY-MM-DD. Resolve weekday names and relative dates ("tomorrow", "next Tue") from today.' },
+            date: { type: 'string', description: 'YYYY-MM-DD. Resolve weekday names and relative dates ("tomorrow", "next Tue") from today. "" when no date or day is shown.' },
+            date_shown: { type: 'boolean', description: 'False when the picture gives no date or day for this session (the trainer will be asked).' },
             time: { type: 'string', description: '24-hour HH:MM start time.' },
             minutes: { type: 'number', description: 'Length in minutes (60 if not stated).' },
             location: { type: 'string', description: 'Where, if stated, else "".' },
           },
-          required: ['date', 'time'],
+          required: ['date', 'date_shown', 'time'],
         },
       },
     },
@@ -83,7 +84,7 @@ Deno.serve(async (req) => {
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
           { type: 'text', text: `A personal trainer took this picture: a screenshot or a phone photo (possibly at an angle) of text messages, a paper planner, or a calendar or booking system on a computer screen. List every training session or appointment it shows, agrees to or schedules. Ignore cancelled ones and blocked time.
 The trainer is ${JSON.stringify(tr.display_name ?? '')}${tr.business_name ? ` (business: ${JSON.stringify(tr.business_name)})` : ''}. If the picture shows several trainers' schedules (e.g. a gym booking system with columns or labels like "PL: <name>"), list only this trainer's sessions; if one appointment's details are open, list that one.
-Today is ${today}; when no date is visible, use today. Known clients: ${JSON.stringify(clients)}. The client is the person being trained, not the trainer or organizer. If there are none, return an empty list.` },
+Today is ${today}. When no date or weekday is visible for a session, set date to "" and date_shown to false; never guess a date. Known clients: ${JSON.stringify(clients)}. The client is the person being trained, not the trainer or organizer. If there are none, return an empty list.` },
         ],
       }],
     }),
@@ -91,9 +92,11 @@ Today is ${today}; when no date is visible, use today. Known clients: ${JSON.str
   if (!res.ok) { console.error('ai error', res.status, await res.text()); return reply(502, { error: 'ai_unavailable' }); }
   const out = await res.json();
   const found = (out.content ?? []).find((c: { type: string }) => c.type === 'tool_use')?.input?.sessions ?? [];
-  const sessions = (Array.isArray(found) ? found : []).slice(0, 40).filter((s: any) => /^\d{4}-\d{2}-\d{2}$/.test(s?.date) && /^\d{1,2}:\d{2}$/.test(s?.time)).map((s: any) => ({
-    client: String(s.client ?? '').slice(0, 80), title: String(s.title || 'Session').slice(0, 120), date: s.date, time: s.time.padStart(5, '0'),
-    minutes: Math.min(Math.max(Math.round(Number(s.minutes) || 60), 5), 720), location: String(s.location ?? '').slice(0, 200),
-  }));
+  // A session without a date comes back with dated: false so the app asks which day it is
+  const sessions = (Array.isArray(found) ? found : []).slice(0, 40).filter((s: any) => /^\d{1,2}:\d{2}$/.test(s?.time)).map((s: any) => {
+    const dated = s.date_shown !== false && /^\d{4}-\d{2}-\d{2}$/.test(s?.date ?? '');
+    return { dated, date: dated ? s.date : '', client: String(s.client ?? '').slice(0, 80), title: String(s.title || 'Session').slice(0, 120), time: s.time.padStart(5, '0'),
+    minutes: Math.min(Math.max(Math.round(Number(s.minutes) || 60), 5), 720), location: String(s.location ?? '').slice(0, 200) };
+  });
   return reply(200, { sessions });
 });

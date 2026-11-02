@@ -12,7 +12,8 @@ import { useApp } from '@/lib/app-state';
 import { at, COLORS, fmtDuration, hhmm, KINDS, occurrences, openSlots, REPEATS, weekOf, type Availability, type Booking, type CoachEvent, type Occurrence } from '@/lib/business';
 import { addDays, dayKey, fromKey } from '@/lib/dates';
 import { callFn, fnText } from '@/lib/fn';
-import { addBookings, bookingLine, readAppointments, toBookings } from '@/features/calendar-import';
+import { readAppointments, type FoundSession } from '@/features/calendar-import';
+import { ImportReview } from '@/features/import-review';
 import { errText } from '@/lib/model';
 import { recall, sb, store } from '@/lib/supabase';
 import { MAX_W, R, usePalette } from '@/lib/theme';
@@ -38,6 +39,7 @@ function CoachCalendar() {
   const [hours, setHours] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importMenu, setImportMenu] = useState(false);
+  const [review, setReview] = useState<FoundSession[] | null>(null);
   const { clients, groups } = useClientList();
   const week = weekOf(anchor);
 
@@ -100,10 +102,7 @@ function CoachCalendar() {
       const a = res.assets[0];
       const found = await readAppointments(a.uri, a.width, a.height, clients ?? []);
       if (!found.length) return toast('No sessions found in that picture', false);
-      const rows = toBookings(found, clients ?? [], app.trainer?.user_id);
-      if (!(await confirm(`Add ${rows.length} session${rows.length === 1 ? '' : 's'}?`, rows.map((x) => `• ${bookingLine(x)}`).join('\n'), 'Add them'))) return;
-      await addBookings(rows);
-      toast('Added to your calendar'); load();
+      setReview(found);
     } catch (e) { toast(fnText(e), false); } finally { setImporting(false); }
   };
 
@@ -181,6 +180,7 @@ function CoachCalendar() {
         </View>
       </ScrollView>
       <BookSheet open={book} onClose={() => setBook(null)} onSaved={() => { setBook(null); load(); }} events={events} />
+      <ImportReview found={review} clients={clients ?? []} onClose={() => setReview(null)} onAdded={(n) => { setReview(null); toast(`Added ${n} to your calendar`); load(); }} />
       <ActionMenu visible={importMenu} onClose={() => setImportMenu(false)} title="Import appointments" items={[
         { label: Platform.OS === 'web' ? 'Take a photo' : 'Scan with the camera', icon: 'document_scanner', onPress: () => importShot('camera') },
         { label: 'Choose a screenshot', icon: 'photo_library', onPress: () => importShot('library') },

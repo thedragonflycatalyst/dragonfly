@@ -5,13 +5,13 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useIsFocused } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, AppState, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useClientList } from '@/components/pickers';
 import { Button, Icon, Txt, useToast } from '@/components/ui';
-import { addBookings, bookingLine, readAppointments, toBookings, type NewBooking } from '@/features/calendar-import';
+import { readAppointments, type FoundSession } from '@/features/calendar-import';
+import { ImportReview } from '@/features/import-review';
 import { readText } from '@/features/ocr';
-import { useApp } from '@/lib/app-state';
 import { fnText } from '@/lib/fn';
 import { appointmentKey } from '@/lib/scan-text';
 import { F, R, usePalette } from '@/lib/theme';
@@ -21,7 +21,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function CalendarScan() {
   const p = usePalette();
-  const app = useApp();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
@@ -32,9 +31,7 @@ export default function CalendarScan() {
   const [torch, setTorch] = useState(false);
   const [active, setActive] = useState(AppState.currentState === 'active');
   const [status, setStatus] = useState<'looking' | 'steady' | 'reading'>('looking');
-  const [found, setFound] = useState<NewBooking[] | null>(null);
-  const [pick, setPick] = useState<boolean[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [found, setFound] = useState<FoundSession[] | null>(null);
   const busy = useRef(false);
   const lastKey = useRef<string | null>(null);
   const clientsRef = useRef(clients); clientsRef.current = clients;
@@ -49,9 +46,8 @@ export default function CalendarScan() {
     try {
       const sessions = await readAppointments(uri, w, h, clientsRef.current ?? []);
       if (!sessions.length) { toast('No appointments found there. Hold the camera over one.', false); lastKey.current = null; setStatus('looking'); return; }
-      const rows = toBookings(sessions, clientsRef.current ?? [], app.trainer?.user_id);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      setPick(rows.map(() => true)); setFound(rows); setStatus('looking');
+      setFound(sessions); setStatus('looking');
     } catch (e) { toast(fnText(e), false); lastKey.current = null; setStatus('looking'); }
   };
 
@@ -88,14 +84,6 @@ export default function CalendarScan() {
     if (a) await read(a.uri, a.width, a.height);
   };
   const close = () => { if (router.canGoBack()) router.back(); else router.replace('/calendar'); };
-  const add = async () => {
-    const rows = (found ?? []).filter((_, i) => pick[i]);
-    if (!rows.length) return;
-    setSaving(true);
-    try { await addBookings(rows); toast(`Added ${rows.length} to your calendar`); close(); }
-    catch (e) { toast(fnText(e), false); } finally { setSaving(false); }
-  };
-
   if (!perm) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
   if (!perm.granted) {
     return (
@@ -134,28 +122,8 @@ export default function CalendarScan() {
           </View>
         </View>
       )}
-      {found && (
-        <View style={[st.sheet, { backgroundColor: p.surface, paddingBottom: insets.bottom + 20 }]}>
-          <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>Found {found.length}</Txt>
-          <Txt v="h2" style={{ marginBottom: 10 }}>Add to your calendar?</Txt>
-          <ScrollView style={{ maxHeight: 260 }}>
-            {found.map((b, i) => (
-              <Pressable key={i} accessibilityRole="checkbox" accessibilityState={{ checked: pick[i] }} onPress={() => setPick((x) => x.map((v, j) => (j === i ? !v : v)))}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: p.line }}>
-                <Icon name={pick[i] ? 'check_box' : 'check_box_outline_blank'} color={pick[i] ? p.focus : p.muted} />
-                <View style={{ flex: 1 }}>
-                  <Txt v="bold">{bookingLine(b)}</Txt>
-                  {!b.client_id && <Txt v="small">Not matched to a client</Txt>}
-                </View>
-              </Pressable>
-            ))}
-          </ScrollView>
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-            <Button title={`Add ${pick.filter(Boolean).length}`} busy={saving} disabled={!pick.some(Boolean)} onPress={add} style={{ flex: 1 }} />
-            <Button kind="ghost" title="Scan again" onPress={() => { lastKey.current = null; setFound(null); }} />
-          </View>
-        </View>
-      )}
+      <ImportReview found={found} clients={clients ?? []} onClose={() => { lastKey.current = null; setFound(null); }}
+        onAdded={(n) => { toast(`Added ${n} to your calendar`); setFound(null); close(); }} />
     </View>
   );
 }
@@ -204,5 +172,4 @@ const st = StyleSheet.create({
   shutterIn: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#fff' },
   corner: { position: 'absolute', width: 54, height: 54 },
   line: { position: 'absolute', left: 14, right: 14, height: 3, borderRadius: 2, shadowOpacity: 0.9, shadowRadius: 10, elevation: 6 },
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20 },
 });

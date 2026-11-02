@@ -5,7 +5,8 @@ import { callFn } from '@/lib/fn';
 import type { Client } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 
-export type FoundSession = { client: string; title: string; date: string; time: string; minutes: number; location: string };
+/** dated false: the picture showed no date, so the trainer picks the day (date is '') */
+export type FoundSession = { client: string; title: string; date: string; dated?: boolean; time: string; minutes: number; location: string };
 export type NewBooking = { trainer_id: string | undefined; client_id: string | null; title: string; kind: 'session'; starts_at: string; duration_min: number; location: string | null };
 
 /** Sends one photo to be read (the AI lists the sessions in it; nothing is saved) */
@@ -17,17 +18,19 @@ export async function readAppointments(uri: string, width: number, height: numbe
 }
 
 /** Turns what was read into calendar sessions, matched to clients by name where possible */
-export function toBookings(found: FoundSession[], clients: Client[], trainerId: string | undefined): NewBooking[] {
+export function toBookings(found: FoundSession[], clients: Client[], trainerId: string | undefined, day?: string): NewBooking[] {
   return found.map((s) => {
+    const date = s.dated === false || !s.date ? (day ?? dayKey(new Date())) : s.date;
     const name = s.client.toLowerCase();
     const c = clients.find((x) => x.name.toLowerCase() === name)
       ?? clients.find((x) => !!name && (x.last_name ?? '').toLowerCase() !== '' && name.includes((x.last_name ?? '').toLowerCase()) && name.includes(x.first_name.toLowerCase()))
       ?? clients.find((x) => !!name && x.name.toLowerCase().startsWith(name.split(' ')[0]));
     return { trainer_id: trainerId, client_id: c?.id ?? null, title: c ? `Session with ${c.first_name}` : s.client ? `${s.title} · ${s.client}` : s.title, kind: 'session',
-      starts_at: at(s.date, s.time).toISOString(), duration_min: s.minutes, location: s.location || null };
+      starts_at: at(date, s.time).toISOString(), duration_min: s.minutes, location: s.location || null };
   });
 }
 
+export const needsDay = (found: FoundSession[]) => found.some((s) => s.dated === false || !s.date);
 export const bookingLine = (b: NewBooking) => `${new Date(b.starts_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}: ${b.title}`;
 
 export async function addBookings(rows: NewBooking[]) {
