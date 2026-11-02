@@ -1,4 +1,4 @@
-import { Redirect, router } from 'expo-router';
+import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +19,7 @@ export default function SignIn() {
   const p = usePalette();
   const insets = useSafeAreaInsets();
   const toast = useToast();
+  const { next } = useLocalSearchParams<{ next?: string }>();
   const app = useApp();
   const [mode, setMode] = useState<Mode>('in');
   const [id, setId] = useState('');        // username or email
@@ -29,8 +30,10 @@ export default function SignIn() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
-  if (app.user && !busy) return <Redirect href="/" />;
-  const done = () => router.replace('/');
+  // Back to a join page (QR sign-up) after signing in; only our own paths
+  const back = typeof next === 'string' && /^\/join\/[A-Za-z0-9]{16,64}$/.test(next) ? next : '/';
+  if (app.user && !busy) return <Redirect href={back as '/'} />;
+  const done = () => router.replace(back as '/');
   const go = (m: Mode) => { setErr(''); setCode(''); setPw(''); setMode(m); };
   const attempt = async (fn: () => Promise<void>) => {
     setErr(''); setBusy(true);

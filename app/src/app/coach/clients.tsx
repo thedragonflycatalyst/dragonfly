@@ -76,8 +76,11 @@ export default function Clients() {
   return (
     <Screen kicker={app.trainer?.business_name ?? 'Coaching'} title="Clients"
       onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} refreshing={refreshing}
-      right={tab !== 'groups' && <Button title={tab === 'pool' ? 'Add to pool' : 'Add client'} icon="person_add"
-        onPress={() => router.push({ pathname: '/clients/new', params: tab === 'pool' ? { pool: '1' } : {} })} />}>
+      right={tab !== 'groups' && <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        {tab !== 'pool' && <Button kind="ghost" title="QR sign-up" icon="qr_code_2" onPress={() => router.push('/join-qr')} />}
+        <Button title={tab === 'pool' ? 'Add to pool' : 'Add client'} icon="person_add"
+          onPress={() => router.push({ pathname: '/clients/new', params: tab === 'pool' ? { pool: '1' } : {} })} />
+      </View>}>
       <Segmented value={tab} onChange={setTab} options={[['clients', `Clients (${counts.current})`], ['groups', 'Groups'], ['pool', `Client pool (${counts.pool})`]]} />
 
       {tab !== 'groups' && (

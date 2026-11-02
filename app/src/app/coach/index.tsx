@@ -15,6 +15,7 @@ import { usePalette } from '@/lib/theme';
 
 const ACTIONS: { icon: AndroidSymbol; title: string; go?: () => void; later?: string }[] = [
   { icon: 'person_add', title: 'Add client', go: () => router.push('/clients/new') },
+  { icon: 'qr_code_2', title: 'QR sign-up', go: () => router.push('/join-qr') },
   { icon: 'fitness_center', title: 'Start a workout', go: () => router.push('/coach/workouts') },
   { icon: 'inbox', title: 'Check-ins', go: () => router.push('/checkins') },
   { icon: 'event', title: 'Book a session', go: () => router.push('/calendar') },

@@ -44,7 +44,7 @@
       "favicon": "./assets/favicon.png",
       "output": "single",
       "name": "Dragonfly",
-      "themeColor": "#0a1214"
+      "themeColor": "#0b0b10"
     },
     "plugins": [
       "expo-router",
