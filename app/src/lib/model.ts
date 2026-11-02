@@ -69,8 +69,10 @@ export type Workout = {
   folder_id: string | null; cover: string | null; last_used_at: string | null; created_at: string; updated_at: string;
 };
 export type Folder = { id: string; trainer_id: string; name: string };
-export type ProgramDay = { week: number; day: number; workout_id: string };
-export type Program = { id: string; trainer_id: string; name: string; description: string | null; weeks: number; schedule: ProgramDay[]; archived: boolean; folder_id: string | null; cover: string | null; updated_at: string };
+export type ProgramItemKind = 'workout' | 'measurements' | 'photo' | 'note';
+/** One thing on a program day. Older programs have workout items without `kind`. */
+export type ProgramDay = { week: number; day: number; kind?: ProgramItemKind; workout_id?: string; title?: string; details?: string; time?: 'am' | 'pm' };
+export type Program = { id: string; trainer_id: string; name: string; description: string | null; weeks: number; schedule: ProgramDay[]; archived: boolean; folder_id: string | null; cover: string | null; updated_at: string; am_time?: string; pm_time?: string; created_at?: string };
 export type MyExercise = {
   id: string; trainer_id: string; name: string; instructions: string | null; video_url: string | null;
   equipment: string[]; muscles: string[]; tags: string[]; default_metric: SetMetric; archived: boolean;
