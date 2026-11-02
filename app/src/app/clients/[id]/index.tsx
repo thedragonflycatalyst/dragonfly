@@ -159,7 +159,7 @@ export default function ClientProfile() {
         <SectionLabel>Training and business</SectionLabel>
         <Card style={{ padding: 0 }}>
           <Row icon="fitness_center" title="Workouts and programs" sub="Calendar, history and assigning" onPress={() => router.push({ pathname: '/clients/[id]/workouts', params: { id: c.id } })} />
-          <Row icon="restaurant" title="Nutrition plans" sub="Meal plans and targets you’ve shared" onPress={() => router.push({ pathname: '/clients/[id]/nutrition', params: { id: c.id } })} />
+          <Row icon="restaurant" title="Nutrition" sub="Food diary, water and meal plans" onPress={() => router.push({ pathname: '/clients/[id]/nutrition', params: { id: c.id } })} />
           {LATER.map((l, i) => <Row key={l.title} icon={l.icon} title={l.title} disabled last={i === LATER.length - 1} right={<ComingWith what={l.with} />} />)}
           <Row icon="chat_bubble" title={`Message ${first}`} disabled last right={<ComingWith what="the Hub" />} />
         </Card>

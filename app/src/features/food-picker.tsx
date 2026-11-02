@@ -68,10 +68,10 @@ export function AmountEditor({ item, onChange }: { item: MealItem; onChange: (i:
 }
 
 /** Find a food (USDA database or the trainer's own), set the amount, add it to a meal. */
-export function FoodPicker({ visible, onClose, onAdd, title }: { visible: boolean; onClose: () => void; onAdd: (i: MealItem) => void; title: string }) {
+export function FoodPicker({ visible, onClose, onAdd, title, mine = true }: { visible: boolean; onClose: () => void; onAdd: (i: MealItem) => void; title: string; mine?: boolean }) {
   const p = usePalette();
   const db = useMemo(() => (visible ? foods() : null), [visible]);
-  const custom = useCustomFoods(visible);
+  const custom = useCustomFoods(visible && mine);
   const [tab, setTab] = useState<'search' | 'browse' | 'mine'>('search');
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<number | null>(null);
@@ -102,7 +102,7 @@ export function FoodPicker({ visible, onClose, onAdd, title }: { visible: boolea
         </View>
       ) : (
         <View style={{ flex: 1, paddingHorizontal: 16, gap: 10 }}>
-          <Segmented value={tab} onChange={setTab} options={[['search', 'Search'], ['browse', 'Food groups'], ['mine', 'My foods']]} />
+          <Segmented value={tab} onChange={setTab} options={mine ? [['search', 'Search'], ['browse', 'Food groups'], ['mine', 'My foods']] : [['search', 'Search'], ['browse', 'Food groups']]} />
           {(tab !== 'browse' || cat !== null) && <SearchBox value={q} onChange={setQ} placeholder={tab === 'mine' ? 'Search my foods' : 'Search foods, e.g. chicken breast'} />}
           {tab === 'browse' && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

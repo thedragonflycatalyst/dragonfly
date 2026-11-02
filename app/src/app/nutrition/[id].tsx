@@ -10,8 +10,9 @@ import { ask } from '@/lib/ask';
 import { errText, type Client } from '@/lib/model';
 import { describe, itemNutr, mealNutr, newId, NO_TARGETS, NUTRIENTS, pctOk, planNutr, type Meal, type MealItem, type NutritionPlan, type Targets } from '@/lib/nutrition';
 import { sb } from '@/lib/supabase';
+import { CoverPicker } from '@/features/cover-picker';
 import { MAX_W, R, usePalette } from '@/lib/theme';
-import { COVERS, move } from '@/lib/workouts';
+import { move } from '@/lib/workouts';
 
 type Folder = { id: string; name: string };
 
@@ -109,13 +110,7 @@ export default function PlanScreen() {
                 <Field label="Plan name" value={plan.name} onChangeText={(name) => update({ name })} />
                 <Field label="Description" hint="(your client sees this)" value={plan.description ?? ''} onChangeText={(d) => update({ description: d || null })} multiline placeholder="What this plan is for and how to use it" />
                 <Field label="Notes" hint="(your client sees these too)" value={plan.notes ?? ''} onChangeText={(d) => update({ notes: d || null })} multiline placeholder="Swaps, prep tips, eating out" />
-                <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Cover</Txt>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-                  {COVERS.map(([a, b], i) => (
-                    <Pressable key={i} accessibilityRole="radio" accessibilityLabel={`Cover ${i + 1}`} accessibilityState={{ selected: plan.cover === `preset:${i}` }} onPress={() => update({ cover: `preset:${i}` })}
-                      style={{ width: 52, height: 52, borderRadius: R.sm, backgroundColor: b, borderWidth: 4, borderColor: plan.cover === `preset:${i}` ? p.ink : a }} />
-                  ))}
-                </View>
+                <CoverPicker name={plan.name} value={plan.cover} trainerId={plan.trainer_id} onChange={(cover) => update({ cover })} />
                 <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Folder</Txt>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   <Chip label="None" selected={!plan.folder_id} onPress={() => update({ folder_id: null })} />

@@ -124,3 +124,121 @@ create policy coach_nutrition_plan_clients_trainer on public.coach_nutrition_pla
   using (trainer_id = (select auth.uid())) with check (trainer_id = (select auth.uid()));
 create policy coach_nutrition_plan_clients_client on public.coach_nutrition_plan_clients for select to authenticated
   using (public.coach_is_client(client_id));
+
+-- ---------------------------------------------------------------- cover art
+-- Covers can be a preset ('preset:3') or the trainer's own image in coach-media: {trainer_id}/covers/{file}
+alter table public.coach_programs add column cover text check (char_length(cover) <= 300);
+create or replace function public.coach_media_ok(p_name text) returns boolean
+language sql stable security definer set search_path = '' as
+$$
+  select split_part(p_name, '/', 2) in ('exercises', 'covers') and (
+    split_part(p_name, '/', 1) = auth.uid()::text
+    or exists (select 1 from public.coach_clients c
+                where c.trainer_id::text = split_part(p_name, '/', 1) and c.user_id = auth.uid() and c.status = 'active'))
+$$;
+-- Meal photos join progress photos and files in the private client folder
+create or replace function public.coach_storage_ok(p_name text) returns boolean
+language sql stable security definer set search_path = '' as
+$$
+  select exists (
+    select 1 from public.coach_clients c
+     where c.id::text = split_part(p_name, '/', 2) and c.trainer_id::text = split_part(p_name, '/', 1)
+       and split_part(p_name, '/', 3) in ('photos', 'files', 'meals')
+       and (c.trainer_id = auth.uid() or (c.user_id = auth.uid() and c.status = 'active')))
+$$;
+
+-- ---------------------------------------------------------------- food diary
+-- One row per food eaten. n = nutrients for the amount eaten (kcal, protein, carbs, fat, sugar, fibre, sodium),
+-- stored so daily totals don't depend on the food database.
+create table public.coach_food_logs (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references public.coach_clients(id) on delete cascade,
+  trainer_id uuid not null references public.coach_trainers(user_id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  eaten_on date not null,
+  meal text not null check (char_length(meal) between 1 and 60),
+  name text not null check (char_length(name) between 1 and 200),
+  food jsonb check (food is null or jsonb_typeof(food) = 'object'),
+  qty numeric check (qty > 0 and qty <= 100000),
+  portion text check (char_length(portion) <= 80),
+  n jsonb not null check (jsonb_typeof(n) = 'object'),
+  source text not null check (source in ('search', 'plan', 'barcode', 'quick', 'photo', 'ai', 'saved')),
+  photo_path text check (char_length(photo_path) <= 300),
+  note text check (char_length(note) <= 1000),
+  created_at timestamptz not null default now()
+);
+create index coach_food_logs_client_day_idx on public.coach_food_logs (client_id, eaten_on);
+
+create table public.coach_water_logs (
+  client_id uuid not null references public.coach_clients(id) on delete cascade,
+  trainer_id uuid not null references public.coach_trainers(user_id) on delete cascade,
+  day date not null,
+  ml int not null default 0 check (ml between 0 and 20000),
+  updated_at timestamptz not null default now(),
+  primary key (client_id, day)
+);
+
+-- A client's own saved meals, to log again in one tap
+create table public.coach_saved_meals (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references public.coach_clients(id) on delete cascade,
+  trainer_id uuid not null references public.coach_trainers(user_id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 80),
+  items jsonb not null check (jsonb_typeof(items) = 'array' and pg_column_size(items) < 200000),
+  created_at timestamptz not null default now()
+);
+create index coach_saved_meals_client_idx on public.coach_saved_meals (client_id);
+
+-- Client-side rows take the client's trainer automatically, so nobody can file them under someone else
+create function public.coach_fill_trainer() returns trigger
+language plpgsql security definer set search_path = '' as
+$$
+begin
+  select c.trainer_id into new.trainer_id from public.coach_clients c where c.id = new.client_id;
+  if new.trainer_id is null then raise exception 'unknown client' using errcode = '42501'; end if;
+  return new;
+end
+$$;
+create trigger coach_food_logs_fill before insert or update on public.coach_food_logs for each row execute function public.coach_fill_trainer();
+create trigger coach_water_logs_fill before insert or update on public.coach_water_logs for each row execute function public.coach_fill_trainer();
+create trigger coach_saved_meals_fill before insert or update on public.coach_saved_meals for each row execute function public.coach_fill_trainer();
+
+-- AI photo estimates: one row per call, so the edge function can cap use per person per day
+create table public.coach_ai_calls (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  kind text not null,
+  at timestamptz not null default now()
+);
+create index coach_ai_calls_user_idx on public.coach_ai_calls (user_id, at);
+
+revoke execute on function public.coach_fill_trainer() from public, anon, authenticated;
+
+alter table public.coach_food_logs enable row level security;
+alter table public.coach_water_logs enable row level security;
+alter table public.coach_saved_meals enable row level security;
+alter table public.coach_ai_calls enable row level security;   -- no policies: only the edge function (service role) uses it
+revoke all on public.coach_food_logs, public.coach_water_logs, public.coach_saved_meals, public.coach_ai_calls from anon;
+revoke all on public.coach_ai_calls from authenticated;
+grant select, insert, update, delete on public.coach_water_logs, public.coach_saved_meals to authenticated;
+-- Diary edits can change what was eaten, never who logged it or whose diary it's in
+grant select, insert, delete on public.coach_food_logs to authenticated;
+grant update (eaten_on, meal, name, food, qty, portion, n, photo_path, note) on public.coach_food_logs to authenticated;
+
+-- The client keeps their own diary; their trainer can read it and fix entries when coaching
+create policy coach_food_logs_read on public.coach_food_logs for select to authenticated
+  using (public.coach_is_client(client_id) or public.coach_owns_client(client_id));
+create policy coach_food_logs_add on public.coach_food_logs for insert to authenticated
+  with check ((public.coach_is_client(client_id) or public.coach_owns_client(client_id)) and user_id = (select auth.uid()));
+create policy coach_food_logs_change on public.coach_food_logs for update to authenticated
+  using (public.coach_is_client(client_id) or public.coach_owns_client(client_id))
+  with check (public.coach_is_client(client_id) or public.coach_owns_client(client_id));
+create policy coach_food_logs_remove on public.coach_food_logs for delete to authenticated
+  using (public.coach_is_client(client_id) or public.coach_owns_client(client_id));
+create policy coach_water_logs_rw on public.coach_water_logs for all to authenticated
+  using (public.coach_is_client(client_id) or public.coach_owns_client(client_id))
+  with check (public.coach_is_client(client_id) or public.coach_owns_client(client_id));
+create policy coach_saved_meals_client on public.coach_saved_meals for all to authenticated
+  using (public.coach_is_client(client_id)) with check (public.coach_is_client(client_id));
+create policy coach_saved_meals_trainer on public.coach_saved_meals for select to authenticated
+  using (public.coach_owns_client(client_id));

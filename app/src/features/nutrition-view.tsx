@@ -3,14 +3,19 @@ import { View } from 'react-native';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Txt, useToast } from '@/components/ui';
 import { errText, type Client, type Group } from '@/lib/model';
-import { describe, itemNutr, macroSplit, mealNutr, NUTRIENTS, planNutr, round, targetGrams, type Meal, type NutritionPlan, type Targets } from '@/lib/nutrition';
+import { describe, itemNutr, macroSplit, mealNutr, NO_TARGETS, NUTRIENTS, planNutr, round, targetGrams, type Meal, type Nutr, type NutritionPlan, type Targets } from '@/lib/nutrition';
 import { sb } from '@/lib/supabase';
 import { R, usePalette } from '@/lib/theme';
 
 /** Totals for the day against the targets, one bar per nutrient */
 export function MacroSummary({ meals, targets }: { meals: Meal[]; targets: Targets }) {
+  return <TotalsBars n={round(planNutr(meals))} targets={targets} />;
+}
+
+/** Bars for any set of totals against targets (or plain numbers when there are none) */
+export function TotalsBars({ n, targets }: { n: Nutr; targets: Targets | null }) {
   const p = usePalette();
-  const n = round(planNutr(meals));
+  targets = targets ?? { ...NO_TARGETS };
   const goal = targets.on ? targetGrams(targets) : null;
   const split = macroSplit(n);
   return (
@@ -32,7 +37,7 @@ export function MacroSummary({ meals, targets }: { meals: Meal[]; targets: Targe
         );
       })}
       <Txt v="small">Calories from protein {split.protein}% · carbs {split.carbs}% · fat {split.fat}%</Txt>
-      {!targets.on && <Txt v="small">No targets set for this plan.</Txt>}
+      {!targets.on && <Txt v="small">No daily targets set yet.</Txt>}
     </View>
   );
 }

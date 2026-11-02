@@ -1,7 +1,9 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { Segmented } from '@/components/bits';
 import { Sheet } from '@/components/sheet';
+import { Diary } from '@/features/diary';
 import { Button, Chip, Txt, useToast } from '@/components/ui';
 import { useClientRecord } from '@/features/common';
 import { PlansView } from '@/features/plan-view';
@@ -22,6 +24,7 @@ export default function ClientNutrition() {
   const [all, setAll] = useState<NutritionPlan[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [view, setView] = useState<'diary' | 'plans'>('diary');
 
   const load = useCallback(async () => {
     const [mine, everything] = await Promise.all([
@@ -39,6 +42,8 @@ export default function ClientNutrition() {
       <Stack.Screen options={{ title: client ? `${client.first_name}’s nutrition` : 'Nutrition' }} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60, alignItems: 'center' }}>
         <View style={{ width: '100%', maxWidth: MAX_W, gap: 14 }}>
+          <Segmented value={view} onChange={setView} options={[['diary', 'Food diary'], ['plans', 'Plans']]} />
+          {view === 'diary' ? (client ? <Diary client={client} imperial={app.units === 'imperial'} asClient={false} /> : <ActivityIndicator color={p.ink} />) : <>
           <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
             <Button title="Share a plan" icon="add" onPress={() => setAdding(true)} />
             {current && <Button kind="ghost" title="Edit this plan" icon="edit" onPress={() => router.push({ pathname: '/nutrition/[id]', params: { id: current.id } })} />}
@@ -48,6 +53,7 @@ export default function ClientNutrition() {
             }} />}
           </View>
           {plans === null ? <ActivityIndicator color={p.ink} /> : <PlansView plans={plans} chosen={chosen} onChoose={setChosen} empty="Share one of your plans and it shows up in their app." />}
+          </>}
         </View>
       </ScrollView>
       <Sheet visible={adding} onClose={() => setAdding(false)} title={`Share with ${client?.first_name ?? 'client'}`}>

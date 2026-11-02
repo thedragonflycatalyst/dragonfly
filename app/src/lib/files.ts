@@ -11,10 +11,10 @@ import { sb } from './supabase';
 export const BUCKET = 'coach-private';
 const MAX_FILE = 25 * 1024 * 1024;
 
-const rand = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-export const folder = (c: Pick<Client, 'trainer_id' | 'id'>, kind: 'photos' | 'files') => `${c.trainer_id}/${c.id}/${kind}`;
+export const rand = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+export const folder = (c: Pick<Client, 'trainer_id' | 'id'>, kind: 'photos' | 'files' | 'meals') => `${c.trainer_id}/${c.id}/${kind}`;
 
-async function bytesOf(uri: string): Promise<ArrayBuffer> {
+export async function bytesOf(uri: string): Promise<ArrayBuffer> {
   if (Platform.OS === 'web') return (await fetch(uri)).arrayBuffer();
   const { File } = await import('expo-file-system');
   return new File(uri).arrayBuffer();

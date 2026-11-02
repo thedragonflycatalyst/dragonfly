@@ -9,6 +9,7 @@ import { dayKey } from '@/lib/dates';
 import { errText, type Client, type Program, type Workout } from '@/lib/model';
 import { copyWeek, setDay, trimWeeks } from '@/lib/session';
 import { sb } from '@/lib/supabase';
+import { CoverPicker } from '@/features/cover-picker';
 import { MAX_W, R, usePalette } from '@/lib/theme';
 
 /** Program builder: a grid of weeks × days, each day holding one workout. Saves automatically. */
@@ -39,7 +40,7 @@ export default function ProgramScreen() {
   const persist = useCallback(async () => {
     const cur = latest.current;
     if (!cur) return;
-    const { error } = await sb.from('coach_programs').update({ name: cur.name.trim() || 'Untitled program', description: cur.description, weeks: cur.weeks, schedule: cur.schedule }).eq('id', cur.id);
+    const { error } = await sb.from('coach_programs').update({ name: cur.name.trim() || 'Untitled program', description: cur.description, weeks: cur.weeks, schedule: cur.schedule, cover: cur.cover }).eq('id', cur.id);
     setSaved(error ? 'error' : 'saved');
     if (error) toast(errText(error), false);
   }, [toast]);
@@ -71,6 +72,7 @@ export default function ProgramScreen() {
           <Card>
             <Field label="Program name" value={pr.name} onChangeText={(name) => update({ name })} />
             <Field label="Description" hint="(optional)" value={pr.description ?? ''} onChangeText={(d) => update({ description: d || null })} multiline />
+            <CoverPicker name={pr.name} value={pr.cover} trainerId={pr.trainer_id} onChange={(cover) => update({ cover })} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <Txt v="bold" style={{ flexShrink: 0 }}>{pr.weeks} {pr.weeks === 1 ? 'week' : 'weeks'}</Txt>
               <Button small kind="ghost" title="Remove week" icon="remove" disabled={pr.weeks <= 1} onPress={() => setWeeks(pr.weeks - 1)} />

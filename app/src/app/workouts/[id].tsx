@@ -10,7 +10,8 @@ import { useApp } from '@/lib/app-state';
 import { errText, type Folder, type Workout, type WorkoutBlock } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
-import { COVERS, estimateMinutes, exerciseCount } from '@/lib/workouts';
+import { estimateMinutes, exerciseCount } from '@/lib/workouts';
+import { CoverPicker } from '@/features/cover-picker';
 import { MAX_W, R, usePalette } from '@/lib/theme';
 
 /** Workout builder: exercises and sets, details, and Start / Assign. Saves automatically. */
@@ -71,14 +72,7 @@ export default function WorkoutScreen() {
             <Card>
               <Field label="Workout name" value={w.name} onChangeText={(name) => update({ name })} />
               <Field label="Description" hint="(optional, your client sees this)" value={w.description ?? ''} onChangeText={(d) => update({ description: d || null })} multiline />
-              <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Cover</Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-                {COVERS.map(([a, b], i) => (
-                  <Pressable key={i} accessibilityRole="radio" accessibilityLabel={`Cover ${i + 1}`} accessibilityState={{ selected: w.cover === `preset:${i}` }}
-                    onPress={() => update({ cover: `preset:${i}` })}
-                    style={{ width: 52, height: 52, borderRadius: R.sm, backgroundColor: b, borderWidth: 4, borderColor: w.cover === `preset:${i}` ? p.ink : a }} />
-                ))}
-              </View>
+              <CoverPicker name={w.name} value={w.cover} trainerId={w.trainer_id} onChange={(cover) => update({ cover })} />
               <Txt v="bold" style={{ marginBottom: 8, fontSize: 15 }}>Folder</Txt>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                 <Chip label="None" selected={!w.folder_id} onPress={() => update({ folder_id: null })} />

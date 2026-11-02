@@ -111,8 +111,14 @@ export default function WorkoutsTab() {
         <View style={{ marginTop: 16 }}>
           {programs.length === 0 ? <Empty emoji="🗓️" title="No programs yet" body="A program lays your workouts out over several weeks. Assign it once and every session lands on your client’s calendar." />
             : <Card style={{ padding: 0 }}>
-              {programs.map((pr, i) => <Row key={pr.id} icon="calendar_month" title={pr.name} sub={`${pr.weeks} weeks · ${pr.schedule.length} workouts`} last={i === programs.length - 1}
-                onPress={() => router.push({ pathname: '/programs/[id]', params: { id: pr.id } })} />)}
+              {programs.map((pr, i) => (
+                <Pressable key={pr.id} accessibilityRole="link" onPress={() => router.push({ pathname: '/programs/[id]', params: { id: pr.id } })}
+                  style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, borderBottomWidth: i === programs.length - 1 ? 0 : 1, borderBottomColor: p.line, opacity: pressed ? 0.7 : 1 })}>
+                  <Cover name={pr.name} cover={pr.cover} />
+                  <View style={{ flex: 1, gap: 2 }}><Txt v="bold" numberOfLines={2}>{pr.name}</Txt><Txt v="small">{pr.weeks} weeks · {pr.schedule.length} workouts</Txt></View>
+                  <Icon name="chevron_right" color={p.muted} />
+                </Pressable>
+              ))}
             </Card>}
         </View>
       )}

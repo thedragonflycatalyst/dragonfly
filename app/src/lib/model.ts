@@ -70,7 +70,7 @@ export type Workout = {
 };
 export type Folder = { id: string; trainer_id: string; name: string };
 export type ProgramDay = { week: number; day: number; workout_id: string };
-export type Program = { id: string; trainer_id: string; name: string; description: string | null; weeks: number; schedule: ProgramDay[]; archived: boolean; folder_id: string | null; updated_at: string };
+export type Program = { id: string; trainer_id: string; name: string; description: string | null; weeks: number; schedule: ProgramDay[]; archived: boolean; folder_id: string | null; cover: string | null; updated_at: string };
 export type MyExercise = {
   id: string; trainer_id: string; name: string; instructions: string | null; video_url: string | null;
   equipment: string[]; muscles: string[]; tags: string[]; default_metric: SetMetric; archived: boolean;

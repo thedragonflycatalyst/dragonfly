@@ -30,7 +30,7 @@ function Shell() {
       <StatusBar style={p.scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ ...header, headerShown: false }}>
         <Stack.Screen name="account" options={{ headerShown: true, title: 'Account' }} />
-        {['clients/new', 'clients/[id]/index', 'clients/[id]/edit', 'clients/[id]/[section]', 'groups/[id]', 'forms/[rid]', 'forms/build', 'me/[section]', 'workouts/[id]', 'programs/[id]', 'session', 'workout/[aid]', 'clients/[id]/workouts', 'nutrition/[id]', 'clients/[id]/nutrition', 'me/nutrition'].map((name) => (
+        {['clients/new', 'clients/[id]/index', 'clients/[id]/edit', 'clients/[id]/[section]', 'groups/[id]', 'forms/[rid]', 'forms/build', 'me/[section]', 'workouts/[id]', 'programs/[id]', 'session', 'workout/[aid]', 'clients/[id]/workouts', 'nutrition/[id]', 'clients/[id]/nutrition', 'me/nutrition', 'me/food'].map((name) => (
           <Stack.Screen key={name} name={name} options={{ headerShown: true, title: '' }} />
         ))}
       </Stack>
