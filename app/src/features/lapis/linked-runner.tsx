@@ -17,12 +17,14 @@ import { announcementForPhase } from './phase-announcement';
  * React Native resumes. This does not promise continuous background audio.
  */
 export function LinkedLapisRunner({
-  timer, onComplete, onReset, onStart, initialClock, onClockChange,
+  timer, onComplete, onReset, onStart, onPause, blocked = false, initialClock, onClockChange,
 }: {
   timer: LapisTimer;
   onComplete?: (actualSeconds: number) => void;
   onReset?: () => void;
   onStart?: () => void;
+  onPause?: () => void;
+  blocked?: boolean;
   initialClock?: RunnerClock;
   onClockChange?: (clock: RunnerClock) => void;
 }) {
@@ -47,6 +49,14 @@ export function LinkedLapisRunner({
   const phaseIndex = state.phase ? timeline.phases.indexOf(state.phase) : timeline.phases.length;
   const done = hasStarted && state.finished;
 
+  // A workout may contain several Lapis blocks, but only one linked timer
+  // can actively run and own voice/haptics at any moment.
+  useEffect(() => {
+    if (blocked && clock.since !== null) {
+      setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
+    }
+  }, [blocked, clock.since, timeline.totalSeconds]);
+
   // Native end-of-timer fallback while backgrounded. React timers and voice
   // announcements aren't guaranteed to run after the OS suspends the app.
   useEffect(() => {
@@ -57,7 +67,7 @@ export function LinkedLapisRunner({
       const previous = pending;
       pending = null;
       await cancelLapisCompletion(previous);
-      if (state === 'active' || clock.since == null || clock.skipped) return;
+      if (state === 'active' || blocked || clock.since == null || clock.skipped) return;
       const left = timeline.totalSeconds - elapsedAt(clock, Date.now(), timeline.totalSeconds);
       if (left <= 0) return;
       const id = await scheduleLapisCompletion(left, timer.name);
@@ -71,7 +81,7 @@ export function LinkedLapisRunner({
       sub.remove();
       void cancelLapisCompletion(pending);
     };
-  }, [clock, timeline.totalSeconds, timer.name]);
+  }, [blocked, clock, timeline.totalSeconds, timer.name]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -90,7 +100,7 @@ export function LinkedLapisRunner({
   }, [since]);
 
   useEffect(() => {
-    if (since == null || muted || !hasStarted) return;
+    if (since == null || muted || blocked || !hasStarted) return;
     const previous = lastPhase.current;
     const fresh = explicitlyStarted.current;
     lastPhase.current = phaseIndex;
@@ -108,12 +118,12 @@ export function LinkedLapisRunner({
     if (announcement.ring) void bell();
     if (announcement.speech) void say(announcement.speech);
     buzz();
-  }, [phaseIndex, since, muted, hasStarted, done, elapsed, timeline, timer]);
+  }, [phaseIndex, since, muted, blocked, hasStarted, done, elapsed, timeline, timer]);
 
   // Only announce cues crossed during foreground playback. Reopening a
   // suspended app must not replay a burst of overdue announcements.
   useEffect(() => {
-    if (since == null || muted || !foreground.current) { lastCuePosition.current = elapsed; return; }
+    if (since == null || muted || blocked || !foreground.current) { lastCuePosition.current = elapsed; return; }
     const before = lastCuePosition.current ?? elapsed;
     lastCuePosition.current = elapsed;
     const cues = cuesCrossed(spokenCues, before, elapsed);
@@ -121,7 +131,7 @@ export function LinkedLapisRunner({
       if (cue.kind === 'countdown') buzz();
       void say(cue.text);
     }
-  }, [elapsed, since, muted, spokenCues]);
+  }, [elapsed, since, muted, blocked, spokenCues]);
 
   useEffect(() => {
     if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds) && !reported.current) {
@@ -130,8 +140,12 @@ export function LinkedLapisRunner({
     }
   }, [hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete]);
 
-  const pause = () => setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
+  const pause = () => {
+    setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
+    onPause?.();
+  };
   const start = () => {
+    if (blocked) return;
     if (!hasStarted || state.finished) { onStart?.(); lastCuePosition.current = -0.01; explicitlyStarted.current = true; }
     if (state.finished) { lastPhase.current = null; reported.current = false; }
     const tick = Date.now();
@@ -141,6 +155,7 @@ export function LinkedLapisRunner({
   const reset = () => {
     setClock(freshClock()); setNow(Date.now());
     reported.current = false; lastPhase.current = null; lastCuePosition.current = null; explicitlyStarted.current = false;
+    onPause?.();
     onReset?.();
   };
   const skip = () => {
@@ -158,6 +173,7 @@ export function LinkedLapisRunner({
     <View style={{ gap: 10, padding: 14, backgroundColor: p.surface, borderRadius: R.lg, borderWidth: 1.5, borderColor: p.line }}>
       <Txt v="kicker" color={p.focus}>Lapis interval session</Txt>
       <Txt v="h3">{timer.name}</Txt>
+      {blocked && !done ? <Txt v="small" color={p.muted}>Pause the other Lapis timer before starting this one.</Txt> : null}
       <Txt v="small" color={p.muted}>{done ? (skipped ? 'Finished with skipped intervals — restart to log a complete run' : 'Complete') : !hasStarted ? 'Ready to start' : since === null ? 'Paused' :
         state.phase?.kind === 'work' ? 'Work' : state.phase?.name ?? 'Rest'}</Txt>
       <Txt accessibilityRole="timer" accessibilityLabel={`${remaining} seconds remaining`}
@@ -171,7 +187,7 @@ export function LinkedLapisRunner({
         {total ? ` · ${fmtSeconds(Math.ceil(total - elapsed))} remaining overall` : ''}
       </Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        {since === null && !done ? <Button small title={hasStarted ? 'Resume' : 'Start'} icon="play_arrow" onPress={start} /> :
+        {since === null && !done ? <Button small title={hasStarted ? 'Resume' : 'Start'} icon="play_arrow" disabled={blocked} onPress={start} /> :
           !done && <Button small title="Pause" icon="pause" onPress={pause} />}
         {!done && hasStarted && <Button small kind="ghost" title="Skip interval" icon="skip_next" onPress={skip} />}
         {hasStarted && <Button small kind="ghost" title="Reset" icon="replay" onPress={reset} />}
