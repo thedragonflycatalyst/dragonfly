@@ -182,11 +182,30 @@ function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metric
   const p = usePalette();
   const groups = useMemo(() => byMonth(list), [list]);
   const [shown, setShown] = useState(6);
+  const [year, setYear] = useState<string | null>(null);
+  const [month, setMonth] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const years = [...new Set(groups.map((g) => g.month.slice(0, 4)))];
+  const availableMonths = groups.filter((g) => !year || g.month.startsWith(year));
+  const visible = month ? groups.filter((g) => g.month === month) : year ? availableMonths : groups.slice(0, shown);
   const tags = enterable(metrics);
   return (
     <>
+      <Card style={{ gap: 8 }}>
+        <Txt v="smallBold">Jump to a month</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <Chip label="Recent" selected={!year && !month} onPress={() => { setYear(null); setMonth(null); setShown(6); setExpanded(null); }} />
+          {years.map((y) => <Chip key={y} label={y} selected={year === y} onPress={() => { setYear(y); setMonth(null); setExpanded(null); }} />)}
+        </View>
+        {year && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <Chip label="All months" selected={!month} onPress={() => { setMonth(null); setExpanded(null); }} />
+          {availableMonths.map((g) => <Chip key={g.month}
+            label={new Date(`${g.month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'short' })}
+            selected={month === g.month} onPress={() => { setMonth(g.month); setExpanded(null); }} />)}
+        </View>}
+      </Card>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        {groups.slice(0, shown).map((g) => (
+        {visible.map((g) => (
           <View key={g.month}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: p.soft }}>
               <Txt v="bold">{new Date(`${g.month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Txt>
@@ -195,8 +214,9 @@ function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metric
             {g.items.map((w) => {
               const d = new Date(w.measured_at);
               return (
-                <Pressable key={w.id} disabled={!onOpen} onPress={() => onOpen?.(w)} accessibilityRole={onOpen ? 'button' : undefined}
-                  accessibilityLabel={`${d.toDateString()}, ${fmtMass(w.weight_kg, unit, fmt)}`}
+                <View key={w.id}>
+                <Pressable onPress={() => setExpanded((id) => id === w.id ? null : w.id)} accessibilityRole="button"
+                  accessibilityLabel={`${d.toDateString()}, ${fmtMass(w.weight_kg, unit, fmt)}, view reading details`}
                   style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: p.line, opacity: pressed ? 0.7 : 1 })}>
                   <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
                     <Txt v="bold" style={{ lineHeight: 19 }}>{d.getDate()}</Txt>
@@ -214,12 +234,25 @@ function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metric
                     </View>
                   </View>
                 </Pressable>
+                {expanded === w.id && <View style={{ padding: 14, backgroundColor: p.soft, gap: 7 }}>
+                  <Txt v="smallBold">Recorded {d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</Txt>
+                  <Txt v="small">Source: {w.source === 'health_connect' ? 'Health Connect' : w.source === 'import' ? 'Imported' : 'Manual'}</Txt>
+                  {(Object.keys(READINGS) as ReadingKey[]).filter((key) => w.metrics?.[key] != null).map((key) => (
+                    <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                      <Txt v="small">{READINGS[key].label}</Txt>
+                      <Txt v="smallBold">{fmtMetric(key, w.metrics[key]!, unit, fmt)}</Txt>
+                    </View>
+                  ))}
+                  {w.note && <Txt v="small">Note: {w.note}</Txt>}
+                  {onOpen && <Button title="Edit weigh-in" icon="edit" kind="ghost" small onPress={() => onOpen(w)} style={{ alignSelf: 'flex-start' }} />}
+                </View>}
+                </View>
               );
             })}
           </View>
         ))}
       </Card>
-      {groups.length > shown && <Button kind="ghost" title="Show earlier months" onPress={() => setShown((s) => s + 12)} />}
+      {!year && !month && groups.length > shown && <Button kind="ghost" title="Show earlier months" onPress={() => setShown((s) => s + 12)} />}
       <Txt v="small" center>{list.length} entr{list.length === 1 ? 'y' : 'ies'}{list.length > 1 ? ` · ${spanText(list)}` : ''}</Txt>
     </>
   );
