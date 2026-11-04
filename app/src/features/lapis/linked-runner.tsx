@@ -3,7 +3,7 @@ import { AppState, Pressable, View } from 'react-native';
 import { Button, Txt } from '@/components/ui';
 import { fmtSeconds } from '@/lib/workouts';
 import { F, R, usePalette } from '@/lib/theme';
-import { bell, buzz, say } from './audio';
+import { bell, buzz, hush, say } from './audio';
 import { type LapisTimer } from './library';
 import { compileLapisTimeline, phaseAt } from './timeline';
 import { elapsedAt, freshClock, pauseClock, skipClock, startClock, validClock, type RunnerClock } from './runner-clock';
@@ -76,12 +76,13 @@ export function LinkedLapisRunner({
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       foreground.current = state === 'active';
+      if (state !== 'active' && clock.since !== null && !blocked) hush();
       // On wake, reconcile elapsed time immediately; don't replay missed cues.
       lastCuePosition.current = null;
       setNow(Date.now());
     });
     return () => subscription.remove();
-  }, []);
+  }, [clock.since, blocked]);
 
   useEffect(() => {
     if (since == null) return;
@@ -136,6 +137,7 @@ export function LinkedLapisRunner({
   }, [done, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
 
   const pause = () => {
+    hush();
     setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
     onPause?.();
   };
@@ -149,6 +151,7 @@ export function LinkedLapisRunner({
     setClock((old) => startClock(old, tick, timeline.totalSeconds));
   };
   const reset = () => {
+    if (clock.since !== null) hush();
     setClock(freshClock()); setNow(Date.now());
     reported.current = false; lastPhase.current = null; lastCuePosition.current = null; explicitlyStarted.current = false;
     onPause?.();
@@ -156,6 +159,7 @@ export function LinkedLapisRunner({
   };
   const skip = () => {
     if (!state.phase) return;
+    hush();
     const tick = Date.now();
     setClock((old) => skipClock(old, tick, state.phase!.endAt));
     setNow(tick);
