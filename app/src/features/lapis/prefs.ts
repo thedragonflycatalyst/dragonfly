@@ -3,6 +3,7 @@
 // Rest-timer extras (say "Rest", countdown, bell, default rest...) belong to Dragonfly and stay on this device.
 import { useEffect, useSyncExternalStore } from 'react';
 import { recall, sb, store } from '@/lib/supabase';
+import { selectChangedPrefs, SHARED_PREF_KEYS } from './prefs-patch';
 
 export type MusicMode = 'mix' | 'duck' | 'pause';
 export type BellStyle = 'ring2' | 'ring1' | 'ring3';
@@ -36,17 +37,12 @@ export const DEFAULTS: LapisPrefs = {
   voice: 'en-IE-ConnorNeural', music: 'duck', voiceLevel: 1, voiceSpeed: 1, haptics: true, bell: 'ring2',
   voiceOn: true, sayRest: true, countdown: true, bellOn: true, halfway: false, autoRest: true, defaultRest: 60, keepAwake: true,
 };
-const SHARED = ['voice', 'music', 'voiceLevel', 'voiceSpeed', 'haptics', 'bell'] as const;
-type SharedKey = typeof SHARED[number];
+const SHARED = SHARED_PREF_KEYS;
 
 /** Build a narrow patch: never copy stale unrelated settings into Lapis's sync document. */
 export function sharedPatch(patch: Partial<LapisPrefs>, next: LapisPrefs): Record<string, unknown> {
-  const values = toLapis(next);
-  const out: Record<string, unknown> = {};
-  for (const key of SHARED) if (Object.prototype.hasOwnProperty.call(patch, key)) out[key] = values[key];
-  return out;
+  return selectChangedPrefs(patch, toLapis(next));
 }
-
 
 const clamp = (n: unknown, lo: number, hi: number, d: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d);
 /** Lapis's saved settings (its own JSON shape) → ours; anything missing or broken keeps what we had */
