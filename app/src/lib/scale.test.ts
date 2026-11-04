@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bmi, bmiClass, byMonth, changeOver, chartValue, fmtMetric, fmtNum, goalEta, kcalPerDay, monthlyChange, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
+import { bmi, bmiClass, byMonth, changeOver, chartValue, fmtMetric, fmtNum, goalEta, kcalPerDay, monthlyChange, parseCsv, planCsvImport, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
 import { occurrences, openSlots, priceLabel, toCents, voucherPrice, voucherState, weekOf, spotsText, eventCost, byMonth as moneyByMonth, type Booking } from './business';
 import { bigEmoji, layout, linkify, seenBy, tally, chatName, type Message, type ChatMember } from './chat';
 import { unitPrefs, notifyPrefs } from './prefs';
@@ -82,6 +82,47 @@ test('CSV import: RENPHO export with masses in pounds', () => {
   assert.equal(m.body_fat_pct, 30.2); assert.equal(m.visceral_fat, 14); assert.equal(m.body_water_pct, 50.2);
   assert.equal(m.muscle_pct, 36.9); assert.equal(m.bone_mass_kg, 4.1); assert.equal(m.bmr_kcal, 2010); assert.equal(m.metabolic_age, 48);
   assert.equal(new Date(rows[0].measured_at).getHours(), 23);
+});
+
+test('safe CSV import enriches only missing metrics and keeps existing values', () => {
+  const original = W('2026-10-30', 110, { body_fat_pct: 30, muscle_pct: 37 });
+  original.note = 'Existing manual note';
+  const rows = [
+    { measured_at: original.measured_at, weight_kg: 111, metrics: { body_fat_pct: 32, visceral_fat: 14 } },
+    { measured_at: new Date('2026-10-31').toISOString(), weight_kg: 109, metrics: { body_fat_pct: 29 } },
+  ];
+  const plan = planCsvImport(rows, [original]);
+  assert.equal(plan.inserts.length, 1);
+  assert.equal(plan.enrichments.length, 1);
+  assert.equal(plan.conflictingWeights, 1);
+  assert.deepEqual(plan.enrichments[0].metrics, { body_fat_pct: 30, visceral_fat: 14, muscle_pct: 37 });
+  assert.deepEqual(original.metrics, { body_fat_pct: 30, muscle_pct: 37 }, 'does not mutate original');
+  assert.equal(original.note, 'Existing manual note');
+});
+
+test('safe CSV import coalesces repeated rows and is idempotent', () => {
+  const timestamp = '2026-11-01T12:00:00.000Z';
+  const rows = [
+    { measured_at: timestamp, weight_kg: 100, metrics: { body_fat_pct: 30 } },
+    { measured_at: timestamp, weight_kg: 99, metrics: { muscle_pct: 36, body_fat_pct: 31 } },
+  ];
+  const first = planCsvImport(rows, []);
+  assert.equal(first.duplicateRows, 1);
+  assert.equal(first.inserts.length, 1);
+  assert.equal(first.inserts[0].weight_kg, 100);
+  assert.deepEqual(first.inserts[0].metrics, { muscle_pct: 36, body_fat_pct: 30 });
+  const stored = { id: 'existing', ...first.inserts[0] };
+  const again = planCsvImport(rows, [stored]);
+  assert.equal(again.inserts.length, 0);
+  assert.equal(again.enrichments.length, 0);
+  assert.equal(again.unchanged, 1);
+});
+
+test('safe CSV import never replaces matching existing weights with empty readings', () => {
+  const existing = W('2026-10-31', 108, { body_fat_pct: 28 });
+  const plan = planCsvImport([{ measured_at: existing.measured_at, weight_kg: 108, metrics: {} }], [existing]);
+  assert.equal(plan.unchanged, 1);
+  assert.deepEqual(plan.enrichments, []);
 });
 
 test('calendar: repeating sessions, skips and week strip', () => {

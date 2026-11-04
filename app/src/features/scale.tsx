@@ -16,7 +16,7 @@ import { dayKey } from '@/lib/dates';
 import { errText } from '@/lib/model';
 import {
   bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
-  kcalPerDay, metricLabel, monthlyChange, parseCsv, PERIODS, RANGES, ratePerWeek, READINGS, signed, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
+  kcalPerDay, metricLabel, monthlyChange, parseCsv, planCsvImport, PERIODS, RANGES, ratePerWeek, READINGS, signed, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
   type MetricKey, type ReadingKey, type ScaleSettings, type Weighin,
 } from '@/lib/scale';
 import { sb } from '@/lib/supabase';
@@ -301,17 +301,48 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
       const text = Platform.OS === 'web' ? await (await fetch(res.assets[0].uri)).text() : await new (await import('expo-file-system')).File(res.assets[0].uri).text();
       const { rows, skipped } = parseCsv(text, unit);
       if (!rows.length) return toast('No weigh-ins found. Export a CSV from Libra (Settings → Export) or the RENPHO app and try again.', false);
-      const ok = await confirm(`Import ${rows.length} weigh-ins?`, `${skipped ? `${skipped} rows couldn’t be read and will be skipped. ` : ''}Any you already have at the same date and time are updated.`, 'Import');
-      if (!ok) return;
-      for (let i = 0; i < rows.length; i += 500) {
-        const { error } = await sb.from('coach_weighins').upsert(rows.slice(i, i + 500).map((r) => ({ ...r, user_id: settings.user_id, source: 'import' })), { onConflict: 'user_id,measured_at' });
+      // Fetch all timestamp collisions from the database, not just the first 5000
+      // records currently loaded into the Scale view.
+      const dates = [...new Set(rows.map((r) => r.measured_at))];
+      const existing: Pick<Weighin, 'id' | 'measured_at' | 'weight_kg' | 'metrics'>[] = [];
+      for (let i = 0; i < dates.length; i += 100) {
+        const { data, error } = await sb.from('coach_weighins')
+          .select('id,measured_at,weight_kg,metrics').eq('user_id', settings.user_id)
+          .in('measured_at', dates.slice(i, i + 100));
+        if (error) throw error;
+        existing.push(...((data ?? []) as typeof existing));
+      }
+      const plan = planCsvImport(rows, existing);
+      const changes = plan.inserts.length + plan.enrichments.length;
+      if (!changes) {
+        toast(`Already up to date: ${plan.unchanged} existing weigh-ins. No changes made.`);
+        return;
+      }
+      const preview = [
+        `${plan.inserts.length} new weigh-ins`,
+        `${plan.enrichments.length} existing weigh-ins will gain missing measurements`,
+        `${plan.unchanged} unchanged`,
+        ...(plan.conflictingWeights ? [`${plan.conflictingWeights} different weights at matching timestamps will be kept as already recorded`] : []),
+        ...(plan.duplicateRows ? [`${plan.duplicateRows} repeated file rows combined`] : []),
+        ...(skipped ? [`${skipped} unreadable rows skipped`] : []),
+        'Existing weights, manually entered measurements and notes will never be replaced.',
+      ].join('\n');
+      if (!(await confirm('Review CSV import', preview, 'Import safely'))) return;
+      for (let i = 0; i < plan.inserts.length; i += 200) {
+        const { error } = await sb.from('coach_weighins').upsert(
+          plan.inserts.slice(i, i + 200).map((r) => ({ ...r, user_id: settings.user_id, source: 'import' })),
+          { onConflict: 'user_id,measured_at', ignoreDuplicates: true });
         if (error) throw error;
       }
-      // Show any readings the file had
+      for (const entry of plan.enrichments) {
+        const { error } = await sb.from('coach_weighins')
+          .update({ metrics: entry.metrics }).eq('user_id', settings.user_id).eq('id', entry.id);
+        if (error) throw error;
+      }
       const seen = new Set(rows.flatMap((r) => Object.keys(r.metrics))) as Set<ReadingKey>;
       const add = [...seen].filter((k) => !metrics.includes(k));
       if (add.length) await save({ metrics: [...metrics, ...add] });
-      toast(`Imported ${rows.length} weigh-ins`); reload();
+      toast(`Imported ${plan.inserts.length} new; enriched ${plan.enrichments.length}`); reload();
     } catch (e) { toast(errText(e), false); } finally { setImporting(false); }
   };
   const exportCsv = () => {
