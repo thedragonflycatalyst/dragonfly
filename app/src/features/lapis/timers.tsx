@@ -7,6 +7,7 @@ import { clock } from '@/lib/session';
 import { F, R, usePalette } from '@/lib/theme';
 import { bell, buzz, say } from './audio';
 import { getPrefs } from './prefs';
+import { addRestSeconds, createRestClock, pauseRestClock, restRemaining, restoreRestClock, resumeRestClock, type RestClock } from './rest-clock';
 import { elapsedTimedSet, pauseTimedSet, resetTimedSet, restoreTimedSetClock, resumeTimedSet, type TimedSetClock } from './timed-set-clock';
 
 /* ---------- the backstop if the phone stops the app while locked ---------- */
@@ -27,69 +28,113 @@ async function backstop(at: number | null, body = 'Rest is over. Next set!') {
   } catch { /* notifications off: the in-app timer still runs */ }
 }
 
-export type Rest = { until: number; total: number; label: string; pausedLeft: number | null };
+export type Rest = RestClock;
 
-/** Rest timer state and cues: "Rest" at the start, optional "Halfway", 3-2-1, then the bell. */
-export function useRest() {
-  const [rest, setRest] = useState<Rest | null>(null);
+/** Safe rest recovery: live clocks catch up by absolute time; restored clocks
+ * always start paused and never replay missed cues or auto-start a timed set.
+ */
+export function useRest(onNextSet?: (key: string) => void, onChange?: (rest: RestClock | null) => void) {
+  const [rest, setRest] = useState<RestClock | null>(null);
   const [, setNow] = useState(Date.now());
   const fired = useRef(new Set<string>());
-  const restRef = useRef(rest); restRef.current = rest;
-  const onEnd = useRef<(() => void) | null>(null);
+  const restRef = useRef(rest);
+  restRef.current = rest;
+  const nextRef = useRef(onNextSet);
+  nextRef.current = onNextSet;
+  const changeRef = useRef(onChange);
+  changeRef.current = onChange;
 
-  const on = !!rest && rest.pausedLeft == null;
-  useEffect(() => { if (!on) return; const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t); }, [on]);
-  // Locked or switched away: set the backstop; back in the app: clear it
+  const update = (next: RestClock | null) => {
+    restRef.current = next;
+    setRest(next);
+    changeRef.current?.(next);
+  };
+  const active = !!rest && rest.pausedLeft === null;
   useEffect(() => {
-    const s = AppState.addEventListener('change', (st) => {
-      const r = restRef.current;
-      if (st === 'active') void backstop(null);
-      else if (r && r.pausedLeft == null) void backstop(r.until, r.label ? `Rest is over. ${r.label}` : undefined);
+    if (!active) return;
+    const interval = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(interval);
+  }, [active]);
+
+  // React timers do not run reliably while backgrounded. Only the native
+  // rest reminder may fire; returning to foreground clears the reminder.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      const latest = restRef.current;
+      if (state === 'active') {
+        void backstop(null);
+        if (latest && latest.pausedLeft === null && latest.until <= Date.now()) {
+          // OS may have suspended JS through the deadline. Dismiss an
+          // overdue rest without replaying its bell or advancing a set.
+          fired.current.add('end');
+          update(null);
+        }
+      } else if (latest && latest.pausedLeft === null)
+        void backstop(latest.until, latest.label ? `Rest is over. ${latest.label}` : undefined);
     });
-    return () => { s.remove(); void backstop(null); };
+    return () => { sub.remove(); void backstop(null); };
   }, []);
 
-  const left = rest ? (rest.pausedLeft ?? Math.max(0, (rest.until - Date.now()) / 1000)) : 0;
+  const left = rest ? restRemaining(rest, Date.now()) : 0;
   useEffect(() => {
-    if (!rest || rest.pausedLeft != null) return;
-    const p = getPrefs(), f = fired.current, s = Math.ceil(left);
-    if (p.halfway && rest.total >= 20 && left <= rest.total / 2 && !f.has('half')) { f.add('half'); void say('Halfway'); }
-    if (p.countdown) for (const n of [3, 2, 1]) if (s === n && rest.total > n && !f.has(String(n))) { f.add(String(n)); buzz(); void say(String(n)); }
+    if (!rest || rest.pausedLeft !== null) return;
+    const prefs = getPrefs(), f = fired.current, sec = Math.ceil(left);
+    if (prefs.halfway && rest.total >= 20 && left <= rest.total / 2 && !f.has('half')) {
+      f.add('half'); void say('Halfway');
+    }
+    if (prefs.countdown) for (const n of [3, 2, 1]) {
+      if (sec === n && rest.total > n && !f.has(String(n))) {
+        f.add(String(n)); buzz(); void say(String(n));
+      }
+    }
     if (left <= 0 && !f.has('end')) {
-      f.add('end'); void backstop(null); void bell(); setRest(null);
-      const next = onEnd.current; onEnd.current = null; next?.();
+      f.add('end');
+      void backstop(null);
+      void bell();
+      const nextKey = rest.nextSetKey;
+      update(null);
+      if (nextKey) nextRef.current?.(nextKey);
     }
   }, [rest, left]);
 
-  /** Start resting; `then` runs when the rest runs out (not when skipped), e.g. to start the next timed set */
-  const start = (seconds: number, label = '', then?: () => void) => {
-    onEnd.current = then ?? null;
-    if (seconds <= 0) { then?.(); return; }
+  const restore = (snapshot: unknown) => {
     fired.current = new Set();
-    setRest({ until: Date.now() + seconds * 1000, total: seconds, label, pausedLeft: null });
+    void backstop(null);
+    update(restoreRestClock(snapshot, Date.now()));
+  };
+  const start = (seconds: number, label = '', nextSetKey: string | null = null) => {
+    if (seconds <= 0) {
+      if (nextSetKey) nextRef.current?.(nextSetKey);
+      return;
+    }
+    const next = createRestClock(seconds, label, nextSetKey, Date.now());
+    fired.current = new Set();
+    update(next);
     buzz();
     if (getPrefs().sayRest) void say('Rest');
-    if (AppState.currentState !== 'active') void backstop(Date.now() + seconds * 1000);
+    if (AppState.currentState !== 'active') void backstop(next.until);
   };
-  const add = (sec: number) => setRest((r) => {
-    if (!r) return r;
-    if (r.pausedLeft != null) return { ...r, pausedLeft: Math.max(1, r.pausedLeft + sec), total: Math.max(1, r.total + sec) };
-    const until = Math.max(Date.now() + 1000, r.until + sec * 1000);
-    for (const k of ['3', '2', '1', 'half']) fired.current.delete(k);
-    return { ...r, until, total: Math.max(1, r.total + sec) };
-  });
+  const add = (seconds: number) => {
+    const next = addRestSeconds(restRef.current, seconds, Date.now());
+    for (const key of ['3', '2', '1', 'half']) fired.current.delete(key);
+    update(next);
+    if (next?.pausedLeft === null && AppState.currentState !== 'active')
+      void backstop(next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+  };
   const pause = () => {
     void backstop(null);
-    setRest((r) => (r && r.pausedLeft == null ? { ...r, pausedLeft: Math.max(0, (r.until - Date.now()) / 1000) } : r));
+    const next = pauseRestClock(restRef.current, Date.now());
+    if (next !== restRef.current) update(next);
   };
-  const resume = () => setRest((r) => {
-    if (!r || r.pausedLeft == null) return r;
-    const until = Date.now() + r.pausedLeft * 1000;
-    if (AppState.currentState !== 'active') void backstop(until, r.label ? `Rest is over. ${r.label}` : undefined);
-    return { ...r, until, pausedLeft: null };
-  });
-  const skip = () => { void backstop(null); setRest(null); onEnd.current = null; };
-  return { rest, left, start, add, pause, resume, skip };
+  const resume = () => {
+    const next = resumeRestClock(restRef.current, Date.now());
+    if (next === restRef.current) return;
+    update(next);
+    if (next && AppState.currentState !== 'active')
+      void backstop(next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+  };
+  const skip = () => { void backstop(null); update(null); };
+  return { rest, left, start, add, pause, resume, skip, restore };
 }
 
 /** The Lapis rest bar pinned to the bottom of the workout */
