@@ -95,7 +95,14 @@ export default function Session() {
       if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {});
         setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
         setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
-      else if (s) setLog(startLog(s.blocks, unit));
+      else if (s) {
+        setLog(startLog(s.blocks, unit));
+        setTimerResults([]);
+        setRunnerClocks({});
+        setActiveTimerId(null);
+        setPendingAssignmentId(null);
+        setStarted(Date.now());
+      }
       setSrc(s);
     })();
   }, [aid, workout, key, unit]);
@@ -159,7 +166,6 @@ export default function Session() {
         // Persist the exact intended primary key before contacting Supabase.
         // A lost HTTP response can never create a second assignment on retry.
         assignmentId = Crypto.randomUUID();
-        setPendingAssignmentId(assignmentId);
         const draft: Draft = {
           key, title: src.title, params: aid ? { aid } : { workout: workout! },
           client_id: clientId, started, log, timerResults, runnerClocks,
@@ -168,6 +174,7 @@ export default function Session() {
         // Fail closed: without a persisted ID we cannot safely retry after
         // an unknown network outcome.
         storage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        setPendingAssignmentId(assignmentId);
       }
       if (!src.assignment) {
         const expectedId = assignmentId;
