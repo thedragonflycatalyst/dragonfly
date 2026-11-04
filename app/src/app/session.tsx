@@ -1,4 +1,4 @@
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Crypto from 'expo-crypto';
@@ -12,6 +12,7 @@ import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
 import { lapisReminderKey } from '@/features/lapis/background';
+import { patchDraftClock } from '@/features/lapis/navigation-recovery';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
@@ -39,6 +40,7 @@ export default function Session() {
   const toast = useToast();
   const app = useApp();
   const { aid, workout } = useLocalSearchParams<{ aid?: string; workout?: string }>();
+  const screenFocused = useIsFocused();
   const key = aid ? `a:${aid}` : `w:${workout}`;
   const unit = weightUnit(app.units);
   const [src, setSrc] = useState<Source | null | undefined>(undefined);
@@ -127,6 +129,14 @@ export default function Session() {
     return () => { deactivateKeepAwake('workout').catch(() => {}); };
   }, [lapis.keepAwake]);
   useEffect(() => () => hush(), []);
+  // Route changes pause the rest countdown and silence current cues. The
+  // unfinished workout draft remains available on return.
+  useEffect(() => {
+    if (screenFocused) return;
+    rest.pause();
+    hush();
+    setActiveSetTimerKey(null);
+  }, [screenFocused]);
   // This client's past workouts, for last time's numbers and notes
   useEffect(() => {
     if (!clientId) { setPast([]); return; }
@@ -252,9 +262,20 @@ export default function Session() {
             const savedTimer = linkedTimers[b.id] ?? null;
             return savedTimer
               ? <LinkedLapisRunner key={b.id} timer={savedTimer} reminderKey={lapisReminderKey(`${app.user?.id ?? 'unknown'}:${key}`, b.id)}
+                  screenFocused={screenFocused}
                   initialClock={runnerClocks[b.id]}
                   blocked={!canStartLinkedTimer({ linked: activeTimerId, timedSet: activeSetTimerKey }, b.id)}
-                  onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))}
+                  onClockChange={(clock) => {
+                    if (!screenFocused) {
+                      try {
+                        const serialized = patchDraftClock(
+                          readDraft((k) => storage.getItem(k)), key, b.id, clock,
+                        );
+                        if (serialized) storage.setItem(DRAFT_KEY, serialized);
+                      } catch { /* in-memory runner remains available */ }
+                    }
+                    setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
+                  }}
                   onStart={() => {
                     // Hold the rest countdown and cancel its backstop before
                     // the linked interval timer acquires cue ownership.
