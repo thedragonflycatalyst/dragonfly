@@ -1,4 +1,4 @@
-import type { ExerciseBlock, LogEntry, ProgramDay, WorkoutBlock } from './model';
+import type { ExerciseBlock, LapisTimerResult, LogEntry, ProgramDay, WorkoutBlock } from './model';
 
 const order = (a: ProgramDay, b: ProgramDay) => a.week - b.week || a.day - b.day;
 export const kindOf = (i: ProgramDay) => i.kind ?? 'workout';
