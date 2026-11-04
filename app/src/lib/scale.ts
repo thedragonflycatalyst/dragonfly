@@ -148,6 +148,40 @@ export function goalEta(trendKg: number, goalKg: number, kgPerWeek: number | nul
   return new Date(from.getTime() + weeks * 7 * DAY);
 }
 
+/** Deadline comparisons use calendar days, not the user's device time-of-day. */
+export type GoalSchedule = {
+  status: 'reached' | 'overdue' | 'ahead' | 'on_track' | 'behind' | 'insufficient';
+  requiredKgPerWeek: number | null;
+  projected: Date | null;
+  daysToDeadline: number;
+  daysDifference: number | null;
+};
+
+/** Planning estimate only: compares a recent smoothed trend with an optional target date.
+ *  Does not reinterpret the stored goal or the user's historical weigh-ins.
+ */
+export function goalSchedule(trendKg: number, goalKg: number, rateKgPerWeek: number | null, goalDate: string | null, today = new Date()): GoalSchedule | null {
+  if (!goalDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(goalDate)) return null;
+  const deadline = new Date(goalDate + 'T12:00:00Z');
+  if (!Number.isFinite(deadline.getTime()) || deadline.toISOString().slice(0, 10) !== goalDate) return null;
+  const todayDay = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 12));
+  const daysToDeadline = Math.round((deadline.getTime() - todayDay.getTime()) / DAY);
+  const remaining = goalKg - trendKg;
+  const requiredKgPerWeek = daysToDeadline > 0 ? remaining / daysToDeadline * 7 : null;
+  if (Math.abs(remaining) < 0.05 || (remaining < 0 && goalKg < trendKg && rateKgPerWeek != null && rateKgPerWeek < 0) ||
+    (remaining > 0 && goalKg > trendKg && rateKgPerWeek != null && rateKgPerWeek > 0)) {
+    // A crossed target does not require continued movement in the same direction.
+    if (Math.abs(remaining) < 0.05) return { status: 'reached', requiredKgPerWeek: 0, projected: today, daysToDeadline, daysDifference: null };
+  }
+  if (daysToDeadline < 0) return { status: 'overdue', requiredKgPerWeek: null, projected: null, daysToDeadline, daysDifference: null };
+  const projected = goalEta(trendKg, goalKg, rateKgPerWeek, today);
+  if (!projected) return { status: 'insufficient', requiredKgPerWeek, projected: null, daysToDeadline, daysDifference: null };
+  const projectionDay = Date.UTC(projected.getFullYear(), projected.getMonth(), projected.getDate(), 12);
+  const daysDifference = Math.round((projectionDay - deadline.getTime()) / DAY);
+  return { status: daysDifference < -7 ? 'ahead' : daysDifference <= 7 ? 'on_track' : 'behind',
+    requiredKgPerWeek, projected, daysToDeadline, daysDifference };
+}
+
 /* ---------------- stats ---------------- */
 export function extremes(list: Weighin[]) {
   if (!list.length) return null;
