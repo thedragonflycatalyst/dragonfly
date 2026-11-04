@@ -28,10 +28,10 @@ import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
 import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LapisTimerResult, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
 import { exKey, ghostSet, historyOf, notesOf, setLine, type PastLog } from '@/lib/history';
-import { clock, doneOnly, DRAFT_KEY, readDraft, type Draft } from '@/lib/session';
+import { clock, doneOnly, type Draft } from '@/lib/session';
 import { weakSide } from '@/lib/sides';
 import { storage } from '@/lib/storage';
-import { beginWorkoutDraft, writeDraftCore, writeDraftPatch, clearMatchingDraft } from '@/lib/draft-integrity';
+import { beginWorkoutDraft, writeDraftCore, writeDraftPatch, clearMatchingDraft, workoutDraftSlot, loadWorkoutDraft } from '@/lib/draft-integrity';
 import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
 import { fmtSeconds, parseSeconds, refOf, setsDone, setsTotal, startLog, volume } from '@/lib/workouts';
@@ -89,8 +89,8 @@ export default function Session() {
       setRestSnapshot(snapshot);
       try {
         const serialized = patchDraftRestClock(
-          readDraft((storageKey) => storage.getItem(storageKey)), key, snapshot);
-        if (serialized) storage.setItem(DRAFT_KEY, serialized);
+          loadWorkoutDraft(storage, key), key, snapshot);
+        if (serialized) storage.setItem(workoutDraftSlot(key), serialized);
       } catch { /* keep in-memory rest state */ }
     },
   );
@@ -110,6 +110,10 @@ export default function Session() {
     let cancelled = false;
     setReadyKey(null);
     setSrc(undefined);
+    saved.current = false;
+    completedSetEvents.current.clear();
+    setActiveSetTimerKey(null);
+    setAutoGo(null);
     (async () => {
       let s: Source | null = null;
       if (aid) {
@@ -127,7 +131,7 @@ export default function Session() {
       }
       if (cancelled) return;
       if (s?.assignment?.status === 'done') { setSrc(s); setReadyKey(key); return; }
-      const d = readDraft((k) => storage.getItem(k));
+      const d = loadWorkoutDraft(storage, key);
       if (s && d?.key === key) { rest.restore(d.restClock ?? null); setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setTimedSetClocks(d.timedSetClocks ?? {});
         setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
         setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
@@ -144,8 +148,8 @@ export default function Session() {
       }
       if (cancelled) return;
       if (s) {
-        // Once the new route is resolved, explicitly transfer ownership of
-        // the single local draft slot. Earlier screen callbacks are key-guarded.
+        // Each workout owns its own slot; leaving a workout never deletes another
+        // unfinished workout or its saved timer progress.
         const initial: Draft = {
           key, title: s.title, params: aid ? { aid } : { workout: workout! },
           client_id: d?.key === key ? d.client_id : (s.assignment?.client_id ?? null),
@@ -157,7 +161,7 @@ export default function Session() {
           restClock: d?.key === key ? d.restClock ?? null : null,
           pendingAssignmentId: d?.key === key ? d.pendingAssignmentId ?? null : null,
         };
-        try { beginWorkoutDraft(storage, DRAFT_KEY, initial); }
+        try { beginWorkoutDraft(storage, workoutDraftSlot(key), initial); }
         catch { /* retain progress in memory if storage is unavailable */ }
       }
       setSrc(s);
@@ -170,7 +174,7 @@ export default function Session() {
   useEffect(() => {
     if (!src || readyKey !== key || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
     const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, restClock: restSnapshot, pendingAssignmentId };
-    try { writeDraftCore(storage, DRAFT_KEY, d); } catch { /* storage full or blocked: keep going without a draft */ }
+    try { writeDraftCore(storage, workoutDraftSlot(key), d); } catch { /* storage full or blocked: keep going without a draft */ }
   }, [log, timerResults, runnerClocks, timedSetClocks, restSnapshot, pendingAssignmentId, clientId, src, readyKey, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
@@ -220,7 +224,7 @@ export default function Session() {
     rest.start(s.rest ?? lapis.defaultRest, next, timed ? `${bi}:${si + 1}:${e.sides ? 'r' : '-'}` : null);
   };
 
-  const clearDraft = () => { try { clearMatchingDraft(storage, DRAFT_KEY, key); } catch { /* nothing to clear */ } };
+  const clearDraft = () => { try { clearMatchingDraft(storage, workoutDraftSlot(key), key); } catch { /* nothing to clear */ } };
   const timersActive = activeWorkoutTimers(runnerClocks, timedSetClocks, activeTimerId, activeSetTimerKey);
   const save = async () => {
     if (saveInFlight.current || !app.user) return;
@@ -243,8 +247,8 @@ export default function Session() {
         };
         // Fail closed: without a persisted ID we cannot safely retry after
         // an unknown network outcome.
-        if (!writeDraftCore(storage, DRAFT_KEY, draft) ||
-            !writeDraftPatch(storage, DRAFT_KEY, key, { pendingAssignmentId: assignmentId }))
+        if (!writeDraftCore(storage, workoutDraftSlot(key), draft) ||
+            !writeDraftPatch(storage, workoutDraftSlot(key), key, { pendingAssignmentId: assignmentId }))
           throw new Error('Cannot safely checkpoint this workout before saving');
         setPendingAssignmentId(assignmentId);
       }
@@ -329,9 +333,9 @@ export default function Session() {
                     if (!screenFocused) {
                       try {
                         const serialized = patchDraftClock(
-                          readDraft((k) => storage.getItem(k)), key, b.id, clock,
+                          loadWorkoutDraft(storage, key), key, b.id, clock,
                         );
-                        if (serialized) storage.setItem(DRAFT_KEY, serialized);
+                        if (serialized) storage.setItem(workoutDraftSlot(key), serialized);
                       } catch { /* in-memory runner remains available */ }
                     }
                     setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
@@ -420,9 +424,9 @@ export default function Session() {
                             if (!screenFocused) {
                               try {
                                 const serialized = patchDraftTimedSetClock(
-                                  readDraft((keyName) => storage.getItem(keyName)), key, k, next,
+                                  loadWorkoutDraft(storage, key), key, k, next,
                                 );
-                                if (serialized) storage.setItem(DRAFT_KEY, serialized);
+                                if (serialized) storage.setItem(workoutDraftSlot(key), serialized);
                               } catch { /* keep in-memory progress */ }
                             }
                             setTimedSetClocks((prior) => ({ ...prior, [k]: next }));
