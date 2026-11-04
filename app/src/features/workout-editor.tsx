@@ -41,7 +41,7 @@ function Cell({ col, value, onChange, label }: { col: Col; value: SetSpec[keyof 
 export function BlocksEditor({ blocks, onChange, weightUnit }: { blocks: WorkoutBlock[]; onChange: (b: WorkoutBlock[]) => void; weightUnit: string }) {
   const p = usePalette();
   const app = useApp();
-  const [timerPicker, setTimerPicker] = useState(false);
+  const [timerPicker, setTimerPicker] = useState<{ replaceId?: string } | null>(null);
   const [picker, setPicker] = useState<{ mode: 'add' } | { mode: 'replace'; index: number } | null>(null);
   const [menu, setMenu] = useState<number | null>(null);
   const [info, setInfo] = useState<ExerciseBlock | null>(null);
@@ -67,7 +67,7 @@ export function BlocksEditor({ blocks, onChange, weightUnit }: { blocks: Workout
               </Txt>
               <Txt v="small" color={p.muted}>Timer configuration saved with this workout. Running linked timers inside Coach is part of the next integration phase.</Txt>
               <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                <Button small kind="ghost" title="Replace timer" onPress={() => setTimerPicker(true)} />
+                <Button small kind="ghost" title="Replace timer" onPress={() => setTimerPicker({ replaceId: b.id })} />
                 <Button small kind="danger" title="Remove timer" onPress={() => onChange(blocks.filter((x) => x.id !== b.id))} />
               </View>
             </Card>
@@ -119,14 +119,18 @@ export function BlocksEditor({ blocks, onChange, weightUnit }: { blocks: Workout
       })}
       <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
         <Button title="Add exercise" icon="add" kind="solid" onPress={() => setPicker({ mode: 'add' })} />
-        <Button title="Add Lapis timer" icon="timer" kind="ghost" onPress={() => setTimerPicker(true)} />
+        <Button title="Add Lapis timer" icon="timer" kind="ghost" onPress={() => setTimerPicker({})} />
       </View>
-      <LapisTimerPicker visible={timerPicker} onClose={() => setTimerPicker(false)} userId={app.user?.id}
-        onPick={(t: LapisTimer) => onChange([...blocks, {
-          id: newId(), kind: 'timed', name: t.name, exercise_ids: [],
-          timer: { rounds: t.rounds * t.cycles, work: t.work, rest: t.rest,
-            label: t.name, source: { app: 'lapis', id: t.id, snapshot: t.template } },
-        }])} />
+      <LapisTimerPicker visible={!!timerPicker} onClose={() => setTimerPicker(null)} userId={app.user?.id}
+        onPick={(t: LapisTimer) => {
+          const prior = timerPicker?.replaceId;
+          const block: WorkoutBlock = {
+            id: prior ?? newId(), kind: 'timed', name: t.name, exercise_ids: [],
+            timer: { rounds: t.rounds * t.cycles, work: t.work, rest: t.rest,
+              label: t.name, source: { app: 'lapis', id: t.id, snapshot: t.template } },
+          };
+          onChange(prior ? blocks.map((b) => b.id === prior ? block : b) : [...blocks, block]);
+        }} />
 
       <ExercisePicker visible={!!picker} single={picker?.mode === 'replace'} title={picker?.mode === 'replace' ? 'Replace exercise' : 'Add exercises'}
         onClose={() => setPicker(null)}
