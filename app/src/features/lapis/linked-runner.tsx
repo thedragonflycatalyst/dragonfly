@@ -11,6 +11,7 @@ import { reconcileLapisCompletion, clearLapisCompletion } from './background';
 import { compileSpokenCues, cuesCrossed } from './cue-plan';
 import { completedNaturally, phaseTransitionDue } from './runner-events';
 import { announcementForPhase } from './phase-announcement';
+import { reminderSeconds } from './reminder-policy';
 
 /** Foreground interval controls using absolute clock offsets.
  * If the app is suspended, the phase catches up to actual elapsed time when
@@ -63,10 +64,8 @@ export function LinkedLapisRunner({
   // ensures an earlier schedule cannot outlive a later reset or pause.
   useEffect(() => {
     const reconcile = (state: string | null | undefined) => {
-      const active = clock.since !== null && !clock.skipped && !blocked;
-      const left = timeline.totalSeconds - elapsedAt(clock, Date.now(), timeline.totalSeconds);
-      void reconcileLapisCompletion(reminderKey,
-        state !== 'active' && active && left > 0 ? left : null, timer.name);
+      const left = reminderSeconds(state, clock, timeline.totalSeconds, blocked, Date.now());
+      void reconcileLapisCompletion(reminderKey, left, timer.name);
     };
     const sub = AppState.addEventListener('change', reconcile);
     reconcile(AppState.currentState);
