@@ -240,7 +240,18 @@ export default function Session() {
             if (b.kind !== 'timed') return null;
             const savedTimer = linkedTimers[b.id] ?? null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer} initialClock={runnerClocks[b.id]} onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))} onStart={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer}
+                  initialClock={runnerClocks[b.id]}
+                  blocked={activeTimerId !== null && activeTimerId !== b.id}
+                  onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))}
+                  onStart={() => {
+                    setActiveTimerId(b.id);
+                    setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id));
+                  }}
+                  onPause={() => setActiveTimerId((current) => current === b.id ? null : current)}
+                  onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))}
+                  onComplete={(actualSeconds) => {
+                  setActiveTimerId((current) => current === b.id ? null : current);
                   const result: LapisTimerResult = {
                     block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
                     planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
