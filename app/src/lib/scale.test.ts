@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bmi, bmiClass, byMonth, changeOver, chartValue, fmtMetric, fmtNum, goalEta, kcalPerDay, monthlyChange, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
+import { bmi, bmiClass, byMonth, changeOver, chartValue, fmtMetric, fmtNum, goalEta, goalSchedule, kcalPerDay, monthlyChange, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
 import { occurrences, openSlots, priceLabel, toCents, voucherPrice, voucherState, weekOf, spotsText, eventCost, byMonth as moneyByMonth, type Booking } from './business';
 import { bigEmoji, layout, linkify, seenBy, tally, chatName, type Message, type ChatMember } from './chat';
 import { unitPrefs, notifyPrefs } from './prefs';
@@ -50,6 +50,24 @@ test('goal projection: only when heading the right way', () => {
   assert.equal(goalEta(100, 90, 0.5, from), null);
   assert.equal(goalEta(100, 90, null, from), null);
   assert.equal(goalEta(90.01, 90, 0.5, from), from);
+});
+
+test('goal schedule uses deadline, trend and required weekly rate', () => {
+  const now = new Date(2026, 10, 1, 12);
+  const early = goalSchedule(100, 90, -2, '2026-12-20', now)!;
+  assert.equal(early.status, 'ahead');
+  assert.ok(early.requiredKgPerWeek! < -1.4 && early.requiredKgPerWeek! > -1.5);
+  assert.ok(early.daysDifference! < -7);
+  const onTime = goalSchedule(100, 90, -1, '2027-01-10', now)!;
+  assert.equal(onTime.status, 'on_track');
+  const late = goalSchedule(100, 90, -0.5, '2026-12-20', now)!;
+  assert.equal(late.status, 'behind');
+  assert.equal(goalSchedule(100, 90, 1, '2026-12-20', now)!.status, 'insufficient');
+  assert.equal(goalSchedule(100, 90, null, '2026-12-20', now)!.status, 'insufficient');
+  assert.equal(goalSchedule(100, 90, -1, '2026-10-10', now)!.status, 'overdue');
+  assert.equal(goalSchedule(90.01, 90, null, '2026-12-20', now)!.status, 'reached');
+  assert.equal(goalSchedule(100, 90, -1, null, now), null);
+  assert.equal(goalSchedule(100, 90, -1, '2026-02-30', now), null);
 });
 
 test('change over periods, monthly and yearly, and month groups', () => {
