@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { AppState, Pressable, View } from 'react-native';
 import { Button, Txt } from '@/components/ui';
 import { fmtSeconds } from '@/lib/workouts';
 import { F, R, usePalette } from '@/lib/theme';
@@ -7,6 +7,7 @@ import { bell, buzz, say } from './audio';
 import { type LapisTimer } from './library';
 import { compileLapisTimeline, phaseAt } from './timeline';
 import { elapsedAt, freshClock, pauseClock, skipClock, startClock, validClock, type RunnerClock } from './runner-clock';
+import { scheduleLapisCompletion, cancelLapisCompletion } from './background';
 
 /** Foreground interval controls using absolute clock offsets.
  * If the app is suspended, the phase catches up to actual elapsed time when
@@ -39,6 +40,32 @@ export function LinkedLapisRunner({
   const phaseIndex = state.phase ? timeline.phases.indexOf(state.phase) : timeline.phases.length;
   const done = hasStarted && state.finished;
 
+  // Native end-of-timer fallback while backgrounded. React timers and voice
+  // announcements aren't guaranteed to run after the OS suspends the app.
+  useEffect(() => {
+    let generation = 0;
+    let pending: string | null = null;
+    const change = async (state: string) => {
+      const token = ++generation;
+      const previous = pending;
+      pending = null;
+      await cancelLapisCompletion(previous);
+      if (state === 'active' || clock.since == null || clock.skipped) return;
+      const left = timeline.totalSeconds - elapsedAt(clock, Date.now(), timeline.totalSeconds);
+      if (left <= 0) return;
+      const id = await scheduleLapisCompletion(left, timer.name);
+      if (generation === token) pending = id;
+      else await cancelLapisCompletion(id);
+    };
+    const sub = AppState.addEventListener('change', (state) => { void change(state); });
+    void change(AppState.currentState);
+    return () => {
+      generation++;
+      sub.remove();
+      void cancelLapisCompletion(pending);
+    };
+  }, [clock, timeline.totalSeconds, timer.name]);
+
   useEffect(() => {
     if (since == null) return;
     const handle = setInterval(() => setNow(Date.now()), 200);
@@ -69,7 +96,7 @@ export function LinkedLapisRunner({
       reported.current = true;
       if (!skipped) onComplete?.(Math.round(elapsed));
     }
-  }, [done, elapsed, onComplete]);
+  }, [done, elapsed, onComplete, skipped]);
 
   const pause = () => setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
   const start = () => {
