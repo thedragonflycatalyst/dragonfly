@@ -13,13 +13,16 @@ export const freshClock = (): RunnerClock => ({
 export function validClock(value: unknown, total: number): RunnerClock {
   if (!value || typeof value !== 'object') return freshClock();
   const raw = value as Partial<RunnerClock>;
+  const since = raw.since === null ? null :
+    typeof raw.since === 'number' && Number.isFinite(raw.since) && raw.since > 0
+      ? raw.since : undefined;
   if (typeof raw.elapsedBefore !== 'number' || !Number.isFinite(raw.elapsedBefore) ||
       raw.elapsedBefore < 0 || raw.elapsedBefore > total ||
-      !(raw.since === null || typeof raw.since === 'number' && Number.isFinite(raw.since) && raw.since > 0) ||
+      since === undefined ||
       typeof raw.hasStarted !== 'boolean' || typeof raw.skipped !== 'boolean') return freshClock();
   return {
     elapsedBefore: raw.elapsedBefore,
-    since: raw.hasStarted ? raw.since : null,
+    since: raw.hasStarted ? since : null,
     hasStarted: raw.hasStarted,
     skipped: raw.skipped,
   };
