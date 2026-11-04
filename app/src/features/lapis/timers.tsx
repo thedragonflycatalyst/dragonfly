@@ -61,8 +61,15 @@ export function useRest(onNextSet?: (key: string) => void, onChange?: (rest: Res
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       const latest = restRef.current;
-      if (state === 'active') void backstop(null);
-      else if (latest && latest.pausedLeft === null)
+      if (state === 'active') {
+        void backstop(null);
+        if (latest && latest.pausedLeft === null && latest.until <= Date.now()) {
+          // OS may have suspended JS through the deadline. Dismiss an
+          // overdue rest without replaying its bell or advancing a set.
+          fired.current.add('end');
+          update(null);
+        }
+      } else if (latest && latest.pausedLeft === null)
         void backstop(latest.until, latest.label ? `Rest is over. ${latest.label}` : undefined);
     });
     return () => { sub.remove(); void backstop(null); };
