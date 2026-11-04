@@ -306,6 +306,7 @@ export default function Session() {
                     setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
                   }}
                   onStart={(freshRun) => {
+                    if (saved.current) return;
                     rest.pause();
                     setActiveTimerId(b.id);
                     if (freshRun) setTimerResults((prior) => clearTimerCompletion(prior, b.id));
@@ -313,6 +314,7 @@ export default function Session() {
                   onPause={() => setActiveTimerId((current) => current === b.id ? null : current)}
                   onReset={() => setTimerResults((prior) => clearTimerCompletion(prior, b.id))}
                   onComplete={(actualSeconds) => {
+                    if (saved.current) return;
                     setActiveTimerId((current) => current === b.id ? null : current);
                     const result: LapisTimerResult = {
                       block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
@@ -399,6 +401,7 @@ export default function Session() {
                             setActiveSetTimerKey((current) => running ? k : current === k ? null : current);
                           }}
                           onDone={(sec) => {
+                            if (saved.current) return;
                             const completionKey = `${k}:${started}`;
                             if (s.done || completedSetEvents.current.has(completionKey) ||
                                 !shouldAcceptTimedSetCompletion(false, sec)) return;
