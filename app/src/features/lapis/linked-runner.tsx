@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Pressable, View } from 'react-native';
 import { Button, Txt } from '@/components/ui';
 import { fmtSeconds } from '@/lib/workouts';
@@ -25,7 +25,8 @@ export function LinkedLapisRunner({
   onClockChange?: (clock: RunnerClock) => void;
 }) {
   const p = usePalette();
-  const timeline = compileLapisTimeline(timer);
+  const timeline = useMemo(() => compileLapisTimeline(timer), [timer.template]);
+  const spokenCues = useMemo(() => compileSpokenCues(timer, timeline), [timer.template, timeline]);
   const [clock, setClock] = useState<RunnerClock>(() => validClock(initialClock ?? freshClock(), timeline.totalSeconds));
   const [now, setNow] = useState(Date.now());
   const [muted, setMuted] = useState(false);
@@ -99,12 +100,12 @@ export function LinkedLapisRunner({
     if (since == null || muted) { lastCuePosition.current = elapsed; return; }
     const before = lastCuePosition.current ?? elapsed;
     lastCuePosition.current = elapsed;
-    const cues = cuesCrossed(compileSpokenCues(timer, timeline), before, elapsed);
+    const cues = cuesCrossed(spokenCues, before, elapsed);
     for (const cue of cues) {
       if (cue.kind === 'countdown') buzz();
       void say(cue.text);
     }
-  }, [elapsed, since, muted, timer]);
+  }, [elapsed, since, muted, spokenCues]);
 
   useEffect(() => {
     if (done && !reported.current) {
@@ -131,7 +132,7 @@ export function LinkedLapisRunner({
     const tick = Date.now();
     setClock((old) => skipClock(old, tick, state.phase!.endAt));
     setNow(tick);
-    lastPhase.current = null; lastCuePosition.current = state.phase.endAt - 0.01;
+    lastPhase.current = null; lastCuePosition.current = state.phase.endAt;
   };
   const remaining = Math.ceil(state.left);
   const total = timeline.totalSeconds;
@@ -140,7 +141,7 @@ export function LinkedLapisRunner({
     <View style={{ gap: 10, padding: 14, backgroundColor: p.surface, borderRadius: R.lg, borderWidth: 1.5, borderColor: p.line }}>
       <Txt v="kicker" color={p.focus}>Lapis interval session</Txt>
       <Txt v="h3">{timer.name}</Txt>
-      <Txt v="small" color={p.muted}>{done ? 'Complete' : !hasStarted ? 'Ready to start' : since === null ? 'Paused' :
+      <Txt v="small" color={p.muted}>{done ? (skipped ? 'Finished with skipped intervals — restart to log a complete run' : 'Complete') : !hasStarted ? 'Ready to start' : since === null ? 'Paused' :
         state.phase?.kind === 'work' ? 'Work' : state.phase?.name ?? 'Rest'}</Txt>
       <Txt accessibilityRole="timer" accessibilityLabel={`${remaining} seconds remaining`}
         style={{ fontFamily: F.display, fontSize: 44, textAlign: 'center', color: p.ink, fontVariant: ['tabular-nums'] }}>
