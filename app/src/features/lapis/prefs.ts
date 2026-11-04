@@ -37,6 +37,16 @@ export const DEFAULTS: LapisPrefs = {
   voiceOn: true, sayRest: true, countdown: true, bellOn: true, halfway: false, autoRest: true, defaultRest: 60, keepAwake: true,
 };
 const SHARED = ['voice', 'music', 'voiceLevel', 'voiceSpeed', 'haptics', 'bell'] as const;
+type SharedKey = typeof SHARED[number];
+
+/** Build a narrow patch: never copy stale unrelated settings into Lapis's sync document. */
+export function sharedPatch(patch: Partial<LapisPrefs>, next: LapisPrefs): Record<string, unknown> {
+  const values = toLapis(next);
+  const out: Record<string, unknown> = {};
+  for (const key of SHARED) if (Object.prototype.hasOwnProperty.call(patch, key)) out[key] = values[key];
+  return out;
+}
+
 
 const clamp = (n: unknown, lo: number, hi: number, d: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d);
 /** Lapis's saved settings (its own JSON shape) → ours; anything missing or broken keeps what we had */
@@ -76,24 +86,55 @@ export async function loadPrefs(userId: string) {
   try {
     const { data } = await sb.from('lapis_sync').select('doc').eq('user_id', userId).maybeSingle();
     const prefs = (data?.doc as { prefs?: { data?: Record<string, unknown> } } | undefined)?.prefs?.data;
-    if (prefs && uid === userId) { current = fromLapis(prefs, current); store(KEY(userId), current); emit(); }
+    if (prefs && uid === userId) {
+      const remote = fromLapis(prefs, current);
+      current = { ...remote, ...pendingByUser.get(userId) };
+      store(KEY(userId), current); emit();
+    }
+    if (uid === userId && pendingByUser.has(userId)) void flushShared(userId);
   } catch { /* offline: this device's copy is fine */ }
 }
 
-/** Change settings here; shared ones are written back to the account so Lapis picks them up too */
+/** Shared changes are applied atomically on the server without replacing timers/sessions/history.
+ * Offline or failed writes are retained locally and retried the next time the account loads.
+ */
+const pendingByUser = new Map<string, Partial<LapisPrefs>>();
+const flushByUser = new Map<string, Promise<void>>();
+
+async function flushShared(userId: string) {
+  const active = flushByUser.get(userId);
+  if (active) return active;
+  const task = (async () => {
+    while (pendingByUser.has(userId)) {
+      const patch = pendingByUser.get(userId)!;
+      pendingByUser.delete(userId);
+      const snapshot = userId === uid ? current : { ...DEFAULTS, ...recall<Partial<LapisPrefs>>(KEY(userId), {}) };
+      try {
+        const { error } = await sb.rpc('coach_patch_lapis_prefs', { p_patch: sharedPatch(patch, snapshot) });
+        if (error) throw error;
+      } catch {
+        // Keep only values not superseded by edits made while the request was running.
+        pendingByUser.set(userId, { ...patch, ...pendingByUser.get(userId) });
+        break;
+      }
+    }
+  })();
+  flushByUser.set(userId, task);
+  try { await task; } finally { flushByUser.delete(userId); }
+}
+
+/** Change a setting locally immediately; sync just the changed keys safely. */
 export async function setPrefs(patch: Partial<LapisPrefs>) {
   current = { ...current, ...patch };
   emit();
   if (!uid) return;
-  store(KEY(uid), current);
-  if (!SHARED.some((k) => k in patch)) return;
-  try {
-    const { data } = await sb.from('lapis_sync').select('doc').eq('user_id', uid).maybeSingle();
-    if (!data) return; // Not using the Lapis app yet: nothing to keep in step
-    const doc = (data.doc ?? {}) as { prefs?: { data?: Record<string, unknown> } };
-    const next = { ...doc, prefs: { at: new Date().toISOString(), data: { ...(doc.prefs?.data ?? {}), ...toLapis(current) } } };
-    await sb.from('lapis_sync').update({ doc: next, updated_at: new Date().toISOString() }).eq('user_id', uid);
-  } catch { /* kept on this device; tries again next change */ }
+  const userId = uid;
+  store(KEY(userId), current);
+  const shared = Object.fromEntries(SHARED.filter((k) => Object.prototype.hasOwnProperty.call(patch, k))
+    .map((k) => [k, patch[k]])) as Partial<LapisPrefs>;
+  if (!Object.keys(shared).length) return;
+  pendingByUser.set(userId, { ...pendingByUser.get(userId), ...shared });
+  await flushShared(userId);
 }
 
 export function useLapisPrefs(userId?: string | null): LapisPrefs {
