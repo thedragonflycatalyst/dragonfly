@@ -11,6 +11,7 @@ import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
 import { lapisTimerSeconds, parseLapisTimer } from '@/features/lapis/library';
+import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
@@ -39,6 +40,7 @@ export default function Session() {
   const [src, setSrc] = useState<Source | null | undefined>(undefined);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [timerResults, setTimerResults] = useState<LapisTimerResult[]>([]);
+  const [runnerClocks, setRunnerClocks] = useState<Record<string, RunnerClock>>({});
   const [started, setStarted] = useState(Date.now());
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -74,7 +76,7 @@ export default function Session() {
       }
       if (s?.assignment?.status === 'done') { setSrc(s); return; }
       const d = readDraft((k) => storage.getItem(k));
-      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
+      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
       else if (s) setLog(startLog(s.blocks, unit));
       setSrc(s);
     })();
@@ -83,9 +85,9 @@ export default function Session() {
   // Keep the draft on the device after every change
   useEffect(() => {
     if (!src || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
-    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults };
+    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks };
     try { storage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch { /* storage full or blocked: keep going without a draft */ }
-  }, [log, timerResults, clientId, src, key, aid, workout, started]);
+  }, [log, timerResults, runnerClocks, clientId, src, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
@@ -171,7 +173,7 @@ export default function Session() {
             const savedTimer = b.timer.source?.app === 'lapis'
               ? parseLapisTimer(b.timer.source.snapshot) : null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer} onStart={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer} initialClock={runnerClocks[b.id]} onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))} onStart={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
                   const result: LapisTimerResult = {
                     block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
                     planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
