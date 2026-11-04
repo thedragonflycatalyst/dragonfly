@@ -137,7 +137,9 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
     <>
       <Card style={{ paddingHorizontal: 6, paddingVertical: 10 }}>
         <LineChart series={series} from={from} to={to} goal={goalShown} projection={projection} height={320}
-          fmtY={(v) => fmtNum(v, Math.abs(v) < 20 ? 1 : 0, fmt)} label={`${sel.map(metricLabel).join(', ')} over time`} />
+          fmtY={(v) => fmtNum(v, Math.abs(v) < 20 ? 1 : 0, fmt)}
+          fmtPoint={(v) => `${fmtNum(v, 1, fmt)}${massMode ? ` ${unitLabel(unit)}` : ""}`}
+          label={`${sel.map(metricLabel).join(', ')} over time`} />
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 4 }}>
           {RANGES.map(([l, d]) => <Chip key={l} label={l} selected={range === d} onPress={() => setRange(d)} />)}
         </View>
