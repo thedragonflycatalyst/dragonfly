@@ -11,7 +11,7 @@ import { compileLapisTimeline, phaseAt } from './timeline';
  * If the app is suspended, the phase catches up to actual elapsed time when
  * React Native resumes. This does not promise continuous background audio.
  */
-export function LinkedLapisRunner({ timer }: { timer: LapisTimer }) {
+export function LinkedLapisRunner({ timer, onComplete }: { timer: LapisTimer; onComplete?: (actualSeconds: number) => void }) {
   const p = usePalette();
   const timeline = compileLapisTimeline(timer);
   const [elapsedBefore, setElapsedBefore] = useState(0);
@@ -20,6 +20,8 @@ export function LinkedLapisRunner({ timer }: { timer: LapisTimer }) {
   const [hasStarted, setHasStarted] = useState(false);
   const [muted, setMuted] = useState(false);
   const lastPhase = useRef<number | null>(null);
+  const reported = useRef(false);
+  const skipped = useRef(false);
   const elapsed = Math.min(timeline.totalSeconds, elapsedBefore + (since === null ? 0 : Math.max(0, now - since) / 1000));
   const state = phaseAt(timeline, elapsed);
   const phaseIndex = state.phase ? timeline.phases.indexOf(state.phase) : timeline.phases.length;
@@ -50,17 +52,25 @@ export function LinkedLapisRunner({ timer }: { timer: LapisTimer }) {
     buzz();
   }, [phaseIndex, since, muted, hasStarted, done, state.phase?.kind, state.phase?.name]);
 
+  useEffect(() => {
+    if (done && !reported.current) {
+      reported.current = true;
+      if (!skipped.current) onComplete?.(Math.round(elapsed));
+    }
+  }, [done, elapsed, onComplete]);
+
   const pause = () => { setElapsedBefore(elapsed); setSince(null); };
   const start = () => {
-    if (state.finished) { setElapsedBefore(0); lastPhase.current = null; }
+    if (state.finished) { setElapsedBefore(0); lastPhase.current = null; reported.current = false; skipped.current = false; }
     setHasStarted(true); setNow(Date.now()); setSince(Date.now());
   };
   const reset = () => {
     setSince(null); setElapsedBefore(0); setNow(Date.now());
-    setHasStarted(false); lastPhase.current = null;
+    setHasStarted(false); lastPhase.current = null; reported.current = false; skipped.current = false;
   };
   const skip = () => {
     if (!state.phase) return;
+    skipped.current = true;
     setElapsedBefore(state.phase.endAt);
     setNow(Date.now());
     if (since != null) setSince(Date.now());
