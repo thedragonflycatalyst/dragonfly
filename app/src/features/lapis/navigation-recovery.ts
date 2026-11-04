@@ -1,3 +1,4 @@
+import type { RestClock } from './rest-clock';
 import type { TimedSetClock } from './timed-set-clock';
 import { pauseClock, type RunnerClock } from './runner-clock';
 
@@ -26,4 +27,12 @@ export function patchDraftTimedSetClock(draft: unknown, key: string, setKey: str
   const previous = d.timedSetClocks && typeof d.timedSetClocks === 'object' &&
     !Array.isArray(d.timedSetClocks) ? d.timedSetClocks as Record<string, unknown> : {};
   return JSON.stringify({ ...d, timedSetClocks: { ...previous, [setKey]: clock } });
+}
+
+/** Checkpoint rest without overwriting an unrelated workout draft. */
+export function patchDraftRestClock(draft: unknown, key: string, rest: RestClock | null): string | null {
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return null;
+  const d = draft as Record<string, unknown>;
+  if (d.key !== key || !Array.isArray(d.log)) return null;
+  return JSON.stringify({ ...d, restClock: rest });
 }
