@@ -171,6 +171,16 @@ export function SetTimer({
       if (runningRef.current) callbacks.current.onRunningChange?.(false);
     };
   }, []);
+  // A saved or edited exercise duration can change after onDone updates the
+  // set. Invalidate partial progress from the previous target rather than
+  // incorrectly resuming a countdown configured for a different duration.
+  useEffect(() => {
+    if (stateRef.current.target === target) return;
+    reportRunning(false);
+    finished.current = false;
+    fired.current = new Set();
+    updateClock(resetTimedSet(target));
+  }, [target]);
   useEffect(() => {
     if (clockState.since === null) return;
     const tick = setInterval(() => setNow(Date.now()), 200);
