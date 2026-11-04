@@ -315,7 +315,7 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
     } catch (e) { toast(errText(e), false); } finally { setImporting(false); }
   };
   const exportCsv = () => {
-    const keys = READINGS ? (Object.keys(READINGS) as ReadingKey[]).filter((k) => list.some((w) => w.metrics?.[k] != null)) : [];
+    const keys = (Object.keys(READINGS) as ReadingKey[]).filter((k) => list.some((w) => w.metrics?.[k] != null));
     const lines = [['date', `weight (${unitLabel(unit)})`, ...keys.map((k) => READINGS[k].label + (READINGS[k].unit === 'mass' ? ` (${unitLabel(unit)})` : READINGS[k].unit ? ` (${READINGS[k].unit})` : ''))].join(',')];
     for (const w of [...list].reverse()) lines.push([w.measured_at, fromKg(w.weight_kg, unit).toFixed(1), ...keys.map((k) => (w.metrics[k] == null ? '' : READINGS[k].unit === 'mass' ? fromKg(w.metrics[k]!, unit).toFixed(1) : String(w.metrics[k])))].join(','));
     const a = document.createElement('a');
