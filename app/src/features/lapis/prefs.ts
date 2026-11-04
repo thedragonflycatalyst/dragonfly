@@ -73,12 +73,19 @@ let uid: string | null = null;
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 const KEY = (u: string) => `lapis.prefs.${u}`;
+const PENDING_KEY = (u: string) => `lapis.prefs.pending.${u}`;
 
 export const getPrefs = () => current;
 
 /** Load this person's settings: this device first, then whatever Lapis has on their account */
 export async function loadPrefs(userId: string) {
-  if (uid !== userId) { uid = userId; current = { ...DEFAULTS, ...recall<Partial<LapisPrefs>>(KEY(userId), {}) }; emit(); }
+  if (uid !== userId) {
+    uid = userId;
+    const pending = recall<Partial<LapisPrefs>>(PENDING_KEY(userId), {});
+    if (Object.keys(pending).length) pendingByUser.set(userId, pending);
+    current = { ...DEFAULTS, ...recall<Partial<LapisPrefs>>(KEY(userId), {}), ...pending };
+    emit();
+  }
   try {
     const { data } = await sb.from('lapis_sync').select('doc').eq('user_id', userId).maybeSingle();
     const prefs = (data?.doc as { prefs?: { data?: Record<string, unknown> } } | undefined)?.prefs?.data;
@@ -109,9 +116,12 @@ async function flushShared(userId: string) {
         const { data, error } = await sb.rpc('coach_patch_lapis_prefs', { p_patch: sharedPatch(patch, snapshot) });
         if (error) throw error;
         if (data == null) throw new Error('Lapis sync document not yet available');
+        if (pendingByUser.has(userId)) store(PENDING_KEY(userId), pendingByUser.get(userId));
+        else store(PENDING_KEY(userId), {});
       } catch {
         // Keep only values not superseded by edits made while the request was running.
         pendingByUser.set(userId, { ...patch, ...pendingByUser.get(userId) });
+        store(PENDING_KEY(userId), pendingByUser.get(userId));
         break;
       }
     }
@@ -131,6 +141,7 @@ export async function setPrefs(patch: Partial<LapisPrefs>) {
     .map((k) => [k, patch[k]])) as Partial<LapisPrefs>;
   if (!Object.keys(shared).length) return;
   pendingByUser.set(userId, { ...pendingByUser.get(userId), ...shared });
+  store(PENDING_KEY(userId), pendingByUser.get(userId));
   await flushShared(userId);
 }
 
