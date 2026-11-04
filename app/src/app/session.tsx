@@ -110,6 +110,10 @@ export default function Session() {
     let cancelled = false;
     setReadyKey(null);
     setSrc(undefined);
+    saved.current = false;
+    completedSetEvents.current.clear();
+    setActiveSetTimerKey(null);
+    setAutoGo(null);
     (async () => {
       let s: Source | null = null;
       if (aid) {
@@ -420,7 +424,7 @@ export default function Session() {
                             if (!screenFocused) {
                               try {
                                 const serialized = patchDraftTimedSetClock(
-                                  readDraft((keyName) => storage.getItem(keyName)), key, k, next,
+                                  loadWorkoutDraft(storage, key), key, k, next,
                                 );
                                 if (serialized) storage.setItem(workoutDraftSlot(key), serialized);
                               } catch { /* keep in-memory progress */ }
