@@ -7,6 +7,7 @@ import { clock } from '@/lib/session';
 import { F, R, usePalette } from '@/lib/theme';
 import { bell, buzz, say } from './audio';
 import { getPrefs } from './prefs';
+import { elapsedTimedSet, pauseTimedSet, resetTimedSet, restoreTimedSetClock, resumeTimedSet, type TimedSetClock } from './timed-set-clock';
 
 /* ---------- the backstop if the phone stops the app while locked ---------- */
 let pending: string | null = null;
@@ -121,7 +122,10 @@ export function RestBar({ t, blocked = false }: { t: ReturnType<typeof useRest>;
  * Mini Lapis timer for a timed set, sitting where the time box goes. With a target it counts down ("Go", bell,
  * 3-2-1, bell); without one it's a stopwatch. When it ends it hands back the seconds done.
  */
-export function SetTimer({ target, onDone, label, compact, go: autoGo, blocked = false, screenFocused = true, onRunningChange }: {
+export function SetTimer({
+  target, onDone, label, compact, go: autoGo, blocked = false,
+  screenFocused = true, onRunningChange, initialClock, onClockChange,
+}: {
   target: number | null;
   onDone: (seconds: number) => void;
   label: string;
@@ -130,59 +134,132 @@ export function SetTimer({ target, onDone, label, compact, go: autoGo, blocked =
   blocked?: boolean;
   screenFocused?: boolean;
   onRunningChange?: (running: boolean) => void;
+  initialClock?: TimedSetClock;
+  onClockChange?: (clock: TimedSetClock) => void;
 }) {
   const p = usePalette();
-  const [started, setStarted] = useState<number | null>(null);
+  const [clockState, setClockState] = useState<TimedSetClock>(() =>
+    restoreTimedSetClock(initialClock, target, Date.now()));
+  const stateRef = useRef(clockState);
+  stateRef.current = clockState;
+  const callbacks = useRef({ onDone, onRunningChange, onClockChange });
+  callbacks.current = { onDone, onRunningChange, onClockChange };
   const runningRef = useRef(false);
-  const reportRunning = (value: boolean) => {
-    if (runningRef.current !== value) {
-      runningRef.current = value;
-      onRunningChange?.(value);
-    }
-  };
-  useEffect(() => () => { if (runningRef.current) onRunningChange?.(false); }, []);
-  // A timed set cannot keep speaking after its workout route is left. Its
-  // uncommitted partial seconds are not marked as a completed exercise set.
-  useEffect(() => {
-    if (!screenFocused && runningRef.current) {
-      setStarted(null);
-      reportRunning(false);
-    }
-  }, [screenFocused]);
+  const finished = useRef(false);
   const [now, setNow] = useState(Date.now());
   const fired = useRef(new Set<string>());
-  useEffect(() => { if (started == null) return; const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t); }, [started]);
-  const elapsed = started == null ? 0 : (now - started) / 1000;
-  const left = target ? Math.max(0, target - elapsed) : 0;
+  const running = clockState.since !== null;
+  const elapsed = elapsedTimedSet(clockState, now);
+  const left = target == null ? 0 : Math.max(0, target - elapsed);
+
+  const reportRunning = (value: boolean) => {
+    if (runningRef.current === value) return;
+    runningRef.current = value;
+    callbacks.current.onRunningChange?.(value);
+  };
+  const updateClock = (next: TimedSetClock) => {
+    stateRef.current = next;
+    setClockState(next);
+    callbacks.current.onClockChange?.(next);
+  };
+  // Persist the current clock only on controls and interruption, not 5x/s.
   useEffect(() => {
-    if (started == null || !target) return;
+    callbacks.current.onClockChange?.(stateRef.current);
+    return () => {
+      const snapshot = pauseTimedSet(stateRef.current, Date.now());
+      callbacks.current.onClockChange?.(snapshot);
+      if (runningRef.current) callbacks.current.onRunningChange?.(false);
+    };
+  }, []);
+  useEffect(() => {
+    if (clockState.since === null) return;
+    const tick = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(tick);
+  }, [clockState.since]);
+  useEffect(() => {
+    if (screenFocused || stateRef.current.since === null) return;
+    const paused = pauseTimedSet(stateRef.current, Date.now());
+    updateClock(paused);
+    reportRunning(false);
+  }, [screenFocused]);
+  // A recovered stopwatch or countdown is paused, never silently marked done.
+  useEffect(() => {
+    if (!screenFocused || !running || !target || finished.current) return;
     const pr = getPrefs(), f = fired.current, s = Math.ceil(left);
-    if (pr.halfway && target >= 20 && left <= target / 2 && !f.has('half')) { f.add('half'); void say('Halfway'); }
-    if (pr.countdown) for (const n of [3, 2, 1]) if (s === n && target > n && !f.has(String(n))) { f.add(String(n)); buzz(); void say(String(n)); }
-    if (left <= 0 && !f.has('end')) { f.add('end'); void bell(); setStarted(null); reportRunning(false); onDone(target); }
-  }, [started, left, target]); // eslint-disable-line react-hooks/exhaustive-deps
-  const go = () => {
-    if (blocked || !screenFocused) return;
+    if (pr.halfway && target >= 20 && left <= target / 2 && !f.has('half')) {
+      f.add('half'); void say('Halfway');
+    }
+    if (pr.countdown) for (const n of [3, 2, 1]) {
+      if (s === n && target > n && !f.has(String(n))) {
+        f.add(String(n)); buzz(); void say(String(n));
+      }
+    }
+    if (left <= 0) {
+      finished.current = true;
+      void bell();
+      updateClock(resetTimedSet(target));
+      reportRunning(false);
+      callbacks.current.onDone(target);
+    }
+  }, [screenFocused, running, target, left]);
+
+  const start = () => {
+    if (blocked || !screenFocused || running) return;
     fired.current = new Set();
+    finished.current = false;
+    const tick = Date.now();
+    setNow(tick);
+    updateClock(resumeTimedSet(stateRef.current, tick));
     reportRunning(true);
-    setStarted(Date.now());
     void bell().then(() => say('Go'));
   };
-  // Started for you: the next set of a timed exercise after its rest, or the left side after the right
-  useEffect(() => { if (autoGo && started == null && !blocked && screenFocused) go(); }, [autoGo]); // eslint-disable-line react-hooks/exhaustive-deps
-  const stop = () => { const secs = Math.round(elapsed); setStarted(null); reportRunning(false); if (secs > 0) { void bell(); onDone(secs); } };
-  const running = started != null;
-  const frac = target ? 1 - left / target : 0;
+  useEffect(() => {
+    if (autoGo && !running && !blocked && screenFocused && stateRef.current.elapsedBefore === 0) start();
+  }, [autoGo]); // An explicit parent auto-start is a single event.
+  const stop = () => {
+    const snapshot = pauseTimedSet(stateRef.current, Date.now());
+    updateClock(snapshot);
+    reportRunning(false);
+    const seconds = Math.round(snapshot.elapsedBefore);
+    if (seconds > 0) {
+      finished.current = true;
+      void bell();
+      callbacks.current.onDone(seconds);
+      updateClock(resetTimedSet(target));
+    }
+  };
+  const reset = () => {
+    reportRunning(false);
+    finished.current = false;
+    fired.current = new Set();
+    updateClock(resetTimedSet(target));
+  };
+  const hasPartial = !running && clockState.elapsedBefore > 0;
+  const frac = target ? Math.max(0, 1 - left / target) : 0;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={running ? `Stop ${label} timer` : blocked ? `Pause the linked Lapis timer to start ${label}` : `Start ${label} timer`} disabled={!running && (blocked || !screenFocused)} onPress={running ? stop : go}
-      style={{ flex: 1, minWidth: compact ? 64 : 96, height: 44, borderRadius: R.sm, overflow: 'hidden', borderWidth: 1.5, borderColor: running ? p.focus : p.line, backgroundColor: p.surface, justifyContent: 'center', opacity: !running && blocked ? 0.45 : 1 }}>
-      {running && target ? <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${frac * 100}%`, backgroundColor: p.glow }} /> : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-        <Icon name={running ? 'stop' : 'play_arrow'} size={18} color={p.focus} />
-        <Txt style={{ fontFamily: F.bodyBold, fontSize: 16, fontVariant: ['tabular-nums'], color: p.ink }}>
-          {running ? clock(target ? Math.ceil(left) : elapsed) : target ? clock(target) : 'Start'}
-        </Txt>
-      </View>
-    </Pressable>
+    <View style={{ flex: 1, minWidth: compact ? 64 : 96, flexDirection: 'row', gap: 3 }}>
+      <Pressable accessibilityRole="button"
+        accessibilityLabel={running ? `Stop ${label} timer` : hasPartial ? `Resume ${label} timer` : `Start ${label} timer`}
+        disabled={!running && (blocked || !screenFocused)}
+        onPress={running ? stop : start}
+        style={{ flex: 1, minWidth: 56, height: 44, borderRadius: R.sm, overflow: 'hidden',
+          borderWidth: 1.5, borderColor: running ? p.focus : p.line,
+          backgroundColor: p.surface, justifyContent: 'center',
+          opacity: !running && (blocked || !screenFocused) ? 0.45 : 1 }}>
+        {running && target ? <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0,
+          width: `${frac * 100}%`, backgroundColor: p.glow }} /> : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+          <Icon name={running ? 'stop' : 'play_arrow'} size={18} color={p.focus} />
+          <Txt style={{ fontFamily: F.bodyBold, fontSize: 16, fontVariant: ['tabular-nums'], color: p.ink }}>
+            {running || hasPartial ? clock(target ? Math.ceil(left) : elapsed) : target ? clock(target) : 'Start'}
+          </Txt>
+        </View>
+      </Pressable>
+      {hasPartial && <Pressable accessibilityRole="button" accessibilityLabel={`Reset partial ${label} timer`}
+        onPress={reset} style={{ width: 32, height: 44, justifyContent: 'center', alignItems: 'center',
+          backgroundColor: p.soft, borderRadius: R.sm }}>
+        <Icon name="replay" color={p.ink} size={18} />
+      </Pressable>}
+    </View>
   );
 }
