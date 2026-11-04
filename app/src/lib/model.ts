@@ -97,6 +97,10 @@ export type SetLog = {
 };
 /** One exercise in a logged workout. sides: logged left/right. note: the trainer's or client's note for this exercise. */
 export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; sides?: boolean; note?: string };
+export type LapisTimerResult = {
+  block_id: string; timer_id: string; name: string;
+  planned_seconds: number; actual_seconds: number; completed_at: string;
+};
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
   duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
