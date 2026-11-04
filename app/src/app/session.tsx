@@ -56,6 +56,8 @@ export default function Session() {
   const [rpe, setRpe] = useState<number | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const saveInFlight = useRef(false);
+  const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
   const saved = useRef(false);
   const [swapping, setSwapping] = useState<number | null>(null);
   const [info, setInfo] = useState<ExerciseRef | null>(null);
@@ -76,7 +78,7 @@ export default function Session() {
       }
       if (s?.assignment?.status === 'done') { setSrc(s); return; }
       const d = readDraft((k) => storage.getItem(k));
-      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
+      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
       else if (s) setLog(startLog(s.blocks, unit));
       setSrc(s);
     })();
@@ -85,9 +87,9 @@ export default function Session() {
   // Keep the draft on the device after every change
   useEffect(() => {
     if (!src || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
-    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks };
+    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, pendingAssignmentId };
     try { storage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch { /* storage full or blocked: keep going without a draft */ }
-  }, [log, timerResults, runnerClocks, clientId, src, key, aid, workout, started]);
+  }, [log, timerResults, runnerClocks, pendingAssignmentId, clientId, src, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
@@ -130,26 +132,55 @@ export default function Session() {
 
   const clearDraft = () => { try { if (readDraft((k) => storage.getItem(k))?.key === key) storage.removeItem(DRAFT_KEY); } catch { /* nothing to clear */ } };
   const save = async () => {
-    if (!app.user) return;
+    if (saveInFlight.current || !app.user) return;
     if (!done && !timerResults.length) return toast('Complete an exercise set or Lapis timer first', false);
     if (isTrainer && !clientId) return toast('Choose who you’re training', false);
+    saveInFlight.current = true;
     setBusy(true);
-    let assignmentId = src.assignment?.id ?? null;
-    if (!assignmentId) {
-      // A trainer running a library workout: put it on the client's calendar for today, then log it
-      const { data, error } = await sb.from('coach_assignments').insert({ trainer_id: app.user.id, client_id: clientId, workout_id: src.workoutId, scheduled_on: dayKey(new Date()), title: src.title, snapshot: src.blocks }).select('id').single();
-      if (error) { setBusy(false); return toast(errText(error), false); }
-      assignmentId = data.id;
+    try {
+      let assignmentId = src.assignment?.id ?? pendingAssignmentId;
+      if (!assignmentId) {
+        // Create at most one assignment for this local session. If logging fails,
+        // persist its ID so retry/restart doesn't make duplicate calendar entries.
+        const { data, error } = await sb.from('coach_assignments').insert({
+          trainer_id: app.user.id, client_id: clientId,
+          workout_id: src.workoutId, scheduled_on: dayKey(new Date()),
+          title: src.title, snapshot: src.blocks,
+        }).select('id').single();
+        if (error) throw error;
+        assignmentId = data.id as string;
+        setPendingAssignmentId(assignmentId);
+        const draft: Draft = {
+          key, title: src.title, params: aid ? { aid } : { workout: workout! },
+          client_id: clientId, started, log, timerResults, runnerClocks,
+          pendingAssignmentId: assignmentId,
+        };
+        try { storage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* stay usable in-memory */ }
+      }
+      const { error } = await sb.from('coach_logs').insert({
+        assignment_id: assignmentId, client_id: clientId, user_id: app.user.id,
+        duration_seconds: Math.min(86400, Math.max(0, Math.round((Date.now() - started) / 1000))),
+        entries: doneOnly(log), timer_results: timerResults, rpe,
+        note: note.trim() || null, source: isTrainer ? 'trainer' : 'app',
+      });
+      if (error) {
+        // A concurrent save on another device may already have succeeded.
+        // Only treat a duplicate as success if the log truly exists.
+        if (error.code !== '23505') throw error;
+        const existing = await sb.from('coach_logs')
+          .select('id').eq('assignment_id', assignmentId).maybeSingle();
+        if (existing.error || !existing.data) throw error;
+      }
+      saved.current = true;
+      clearDraft();
+      toast('Workout saved. Nice work!');
+      router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId! } });
+    } catch (error) {
+      toast(errText(error), false);
+    } finally {
+      saveInFlight.current = false;
+      setBusy(false);
     }
-    const { error } = await sb.from('coach_logs').insert({
-      assignment_id: assignmentId, client_id: clientId, user_id: app.user.id, duration_seconds: Math.min(86400, Math.round((Date.now() - started) / 1000)),
-      entries: doneOnly(log), timer_results: timerResults, rpe, note: note.trim() || null, source: isTrainer ? 'trainer' : 'app',
-    });
-    setBusy(false);
-    if (error) return toast(errText(error), false);
-    saved.current = true; clearDraft();
-    toast('Workout saved. Nice work!');
-    router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId! } });
   };
 
   return (
