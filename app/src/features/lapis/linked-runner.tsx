@@ -11,7 +11,7 @@ import { compileLapisTimeline, phaseAt } from './timeline';
  * If the app is suspended, the phase catches up to actual elapsed time when
  * React Native resumes. This does not promise continuous background audio.
  */
-export function LinkedLapisRunner({ timer, onComplete }: { timer: LapisTimer; onComplete?: (actualSeconds: number) => void }) {
+export function LinkedLapisRunner({ timer, onComplete, onReset }: { timer: LapisTimer; onComplete?: (actualSeconds: number) => void; onReset?: () => void }) {
   const p = usePalette();
   const timeline = compileLapisTimeline(timer);
   const [elapsedBefore, setElapsedBefore] = useState(0);
@@ -67,6 +67,7 @@ export function LinkedLapisRunner({ timer, onComplete }: { timer: LapisTimer; on
   const reset = () => {
     setSince(null); setElapsedBefore(0); setNow(Date.now());
     setHasStarted(false); lastPhase.current = null; reported.current = false; skipped.current = false;
+    onReset?.();
   };
   const skip = () => {
     if (!state.phase) return;
