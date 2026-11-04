@@ -14,9 +14,9 @@ const niceStep = (span: number, n = 5) => {
 const pathOf = (pts: { x: number; y: number }[]) => pts.map((q, i) => `${i ? 'L' : 'M'}${q.x.toFixed(1)},${q.y.toFixed(1)}`).join('');
 
 /** Line chart over time: smoothed lines, faint raw points, optional goal line and projection, labels at the end of each line */
-export function LineChart({ series, height = 300, from, to, goal, projection, fmtY, label }: {
+export function LineChart({ series, height = 300, from, to, goal, projection, fmtY, fmtPoint, label }: {
   series: Series[]; height?: number; from: number; to: number; goal?: number | null; projection?: { a: Pt; b: Pt } | null;
-  fmtY: (v: number) => string; label: string;
+  fmtY: (v: number) => string; fmtPoint?: (v: number) => string; label: string;
 }) {
   const p = usePalette();
   const [w, setW] = useState(0);
@@ -54,7 +54,7 @@ export function LineChart({ series, height = 300, from, to, goal, projection, fm
     setInspected(nearest?.t ?? null);
   };
   const onTouchStart = (e: any) => {
-    const touches = e.nativeEvent.touches as { pageX: number }[];
+    const touches = (e.nativeEvent.touches ?? []) as { pageX: number }[];
     const x = e.nativeEvent.locationX as number;
     if (!gesture.current) gesture.current = { x, from: viewFrom, to: viewTo, moved: false, pinch: null, anchor: 0 };
     if (touches.length >= 2) {
@@ -65,7 +65,7 @@ export function LineChart({ series, height = 300, from, to, goal, projection, fm
   const onTouchMove = (e: any) => {
     const g = gesture.current;
     if (!g) return;
-    const touches = e.nativeEvent.touches as { pageX: number }[];
+    const touches = (e.nativeEvent.touches ?? []) as { pageX: number }[];
     if (touches.length >= 2) {
       const distance = Math.max(8, Math.abs(touches[1].pageX - touches[0].pageX));
       if (g.pinch == null) { gesture.current = { ...g, moved: true, pinch: distance, from: viewFrom, to: viewTo, anchor: (viewFrom + viewTo) / 2 }; return; }
@@ -110,7 +110,7 @@ export function LineChart({ series, height = 300, from, to, goal, projection, fm
     marks.push({ t: d.getTime(), text: monthsStep === 12 || d.getMonth() === 0 ? String(d.getFullYear()) : d.toLocaleDateString(undefined, { month: 'short' }) });
   }
   if (spanDays <= 45) { marks.length = 0; for (let t = viewFrom; t <= viewTo; t += 7 * 86_400_000) marks.push({ t, text: new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }); }
-  const ends = series.map((s) => { const last = [...s.points].reverse().find((q) => q.t <= viewTo); return last ? { s, y: Y(last.v), x: X(last.t) } : null; }).filter(Boolean) as { s: Series; y: number; x: number }[];
+  const ends = series.map((s) => { const last = [...s.points].reverse().find((q) => q.t >= viewFrom && q.t <= viewTo); return last ? { s, y: Y(last.v), x: X(last.t) } : null; }).filter(Boolean) as { s: Series; y: number; x: number }[];
   // Keep end labels from overlapping
   ends.sort((a, b) => a.y - b.y);
   for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 34) ends[i].y = ends[i - 1].y + 34;
@@ -150,15 +150,15 @@ export function LineChart({ series, height = 300, from, to, goal, projection, fm
               <SvgText x={X(m.t) + 3} y={height - 8} fontSize={11} fill={p.muted} fontFamily={F.body}>{m.text}</SvgText>
             </G>
           ))}
-          {Date.now() >= from && Date.now() <= viewTo && <Line x1={X(Date.now())} x2={X(Date.now())} y1={padT - 10} y2={height - padB} stroke={p.gold} strokeWidth={1.5} />}
+          {Date.now() >= viewFrom && Date.now() <= viewTo && <Line x1={X(Date.now())} x2={X(Date.now())} y1={padT - 10} y2={height - padB} stroke={p.gold} strokeWidth={1.5} />}
           {goal != null && goal >= lo && goal <= hi && (
             <G>
               <Line x1={padL} x2={w - padR + 10} y1={Y(goal)} y2={Y(goal)} stroke={p.good} strokeWidth={1.5} />
               <SvgText x={w - padR + 14} y={Y(goal) + 4} fontSize={13} fill={p.good} fontFamily={F.bodyBold}>Goal</SvgText>
             </G>
           )}
-          {projection && <Line x1={X(projection.a.t)} y1={Y(projection.a.v)} x2={X(Math.min(projection.b.t, to))}
-            y2={Y(projection.a.v + (projection.b.v - projection.a.v) * ((Math.min(projection.b.t, to) - projection.a.t) / Math.max(projection.b.t - projection.a.t, 1)))}
+          {projection && projection.a.t <= viewTo && projection.b.t >= viewFrom && <Line x1={X(Math.max(projection.a.t, viewFrom))} y1={Y(projection.a.v + (projection.b.v - projection.a.v) * ((Math.max(projection.a.t, viewFrom) - projection.a.t) / Math.max(projection.b.t - projection.a.t, 1)))} x2={X(Math.min(projection.b.t, viewTo))}
+            y2={Y(projection.a.v + (projection.b.v - projection.a.v) * ((Math.min(projection.b.t, viewTo) - projection.a.t) / Math.max(projection.b.t - projection.a.t, 1)))}
             stroke={p.muted} strokeWidth={2} strokeDasharray="6,5" />}
           {series.map((s) => {
             const pts = s.points.filter((q) => q.t >= viewFrom && q.t <= viewTo).map((q) => ({ x: X(q.t), y: Y(q.v) }));
@@ -190,7 +190,7 @@ export function LineChart({ series, height = 300, from, to, goal, projection, fm
       {selected ? (
         <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: p.soft }}>
           <Text style={{ color: p.ink, fontFamily: F.bodyBold, fontSize: 12 }}>{new Date(selected.t).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</Text>
-          <Text style={{ color: p.muted, fontFamily: F.body, fontSize: 12 }}>{chosen?.map((point) => `${point.series}: ${fmtY(point.v)}`).join(' · ')}</Text>
+          <Text style={{ color: p.muted, fontFamily: F.body, fontSize: 12 }}>{chosen?.map((point) => `${point.series}: ${(fmtPoint ?? fmtY)(point.v)}`).join(' · ')}</Text>
         </View>
       ) : <Text style={{ color: p.muted, fontSize: 11, textAlign: 'center', fontFamily: F.body }}>Tap for a reading · drag to explore · pinch or use +/− to zoom</Text>}
     </View>
