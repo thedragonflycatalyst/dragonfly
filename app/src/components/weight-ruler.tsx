@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Svg, { Line, Text as SvgText } from 'react-native-svg';
-import { fromKg, fmtNum, unitLabel, type BodyUnit } from '@/lib/scale';
+import { fromKg, fmtNum, unitLabel, weightRulerValue, type BodyUnit } from '@/lib/scale';
 import { F, usePalette } from '@/lib/theme';
 
 /** A lightweight, locally rendered weight ruler: drag the markings under the fixed marker.
@@ -18,7 +18,7 @@ export function WeightRuler({ value, fallbackKg, unit, format, onChange }: {
   const parsed = Number(value.replace(',', '.'));
   const fallback = fallbackKg != null ? fromKg(fallbackKg, unit) : fromKg(70, unit);
   const current = Number.isFinite(parsed) && value.trim() ? parsed : fallback;
-  const clamp = (v: number) => Math.max(min, Math.min(max, Math.round(v * 10) / 10));
+  const clamp = (v: number) => weightRulerValue(v, unit);
   const selected = clamp(current);
   const pxPerTenth = 12;
   const count = Math.ceil(width / pxPerTenth / 2) + 2;
