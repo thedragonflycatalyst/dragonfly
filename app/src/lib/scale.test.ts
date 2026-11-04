@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bmi, bmiClass, byMonth, changeOver, chartValue, fmtMetric, fmtNum, goalEta, kcalPerDay, monthlyChange, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
+import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, fmtMetric, fmtNum, goalEta, kcalPerDay, monthlyChange, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
 import { occurrences, openSlots, priceLabel, toCents, voucherPrice, voucherState, weekOf, spotsText, eventCost, byMonth as moneyByMonth, type Booking } from './business';
 import { bigEmoji, layout, linkify, seenBy, tally, chatName, type Message, type ChatMember } from './chat';
 import { unitPrefs, notifyPrefs } from './prefs';
@@ -23,6 +23,13 @@ test('derived values: lean, fat and muscle mass from percentages', () => {
   assert.equal(fmtMetric('body_fat_pct', 30.2, 'lb'), '30.2 %');
   assert.equal(fmtMetric('weight', 111.04, 'lb'), '244.8 lbs');
   assert.equal(fmtMetric('bmr_kcal', 2150.4, 'lb'), '2,150 kcal');
+});
+
+test('editing tracked readings preserves hidden scale metrics', () => {
+  const original = { body_fat_pct: 30.2, visceral_fat: 14, muscle_arm_l: 3.1 };
+  assert.deepEqual(editedMetrics(original, ['body_fat_pct'], { body_fat_pct: 29.5 }), { body_fat_pct: 29.5, visceral_fat: 14, muscle_arm_l: 3.1 });
+  assert.deepEqual(editedMetrics(original, ['body_fat_pct'], { body_fat_pct: null }), { visceral_fat: 14, muscle_arm_l: 3.1 });
+  assert.deepEqual(original, { body_fat_pct: 30.2, visceral_fat: 14, muscle_arm_l: 3.1 });
 });
 
 test('BMI and its class', () => {
