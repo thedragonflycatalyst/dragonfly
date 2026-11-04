@@ -18,6 +18,26 @@ export async function healthStatus(): Promise<HealthStatus> {
 }
 
 /** Asks for read access to everything Dragonfly uses (and older history). True if anything was allowed. */
+/** The Scale asks only for the measurements it needs, rather than every health category. */
+export async function scalePermissions(): Promise<{ weight: boolean; history: 'unknown' }> {
+  if (!(await initialize())) return { weight: false, history: 'unknown' };
+  const granted = await getGrantedPermissions();
+  // react-native-health-connect 4.1.x does not reliably report the special
+  // historical-data permission through getGrantedPermissions. Never infer it.
+  return { weight: granted.some((g) => g.accessType === 'read' && g.recordType === 'Weight'), history: 'unknown' };
+}
+export async function connectScaleHealth(): Promise<boolean> {
+  if (!(await initialize())) return false;
+  await requestPermission(['Weight', 'Height', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate']
+    .map((recordType) => ({ accessType: 'read' as const, recordType })));
+  return (await scalePermissions()).weight;
+}
+/** User-initiated request only; successful historical reading is the actual verification. */
+export async function requestScaleHistoryAccess(): Promise<void> {
+  if (!(await initialize())) throw new Error('Health Connect is not available');
+  await requestPermission([{ accessType: 'read', recordType: 'ReadHealthDataHistory' } as never]);
+}
+
 export async function connectHealth(): Promise<boolean> {
   if (!(await initialize())) return false;
   const granted = await requestPermission([
@@ -35,6 +55,7 @@ async function all<T>(type: (typeof TYPES)[number], since: Date): Promise<T[]> {
     out.push(...(r.records as unknown as T[]));
     pageToken = (r as { pageToken?: string }).pageToken;
     if (!pageToken) break;
+    if (i === 49) throw new Error('Health Connect contains more records than one read can retrieve. Narrow the date range and try again.');
   }
   return out;
 }
@@ -43,7 +64,12 @@ async function all<T>(type: (typeof TYPES)[number], since: Date): Promise<T[]> {
 export async function readHealth(since: Date): Promise<HealthReadings> {
   await initialize();
   const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
-  const get = <T>(t: (typeof TYPES)[number]) => (ok.has(t) ? all<T>(t, since).catch(() => [] as T[]) : Promise.resolve([] as T[]));
+  if (!ok.has('Weight')) throw new Error('Allow Dragonfly to read Weight in Health Connect first.');
+  // Weight errors must not be disguised as an empty, successful sync.
+  const get = <T>(t: (typeof TYPES)[number]) => (ok.has(t) ? all<T>(t, since).catch((error) => {
+    if (t === 'Weight') throw error;
+    return [] as T[];
+  }) : Promise.resolve([] as T[]));
   type M = { time: string; mass: { inKilograms: number } };
   const [w, bf, lean, bone, water, bmr] = await Promise.all([
     get<{ time: string; weight: { inKilograms: number }; metadata?: { dataOrigin?: string } }>('Weight'), get<{ time: string; percentage: number }>('BodyFat'),
