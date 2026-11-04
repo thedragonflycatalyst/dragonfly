@@ -77,18 +77,27 @@ export function useRest() {
     for (const k of ['3', '2', '1', 'half']) fired.current.delete(k);
     return { ...r, until, total: Math.max(1, r.total + sec) };
   });
-  const pause = () => setRest((r) => (r && r.pausedLeft == null ? { ...r, pausedLeft: Math.max(0, (r.until - Date.now()) / 1000) } : r));
-  const resume = () => setRest((r) => (r && r.pausedLeft != null ? { ...r, until: Date.now() + r.pausedLeft * 1000, pausedLeft: null } : r));
+  const pause = () => {
+    void backstop(null);
+    setRest((r) => (r && r.pausedLeft == null ? { ...r, pausedLeft: Math.max(0, (r.until - Date.now()) / 1000) } : r));
+  };
+  const resume = () => setRest((r) => {
+    if (!r || r.pausedLeft == null) return r;
+    const until = Date.now() + r.pausedLeft * 1000;
+    if (AppState.currentState !== 'active') void backstop(until, r.label ? `Rest is over. ${r.label}` : undefined);
+    return { ...r, until, pausedLeft: null };
+  });
   const skip = () => { void backstop(null); setRest(null); onEnd.current = null; };
   return { rest, left, start, add, pause, resume, skip };
 }
 
 /** The Lapis rest bar pinned to the bottom of the workout */
-export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
+export function RestBar({ t, blocked = false }: { t: ReturnType<typeof useRest>; blocked?: boolean }) {
   const p = usePalette();
   if (!t.rest) return null;
   const frac = t.rest.total ? Math.min(1, t.left / t.rest.total) : 0;
   const paused = t.rest.pausedLeft != null;
+  const resumeBlocked = blocked && paused;
   const btn = { width: 44, height: 44, borderRadius: 22, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: p.soft };
   return (
     <View accessibilityRole="timer" accessibilityLabel={`Rest, ${Math.ceil(t.left)} seconds left`}
@@ -96,12 +105,12 @@ export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
       <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${frac * 100}%`, backgroundColor: p.glow }} />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10 }}>
         <View style={{ flex: 1, paddingLeft: 6 }}>
-          <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>{paused ? 'Paused' : 'Rest'}{t.rest.label ? ` · ${t.rest.label}` : ''}</Txt>
+          <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>{paused ? (blocked ? 'Paused for Lapis' : 'Paused') : 'Rest'}{t.rest.label ? ` · ${t.rest.label}` : ''}</Txt>
           <Txt style={{ fontFamily: F.display, fontSize: 34, fontVariant: ['tabular-nums'], color: p.ink }}>{clock(Math.ceil(t.left))}</Txt>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="15 seconds less" onPress={() => t.add(-15)} style={btn}><Txt v="smallBold" color={p.ink}>−15</Txt></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="15 seconds more" onPress={() => t.add(15)} style={btn}><Txt v="smallBold" color={p.ink}>+15</Txt></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={paused ? 'Resume rest' : 'Pause rest'} onPress={paused ? t.resume : t.pause} style={btn}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={resumeBlocked ? 'Pause Lapis to resume rest' : paused ? 'Resume rest' : 'Pause rest'} disabled={resumeBlocked} onPress={paused ? t.resume : t.pause} style={[btn, resumeBlocked && { opacity: 0.4 }]}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" onPress={t.skip} style={[btn, { backgroundColor: p.focus }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
       </View>
     </View>
