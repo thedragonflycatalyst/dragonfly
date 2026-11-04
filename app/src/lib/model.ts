@@ -103,7 +103,7 @@ export type LapisTimerResult = {
 };
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
-  duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
+  duration_seconds: number | null; entries: LogEntry[]; timer_results?: LapisTimerResult[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
 };
 
 export type Team = { id: string; owner_id: string; name: string };
