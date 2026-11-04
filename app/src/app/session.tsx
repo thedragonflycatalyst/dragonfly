@@ -20,6 +20,7 @@ import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/
 import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
 import { canResumeRest, canStartLinkedTimer, canStartTimedSet } from '@/features/lapis/timer-ownership';
+import { activeWorkoutTimers, clearTimerCompletion, recordTimerCompletion, shouldAcceptTimedSetCompletion } from '@/features/lapis/completion-integrity';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
@@ -96,6 +97,7 @@ export default function Session() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const saveInFlight = useRef(false);
+  const completedSetEvents = useRef(new Set<string>());
   const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
   const saved = useRef(false);
   const [swapping, setSwapping] = useState<number | null>(null);
@@ -190,8 +192,11 @@ export default function Session() {
   };
 
   const clearDraft = () => { try { if (readDraft((k) => storage.getItem(k))?.key === key) storage.removeItem(DRAFT_KEY); } catch { /* nothing to clear */ } };
+  const timersActive = activeWorkoutTimers(runnerClocks, timedSetClocks, activeTimerId, activeSetTimerKey);
   const save = async () => {
     if (saveInFlight.current || !app.user) return;
+    if (activeWorkoutTimers(runnerClocks, timedSetClocks, activeTimerId, activeSetTimerKey))
+      return toast('Pause or finish all active timers before saving the workout', false);
     if (!done && !timerResults.length) return toast('Complete an exercise set or Lapis timer first', false);
     if (isTrainer && !clientId) return toast('Choose who you’re training', false);
     saveInFlight.current = true;
@@ -251,6 +256,8 @@ export default function Session() {
         if (existing.error || !existing.data) throw error;
       }
       saved.current = true;
+      rest.skip();
+      hush();
       clearDraft();
       toast('Workout saved. Nice work!');
       router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId! } });
@@ -298,24 +305,24 @@ export default function Session() {
                     }
                     setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
                   }}
-                  onStart={() => {
-                    // Hold the rest countdown and cancel its backstop before
-                    // the linked interval timer acquires cue ownership.
+                  onStart={(freshRun) => {
+                    if (saved.current) return;
                     rest.pause();
                     setActiveTimerId(b.id);
-                    setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id));
+                    if (freshRun) setTimerResults((prior) => clearTimerCompletion(prior, b.id));
                   }}
                   onPause={() => setActiveTimerId((current) => current === b.id ? null : current)}
-                  onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))}
+                  onReset={() => setTimerResults((prior) => clearTimerCompletion(prior, b.id))}
                   onComplete={(actualSeconds) => {
-                  setActiveTimerId((current) => current === b.id ? null : current);
-                  const result: LapisTimerResult = {
-                    block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
-                    planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
-                    completed_at: new Date().toISOString(),
-                  };
-                  setTimerResults((prior) => [...prior.filter((x) => x.block_id !== b.id), result]);
-                }} />
+                    if (saved.current) return;
+                    setActiveTimerId((current) => current === b.id ? null : current);
+                    const result: LapisTimerResult = {
+                      block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
+                      planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
+                      completed_at: new Date().toISOString(),
+                    };
+                    setTimerResults((prior) => recordTimerCompletion(prior, result));
+                  }} />
               : <Card key={b.id}><Txt v="bold">{b.name}</Txt><Txt v="small" color={p.muted}>This older timer needs to be linked again from the workout builder.</Txt></Card>;
           })}
           <Txt v="small">{done} of {total} sets done{volume(log) ? ` · ${volume(log).toLocaleString()} ${unit} lifted` : ''}</Txt>
@@ -394,6 +401,11 @@ export default function Session() {
                             setActiveSetTimerKey((current) => running ? k : current === k ? null : current);
                           }}
                           onDone={(sec) => {
+                            if (saved.current) return;
+                            const completionKey = `${k}:${started}`;
+                            if (s.done || completedSetEvents.current.has(completionKey) ||
+                                !shouldAcceptTimedSetCompletion(false, sec)) return;
+                            completedSetEvents.current.add(completionKey);
                             const patch: Partial<SetLog> = { [tk]: sec };
                             // Right side done: switch and start the left; both done (or one-sided): tick the set and rest
                             if (side === 'r') { setSet(bi, si, patch); void say('Switch sides'); setAutoGo({ key: `${bi}:${si}:l`, n: Date.now() }); }
@@ -452,7 +464,11 @@ export default function Session() {
 
       <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16, alignItems: 'center', gap: 10 }} pointerEvents="box-none">
         <RestBar t={rest} blocked={!canResumeRest({ linked: activeTimerId, timedSet: activeSetTimerKey })} />
-        <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done || timerResults.length ? setFinishing(true) : toast('Complete an exercise set or Lapis timer first', false))} />
+        <Button kind="accent" title="Finish workout" icon="check" onPress={() => {
+          if (timersActive) return toast('Pause or finish active timers before completing this workout', false);
+          if (done || timerResults.length) setFinishing(true);
+          else toast('Complete an exercise set or Lapis timer first', false);
+        }} />
       </View>
 
       <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)}
@@ -466,7 +482,7 @@ export default function Session() {
         </View>
         <Field label="Notes" hint="(optional)" value={note} onChangeText={setNote} multiline placeholder="Felt strong, left knee a bit sore" />
         <Txt v="small" style={{ marginBottom: 12 }}>{done} of {total} sets · {timerResults.length} Lapis timers · {clock((now - started) / 1000)}</Txt>
-        <Button title="Save workout" busy={busy} onPress={save} style={{ alignSelf: 'flex-start' }} />
+        <Button title="Save workout" busy={busy} disabled={timersActive} onPress={save} style={{ alignSelf: 'flex-start' }} />
       </Sheet>
     </View>
   );
