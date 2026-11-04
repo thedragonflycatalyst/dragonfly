@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
@@ -10,7 +10,7 @@ import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
-import { lapisTimerSeconds, parseLapisTimer } from '@/features/lapis/library';
+import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
@@ -38,6 +38,17 @@ export default function Session() {
   const key = aid ? `a:${aid}` : `w:${workout}`;
   const unit = weightUnit(app.units);
   const [src, setSrc] = useState<Source | null | undefined>(undefined);
+  // Parse snapshots once when the assigned workout changes, rather than on
+  // every 200 ms runner tick or every exercise-set update.
+  const linkedTimers = useMemo(() => {
+    const parsed: Record<string, LapisTimer> = {};
+    for (const block of src?.blocks ?? []) {
+      if (block.kind !== 'timed' || block.timer.source?.app !== 'lapis') continue;
+      const timer = parseLapisTimer(block.timer.source.snapshot);
+      if (timer) parsed[block.id] = timer;
+    }
+    return parsed;
+  }, [src]);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [timerResults, setTimerResults] = useState<LapisTimerResult[]>([]);
   const [runnerClocks, setRunnerClocks] = useState<Record<string, RunnerClock>>({});
@@ -191,9 +202,10 @@ export default function Session() {
           {isTrainer && !src.assignment && (
             <Card style={{ gap: 8 }}>
               <Txt v="bold">Who are you training?</Txt>
+              {pendingAssignmentId ? <Txt v="small" color={p.muted}>This workout is already associated with a client. The client cannot change while a save is being retried.</Txt> : null}
               {clients.length === 0 ? <Txt v="small">You need an active client to log a session.</Txt> : (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {clients.map((c) => <Chip key={c.id} label={c.name} selected={clientId === c.id} onPress={() => setClientId(c.id)} />)}
+                  {clients.map((c) => <Chip key={c.id} label={c.name} selected={clientId === c.id} onPress={() => { if (!pendingAssignmentId) setClientId(c.id); }} />)}
                 </View>
               )}
             </Card>
@@ -201,8 +213,7 @@ export default function Session() {
           {src.assignment?.trainer_note ? <Card><Txt v="smallBold" color={p.focus}>From your trainer</Txt><Txt>{src.assignment.trainer_note}</Txt></Card> : null}
           {src.blocks.filter((b) => b.kind === 'timed').map((b) => {
             if (b.kind !== 'timed') return null;
-            const savedTimer = b.timer.source?.app === 'lapis'
-              ? parseLapisTimer(b.timer.source.snapshot) : null;
+            const savedTimer = linkedTimers[b.id] ?? null;
             return savedTimer
               ? <LinkedLapisRunner key={b.id} timer={savedTimer} initialClock={runnerClocks[b.id]} onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))} onStart={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
                   const result: LapisTimerResult = {
