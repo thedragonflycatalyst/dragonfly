@@ -52,7 +52,7 @@ export function LinkedLapisRunner({
   useEffect(() => {
     let generation = 0;
     let pending: string | null = null;
-    const change = async (state: string) => {
+    const change = async (state: string | null | undefined) => {
       const token = ++generation;
       const previous = pending;
       pending = null;
