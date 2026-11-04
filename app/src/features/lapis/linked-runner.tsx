@@ -137,16 +137,20 @@ export function LinkedLapisRunner({
   }, [elapsed, since, muted, blocked, screenFocused, spokenCues]);
 
   useEffect(() => {
-    if (done && !reported.current) {
-      reported.current = true;
-      if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds)) {
-        onComplete?.(Math.round(elapsed));
-      } else {
-        // A skipped run isn't logged, but must release the audio lease.
-        onPause?.();
-      }
+    if (!done || reported.current) return;
+    reported.current = true;
+    // A completed timeline cannot remain "running" in the persisted draft.
+    // Otherwise a successfully finished interval would block workout saving.
+    if (clock.since !== null) {
+      setClock((previous) => pauseClock(previous, Date.now(), timeline.totalSeconds));
     }
-  }, [done, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
+    if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds)) {
+      onComplete?.(Math.round(elapsed));
+    } else {
+      // A skipped run isn't logged, but must release the audio lease.
+      onPause?.();
+    }
+  }, [done, clock.since, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
 
   const pause = () => {
     hush();
