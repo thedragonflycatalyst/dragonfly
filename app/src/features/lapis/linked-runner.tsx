@@ -8,6 +8,7 @@ import { type LapisTimer } from './library';
 import { compileLapisTimeline, phaseAt } from './timeline';
 import { elapsedAt, freshClock, pauseClock, skipClock, startClock, validClock, type RunnerClock } from './runner-clock';
 import { scheduleLapisCompletion, cancelLapisCompletion } from './background';
+import { compileSpokenCues, cuesCrossed } from './cue-plan';
 
 /** Foreground interval controls using absolute clock offsets.
  * If the app is suspended, the phase catches up to actual elapsed time when
@@ -29,6 +30,7 @@ export function LinkedLapisRunner({
   const [now, setNow] = useState(Date.now());
   const [muted, setMuted] = useState(false);
   const lastPhase = useRef<number | null>(null);
+  const lastCuePosition = useRef<number | null>(null);
   const reported = useRef(false);
   const changeRef = useRef(onClockChange);
   changeRef.current = onClockChange;
@@ -91,6 +93,19 @@ export function LinkedLapisRunner({
     buzz();
   }, [phaseIndex, since, muted, hasStarted, done, state.phase?.kind, state.phase?.name]);
 
+  // Only announce cues crossed during foreground playback. Reopening a
+  // suspended app must not replay a burst of overdue announcements.
+  useEffect(() => {
+    if (since == null || muted) { lastCuePosition.current = elapsed; return; }
+    const before = lastCuePosition.current ?? elapsed;
+    lastCuePosition.current = elapsed;
+    const cues = cuesCrossed(compileSpokenCues(timer, timeline), before, elapsed);
+    for (const cue of cues) {
+      if (cue.kind === 'countdown') buzz();
+      void say(cue.text);
+    }
+  }, [elapsed, since, muted, timer]);
+
   useEffect(() => {
     if (done && !reported.current) {
       reported.current = true;
@@ -100,7 +115,7 @@ export function LinkedLapisRunner({
 
   const pause = () => setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
   const start = () => {
-    if (!hasStarted || state.finished) onStart?.();
+    if (!hasStarted || state.finished) { onStart?.(); lastCuePosition.current = -0.01; }
     if (state.finished) { lastPhase.current = null; reported.current = false; }
     const tick = Date.now();
     setNow(tick);
@@ -108,7 +123,7 @@ export function LinkedLapisRunner({
   };
   const reset = () => {
     setClock(freshClock()); setNow(Date.now());
-    reported.current = false; lastPhase.current = null;
+    reported.current = false; lastPhase.current = null; lastCuePosition.current = null;
     onReset?.();
   };
   const skip = () => {
@@ -116,7 +131,7 @@ export function LinkedLapisRunner({
     const tick = Date.now();
     setClock((old) => skipClock(old, tick, state.phase!.endAt));
     setNow(tick);
-    lastPhase.current = null;
+    lastPhase.current = null; lastCuePosition.current = state.phase.endAt - 0.01;
   };
   const remaining = Math.ceil(state.left);
   const total = timeline.totalSeconds;
