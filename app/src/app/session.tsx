@@ -10,7 +10,7 @@ import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
-import { parseLapisTimer } from '@/features/lapis/library';
+import { lapisTimerSeconds, parseLapisTimer } from '@/features/lapis/library';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
@@ -171,10 +171,10 @@ export default function Session() {
             const savedTimer = b.timer.source?.app === 'lapis'
               ? parseLapisTimer(b.timer.source.snapshot) : null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer} onComplete={(actualSeconds) => {
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
                   const result: LapisTimerResult = {
                     block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
-                    planned_seconds: Math.round(actualSeconds), actual_seconds: Math.round(actualSeconds),
+                    planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
                     completed_at: new Date().toISOString(),
                   };
                   setTimerResults((prior) => [...prior.filter((x) => x.block_id !== b.id), result]);
