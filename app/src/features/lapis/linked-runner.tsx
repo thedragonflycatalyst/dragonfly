@@ -134,11 +134,16 @@ export function LinkedLapisRunner({
   }, [elapsed, since, muted, blocked, spokenCues]);
 
   useEffect(() => {
-    if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds) && !reported.current) {
+    if (done && !reported.current) {
       reported.current = true;
-      onComplete?.(Math.round(elapsed));
+      if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds)) {
+        onComplete?.(Math.round(elapsed));
+      } else {
+        // A skipped run isn't logged, but must release the audio lease.
+        onPause?.();
+      }
     }
-  }, [hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete]);
+  }, [done, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
 
   const pause = () => {
     setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
@@ -146,7 +151,8 @@ export function LinkedLapisRunner({
   };
   const start = () => {
     if (blocked) return;
-    if (!hasStarted || state.finished) { onStart?.(); lastCuePosition.current = -0.01; explicitlyStarted.current = true; }
+    onStart?.(); // Also claim audio ownership when resuming a paused timer.
+    if (!hasStarted || state.finished) { lastCuePosition.current = -0.01; explicitlyStarted.current = true; }
     if (state.finished) { lastPhase.current = null; reported.current = false; }
     const tick = Date.now();
     setNow(tick);
