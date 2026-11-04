@@ -354,6 +354,7 @@ export default function Session() {
                         const k = `${bi}:${si}:${side ?? '-'}`;
                         return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
                           blocked={!canStartTimedSet({ linked: activeTimerId, timedSet: activeSetTimerKey }, k)}
+                          screenFocused={screenFocused}
                           onRunningChange={(running) => {
                             if (running) rest.pause();
                             setActiveSetTimerKey((current) => running ? k : current === k ? null : current);
