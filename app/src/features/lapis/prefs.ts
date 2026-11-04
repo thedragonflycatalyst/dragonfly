@@ -110,8 +110,9 @@ async function flushShared(userId: string) {
       pendingByUser.delete(userId);
       const snapshot = userId === uid ? current : { ...DEFAULTS, ...recall<Partial<LapisPrefs>>(KEY(userId), {}) };
       try {
-        const { error } = await sb.rpc('coach_patch_lapis_prefs', { p_patch: sharedPatch(patch, snapshot) });
+        const { data, error } = await sb.rpc('coach_patch_lapis_prefs', { p_patch: sharedPatch(patch, snapshot) });
         if (error) throw error;
+        if (data == null) throw new Error('Lapis sync document not yet available');
       } catch {
         // Keep only values not superseded by edits made while the request was running.
         pendingByUser.set(userId, { ...patch, ...pendingByUser.get(userId) });
