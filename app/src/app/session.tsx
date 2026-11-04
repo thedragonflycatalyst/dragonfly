@@ -11,6 +11,7 @@ import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
+import { lapisReminderKey } from '@/features/lapis/background';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
@@ -250,7 +251,7 @@ export default function Session() {
             if (b.kind !== 'timed') return null;
             const savedTimer = linkedTimers[b.id] ?? null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer}
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer} reminderKey={lapisReminderKey(`${app.user?.id ?? 'unknown'}:${key}`, b.id)}
                   initialClock={runnerClocks[b.id]}
                   blocked={!canStartLinkedTimer({ linked: activeTimerId, timedSet: activeSetTimerKey }, b.id)}
                   onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))}
