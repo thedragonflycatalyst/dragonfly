@@ -91,7 +91,7 @@ export default function WorkoutScreen() {
       </ScrollView>
       <View style={{ position: 'absolute', bottom: 20, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 10 }} pointerEvents="box-none">
         <Button kind="ghost" title="Assign" icon="calendar_month" style={{ backgroundColor: p.surface }} onPress={async () => { await persist(); setAssigning(true); }} />
-        <Button kind="accent" title="Start workout" icon="play_arrow" disabled={!exerciseCount(w.blocks)}
+        <Button kind="accent" title="Start workout" icon="play_arrow" disabled={!w.blocks.some((b) => b.kind === 'exercise' || b.kind === 'timed')}
           onPress={async () => { await persist(); router.push({ pathname: '/session', params: { workout: w.id } }); }} />
       </View>
       <AssignWorkout workout={latest.current ?? w} visible={assigning} onClose={() => setAssigning(false)} />
