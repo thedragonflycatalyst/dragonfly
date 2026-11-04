@@ -171,7 +171,7 @@ export default function Session() {
             const savedTimer = b.timer.source?.app === 'lapis'
               ? parseLapisTimer(b.timer.source.snapshot) : null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer} onStart={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
                   const result: LapisTimerResult = {
                     block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
                     planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
