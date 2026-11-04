@@ -14,7 +14,7 @@ import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
-import { canStartLinkedTimer, canStartTimedSet } from '@/features/lapis/timer-ownership';
+import { canResumeRest, canStartLinkedTimer, canStartTimedSet } from '@/features/lapis/timer-ownership';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
@@ -332,7 +332,10 @@ export default function Session() {
                         const k = `${bi}:${si}:${side ?? '-'}`;
                         return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
                           blocked={!canStartTimedSet({ linked: activeTimerId, timedSet: activeSetTimerKey }, k)}
-                          onRunningChange={(running) => setActiveSetTimerKey((current) => running ? k : current === k ? null : current)}
+                          onRunningChange={(running) => {
+                            if (running) rest.pause();
+                            setActiveSetTimerKey((current) => running ? k : current === k ? null : current);
+                          }}
                           onDone={(sec) => {
                             const patch: Partial<SetLog> = { [tk]: sec };
                             // Right side done: switch and start the left; both done (or one-sided): tick the set and rest
@@ -391,7 +394,7 @@ export default function Session() {
       </ScrollView>
 
       <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16, alignItems: 'center', gap: 10 }} pointerEvents="box-none">
-        <RestBar t={rest} blocked={activeTimerId !== null} />
+        <RestBar t={rest} blocked={!canResumeRest({ linked: activeTimerId, timedSet: activeSetTimerKey })} />
         <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done || timerResults.length ? setFinishing(true) : toast('Complete an exercise set or Lapis timer first', false))} />
       </View>
 
