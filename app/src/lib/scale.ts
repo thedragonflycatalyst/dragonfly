@@ -168,11 +168,7 @@ export function goalSchedule(trendKg: number, goalKg: number, rateKgPerWeek: num
   const daysToDeadline = Math.round((deadline.getTime() - todayDay.getTime()) / DAY);
   const remaining = goalKg - trendKg;
   const requiredKgPerWeek = daysToDeadline > 0 ? remaining / daysToDeadline * 7 : null;
-  if (Math.abs(remaining) < 0.05 || (remaining < 0 && goalKg < trendKg && rateKgPerWeek != null && rateKgPerWeek < 0) ||
-    (remaining > 0 && goalKg > trendKg && rateKgPerWeek != null && rateKgPerWeek > 0)) {
-    // A crossed target does not require continued movement in the same direction.
-    if (Math.abs(remaining) < 0.05) return { status: 'reached', requiredKgPerWeek: 0, projected: today, daysToDeadline, daysDifference: null };
-  }
+  if (Math.abs(remaining) < 0.05) return { status: 'reached', requiredKgPerWeek: 0, projected: today, daysToDeadline, daysDifference: null };
   if (daysToDeadline < 0) return { status: 'overdue', requiredKgPerWeek: null, projected: null, daysToDeadline, daysDifference: null };
   const projected = goalEta(trendKg, goalKg, rateKgPerWeek, today);
   if (!projected) return { status: 'insufficient', requiredKgPerWeek, projected: null, daysToDeadline, daysDifference: null };
