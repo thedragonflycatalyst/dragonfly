@@ -25,7 +25,7 @@ export function LinkedLapisRunner({
   reminderKey: string;
   onComplete?: (actualSeconds: number) => void;
   onReset?: () => void;
-  onStart?: () => void;
+  onStart?: (freshRun: boolean) => void;
   onPause?: () => void;
   blocked?: boolean;
   screenFocused?: boolean;
@@ -155,7 +155,7 @@ export function LinkedLapisRunner({
   };
   const start = () => {
     if (blocked || !screenFocused) return;
-    onStart?.(); // Also claim audio ownership when resuming a paused timer.
+    onStart?.(!hasStarted || state.finished); // Resume only claims ownership; a new run invalidates old results.
     if (!hasStarted || state.finished) { lastCuePosition.current = -0.01; explicitlyStarted.current = true; }
     if (state.finished) { lastPhase.current = null; reported.current = false; }
     const tick = Date.now();
