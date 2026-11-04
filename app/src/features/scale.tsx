@@ -15,7 +15,7 @@ import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
 import { errText } from '@/lib/model';
 import {
-  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
+  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
   kcalPerDay, metricLabel, monthlyChange, parseCsv, PERIODS, RANGES, ratePerWeek, READINGS, signed, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
   type MetricKey, type ReadingKey, type ScaleSettings, type Weighin,
 } from '@/lib/scale';
@@ -315,7 +315,7 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
     } catch (e) { toast(errText(e), false); } finally { setImporting(false); }
   };
   const exportCsv = () => {
-    const keys = enterable(metrics);
+    const keys = READINGS ? (Object.keys(READINGS) as ReadingKey[]).filter((k) => list.some((w) => w.metrics?.[k] != null)) : [];
     const lines = [['date', `weight (${unitLabel(unit)})`, ...keys.map((k) => READINGS[k].label + (READINGS[k].unit === 'mass' ? ` (${unitLabel(unit)})` : READINGS[k].unit ? ` (${READINGS[k].unit})` : ''))].join(',')];
     for (const w of [...list].reverse()) lines.push([w.measured_at, fromKg(w.weight_kg, unit).toFixed(1), ...keys.map((k) => (w.metrics[k] == null ? '' : READINGS[k].unit === 'mass' ? fromKg(w.metrics[k]!, unit).toFixed(1) : String(w.metrics[k])))].join(','));
     const a = document.createElement('a');
@@ -463,13 +463,15 @@ function LogSheet({ entry, onClose, metrics, unit, onSaved, last }: {
     if (w == null) return toast('Enter your weight', false);
     const kg = Math.round(toKgFrom(w, unit) * 100) / 100;
     if (kg < 20 || kg > 400) return toast('That weight doesn’t look right', false);
-    const m: Partial<Record<ReadingKey, number>> = {};
-    for (const k of enterable(metrics)) {
-      const x = num(vals[k]); if (x == null) continue;
+    const edits: Partial<Record<ReadingKey, number | null>> = {};
+    const visible = enterable(metrics);
+    for (const k of visible) {
+      const x = num(vals[k]); if (x == null) { edits[k] = null; continue; }
       const v = READINGS[k].unit === 'mass' ? Math.round(toKgFrom(x, unit) * 100) / 100 : x;
       if (v < 0 || v > READINGS[k].max * (READINGS[k].unit === 'mass' ? 2.3 : 1)) return toast(`${READINGS[k].label} doesn’t look right`, false);
-      m[k] = v;
+      edits[k] = v;
     }
+    const m = editedMetrics(editing?.metrics, visible, edits);
     const when = new Date(`${day}T${time || '12:00'}:00`);
     if (Number.isNaN(when.getTime()) || when.getTime() > Date.now() + 3_600_000) return toast('Check the date and time', false);
     setBusy(true);
