@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { clearMatchingDraft, parseDraft, writeDraftCore, writeDraftPatch } from './draft-integrity';
+import { beginWorkoutDraft, clearMatchingDraft, parseDraft, writeDraftCore, writeDraftPatch } from './draft-integrity';
 import type { Draft } from './session';
 const draft = (key: string): Draft => ({
   key, title: 'Strength', params: { workout: '1' }, client_id: null,
@@ -39,4 +39,13 @@ test('old sessions cannot overwrite, revive, or clear another workout', () => {
   assert.equal(clearMatchingDraft(s, 'slot', 'w:new'), true);
   assert.equal(writeDraftPatch(s, 'slot', 'w:new', { title: 'late' }), false);
   assert.equal(parseDraft(s.getItem()), null);
+});
+
+test('explicitly opening another workout transfers ownership and blocks late callbacks', () => {
+  const s = store(); beginWorkoutDraft(s, 'slot', draft('w:old'));
+  beginWorkoutDraft(s, 'slot', draft('w:new'));
+  assert.equal(parseDraft(s.getItem())?.key, 'w:new');
+  assert.equal(writeDraftPatch(s, 'slot', 'w:old', { title: 'old callback' }), false);
+  assert.equal(writeDraftCore(s, 'slot', { ...draft('w:old'), title: 'old render' }), false);
+  assert.equal(parseDraft(s.getItem())?.title, 'Strength');
 });

@@ -31,7 +31,7 @@ import { exKey, ghostSet, historyOf, notesOf, setLine, type PastLog } from '@/li
 import { clock, doneOnly, DRAFT_KEY, readDraft, type Draft } from '@/lib/session';
 import { weakSide } from '@/lib/sides';
 import { storage } from '@/lib/storage';
-import { writeDraftCore, writeDraftPatch, clearMatchingDraft } from '@/lib/draft-integrity';
+import { beginWorkoutDraft, writeDraftCore, writeDraftPatch, clearMatchingDraft } from '@/lib/draft-integrity';
 import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
 import { fmtSeconds, parseSeconds, refOf, setsDone, setsTotal, startLog, volume } from '@/lib/workouts';
@@ -143,6 +143,23 @@ export default function Session() {
         setStarted(Date.now());
       }
       if (cancelled) return;
+      if (s) {
+        // Once the new route is resolved, explicitly transfer ownership of
+        // the single local draft slot. Earlier screen callbacks are key-guarded.
+        const initial: Draft = {
+          key, title: s.title, params: aid ? { aid } : { workout: workout! },
+          client_id: d?.key === key ? d.client_id : (s.assignment?.client_id ?? null),
+          started: d?.key === key ? d.started : Date.now(),
+          log: d?.key === key ? d.log : startLog(s.blocks, unit),
+          timerResults: d?.key === key ? d.timerResults ?? [] : [],
+          runnerClocks: d?.key === key ? d.runnerClocks ?? {} : {},
+          timedSetClocks: d?.key === key ? d.timedSetClocks ?? {} : {},
+          restClock: d?.key === key ? d.restClock ?? null : null,
+          pendingAssignmentId: d?.key === key ? d.pendingAssignmentId ?? null : null,
+        };
+        try { beginWorkoutDraft(storage, DRAFT_KEY, initial); }
+        catch { /* retain progress in memory if storage is unavailable */ }
+      }
       setSrc(s);
       setReadyKey(key);
     })();

@@ -42,3 +42,13 @@ export function clearMatchingDraft(store: DraftStore, slot: string, key: string)
   store.removeItem(slot);
   return true;
 }
+
+/** Called only once a newly selected session has fully hydrated. This is the
+ * explicit ownership transition for the app's single draft slot. Late
+ * callbacks from the previous workout still fail key-matched patches.
+ */
+export function beginWorkoutDraft(store: DraftStore, slot: string, draft: Draft): void {
+  const current = parseDraft(store.getItem(slot));
+  if (!current || current.key !== draft.key)
+    store.setItem(slot, JSON.stringify(draft));
+}
