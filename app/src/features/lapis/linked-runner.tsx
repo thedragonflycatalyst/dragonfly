@@ -10,6 +10,7 @@ import { elapsedAt, freshClock, pauseClock, skipClock, startClock, validClock, t
 import { scheduleLapisCompletion, cancelLapisCompletion } from './background';
 import { compileSpokenCues, cuesCrossed } from './cue-plan';
 import { completedNaturally, phaseTransitionDue } from './runner-events';
+import { announcementForPhase } from './phase-announcement';
 
 /** Foreground interval controls using absolute clock offsets.
  * If the app is suspended, the phase catches up to actual elapsed time when
@@ -103,18 +104,11 @@ export function LinkedLapisRunner({
     if (!phaseTransitionDue(timeline, previous, phaseIndex, elapsed, true, fresh)) return;
     const phase = state.phase;
     if (!phase) return;
-    if (phase.kind === 'work') {
-      void bell();
-      void say(phase.name);
-    } else if (phase.kind === 'rest' || phase.kind === 'cycleRest') {
-      void say('Rest');
-    } else if (phase.kind === 'prepare') {
-      void say('Prepare');
-    } else if (phase.kind === 'cooldown') {
-      void say('Cooldown');
-    }
+    const announcement = announcementForPhase(phase, timer);
+    if (announcement.ring) void bell();
+    if (announcement.speech) void say(announcement.speech);
     buzz();
-  }, [phaseIndex, since, muted, hasStarted, done, elapsed, timeline]);
+  }, [phaseIndex, since, muted, hasStarted, done, elapsed, timeline, timer]);
 
   // Only announce cues crossed during foreground playback. Reopening a
   // suspended app must not replay a burst of overdue announcements.
