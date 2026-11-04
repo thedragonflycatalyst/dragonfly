@@ -177,11 +177,11 @@ export function SetTimer({
     return () => clearInterval(tick);
   }, [clockState.since]);
   useEffect(() => {
-    if (screenFocused || stateRef.current.since === null) return;
+    if ((screenFocused && !blocked) || stateRef.current.since === null) return;
     const paused = pauseTimedSet(stateRef.current, Date.now());
     updateClock(paused);
     reportRunning(false);
-  }, [screenFocused]);
+  }, [screenFocused, blocked]);
   // A recovered stopwatch or countdown is paused, never silently marked done.
   useEffect(() => {
     if (!screenFocused || !running || !target || finished.current) return;
@@ -235,11 +235,12 @@ export function SetTimer({
     updateClock(resetTimedSet(target));
   };
   const hasPartial = !running && clockState.elapsedBefore > 0;
+  const recoveredAtLimit = hasPartial && target !== null && clockState.elapsedBefore >= target;
   const frac = target ? Math.max(0, 1 - left / target) : 0;
   return (
     <View style={{ flex: 1, minWidth: compact ? 64 : 96, flexDirection: 'row', gap: 3 }}>
       <Pressable accessibilityRole="button"
-        accessibilityLabel={running ? `Stop ${label} timer` : hasPartial ? `Resume ${label} timer` : `Start ${label} timer`}
+        accessibilityLabel={running ? `Stop ${label} timer` : recoveredAtLimit ? `Restart ${label} timer` : hasPartial ? `Resume ${label} timer` : `Start ${label} timer`}
         disabled={!running && (blocked || !screenFocused)}
         onPress={running ? stop : start}
         style={{ flex: 1, minWidth: 56, height: 44, borderRadius: R.sm, overflow: 'hidden',
