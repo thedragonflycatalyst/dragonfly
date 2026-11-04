@@ -55,6 +55,7 @@ export default function Session() {
   const [timerResults, setTimerResults] = useState<LapisTimerResult[]>([]);
   const [runnerClocks, setRunnerClocks] = useState<Record<string, RunnerClock>>({});
   const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
+  const [activeSetTimerKey, setActiveSetTimerKey] = useState<string | null>(null);
   const [started, setStarted] = useState(Date.now());
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -100,6 +101,7 @@ export default function Session() {
         setTimerResults([]);
         setRunnerClocks({});
         setActiveTimerId(null);
+        setActiveSetTimerKey(null);
         setPendingAssignmentId(null);
         setStarted(Date.now());
       }
@@ -145,7 +147,7 @@ export default function Session() {
   /** Tick a set off: mark it done and start the Lapis rest from its rest box */
   const tick = (bi: number, si: number, s: SetLog, patch: Partial<SetLog>) => {
     setSet(bi, si, { ...patch, done: true });
-    if (!lapis.autoRest) return;
+    if (!lapis.autoRest || activeTimerId !== null) return;
     const e = log[bi];
     const next = si + 1 < e.sets.length ? `Next: set ${si + 2}` : log[bi + 1]?.ex ? `Next: ${log[bi + 1].ex?.name}` : 'Last set done';
     // Timed exercises run like a Lapis session: work, rest, then the next set starts by itself
@@ -249,9 +251,12 @@ export default function Session() {
             return savedTimer
               ? <LinkedLapisRunner key={b.id} timer={savedTimer}
                   initialClock={runnerClocks[b.id]}
-                  blocked={activeTimerId !== null && activeTimerId !== b.id}
+                  blocked={(activeTimerId !== null && activeTimerId !== b.id) || activeSetTimerKey !== null}
                   onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))}
                   onStart={() => {
+                    // Hold the rest countdown and cancel its backstop before
+                    // the linked interval timer acquires cue ownership.
+                    rest.pause();
                     setActiveTimerId(b.id);
                     setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id));
                   }}
@@ -325,6 +330,8 @@ export default function Session() {
                       if (lapisTime) {
                         const k = `${bi}:${si}:${side ?? '-'}`;
                         return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
+                          blocked={activeTimerId !== null || (activeSetTimerKey !== null && activeSetTimerKey !== k)}
+                          onRunningChange={(running) => setActiveSetTimerKey((current) => running ? k : current === k ? null : current)}
                           onDone={(sec) => {
                             const patch: Partial<SetLog> = { [tk]: sec };
                             // Right side done: switch and start the left; both done (or one-sided): tick the set and rest
@@ -383,7 +390,7 @@ export default function Session() {
       </ScrollView>
 
       <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16, alignItems: 'center', gap: 10 }} pointerEvents="box-none">
-        <RestBar t={rest} />
+        <RestBar t={rest} blocked={activeTimerId !== null} />
         <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done || timerResults.length ? setFinishing(true) : toast('Complete an exercise set or Lapis timer first', false))} />
       </View>
 
