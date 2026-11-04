@@ -6,23 +6,35 @@ import { F, R, usePalette } from '@/lib/theme';
 import { bell, buzz, say } from './audio';
 import { type LapisTimer } from './library';
 import { compileLapisTimeline, phaseAt } from './timeline';
+import { elapsedAt, freshClock, pauseClock, skipClock, startClock, validClock, type RunnerClock } from './runner-clock';
 
 /** Foreground interval controls using absolute clock offsets.
  * If the app is suspended, the phase catches up to actual elapsed time when
  * React Native resumes. This does not promise continuous background audio.
  */
-export function LinkedLapisRunner({ timer, onComplete, onReset, onStart }: { timer: LapisTimer; onComplete?: (actualSeconds: number) => void; onReset?: () => void; onStart?: () => void }) {
+export function LinkedLapisRunner({
+  timer, onComplete, onReset, onStart, initialClock, onClockChange,
+}: {
+  timer: LapisTimer;
+  onComplete?: (actualSeconds: number) => void;
+  onReset?: () => void;
+  onStart?: () => void;
+  initialClock?: RunnerClock;
+  onClockChange?: (clock: RunnerClock) => void;
+}) {
   const p = usePalette();
   const timeline = compileLapisTimeline(timer);
-  const [elapsedBefore, setElapsedBefore] = useState(0);
-  const [since, setSince] = useState<number | null>(null);
+  const [clock, setClock] = useState<RunnerClock>(() => validClock(initialClock ?? freshClock(), timeline.totalSeconds));
   const [now, setNow] = useState(Date.now());
-  const [hasStarted, setHasStarted] = useState(false);
   const [muted, setMuted] = useState(false);
   const lastPhase = useRef<number | null>(null);
   const reported = useRef(false);
-  const skipped = useRef(false);
-  const elapsed = Math.min(timeline.totalSeconds, elapsedBefore + (since === null ? 0 : Math.max(0, now - since) / 1000));
+  const changeRef = useRef(onClockChange);
+  changeRef.current = onClockChange;
+  // Save on every control change, not every 200ms display tick.
+  useEffect(() => { changeRef.current?.(clock); }, [clock]);
+  const elapsed = elapsedAt(clock, now, timeline.totalSeconds);
+  const { since, hasStarted, skipped } = clock;
   const state = phaseAt(timeline, elapsed);
   const phaseIndex = state.phase ? timeline.phases.indexOf(state.phase) : timeline.phases.length;
   const done = hasStarted && state.finished;
@@ -55,27 +67,28 @@ export function LinkedLapisRunner({ timer, onComplete, onReset, onStart }: { tim
   useEffect(() => {
     if (done && !reported.current) {
       reported.current = true;
-      if (!skipped.current) onComplete?.(Math.round(elapsed));
+      if (!skipped) onComplete?.(Math.round(elapsed));
     }
   }, [done, elapsed, onComplete]);
 
-  const pause = () => { setElapsedBefore(elapsed); setSince(null); };
+  const pause = () => setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
   const start = () => {
     if (!hasStarted || state.finished) onStart?.();
-    if (state.finished) { setElapsedBefore(0); lastPhase.current = null; reported.current = false; skipped.current = false; }
-    setHasStarted(true); setNow(Date.now()); setSince(Date.now());
+    if (state.finished) { lastPhase.current = null; reported.current = false; }
+    const tick = Date.now();
+    setNow(tick);
+    setClock((old) => startClock(old, tick, timeline.totalSeconds));
   };
   const reset = () => {
-    setSince(null); setElapsedBefore(0); setNow(Date.now());
-    setHasStarted(false); lastPhase.current = null; reported.current = false; skipped.current = false;
+    setClock(freshClock()); setNow(Date.now());
+    reported.current = false; lastPhase.current = null;
     onReset?.();
   };
   const skip = () => {
     if (!state.phase) return;
-    skipped.current = true;
-    setElapsedBefore(state.phase.endAt);
-    setNow(Date.now());
-    if (since != null) setSince(Date.now());
+    const tick = Date.now();
+    setClock((old) => skipClock(old, tick, state.phase!.endAt));
+    setNow(tick);
     lastPhase.current = null;
   };
   const remaining = Math.ceil(state.left);
