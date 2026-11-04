@@ -5,6 +5,7 @@ import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native
 import { Segmented, SectionLabel } from '@/components/bits';
 import { ChangeBars, Gauge, LineChart, type Series } from '@/components/charts';
 import { DateField } from '@/components/date-field';
+import { WeightRuler } from '@/components/weight-ruler';
 import { Fab, time12, TimeField, Toggle } from '@/components/pickers';
 import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from './health-connect';
 import { healthSync, setHealthSync, syncHealth } from './scale-sync';
@@ -441,6 +442,7 @@ function LogSheet({ entry, onClose, metrics, unit, onSaved, last }: {
 }) {
   const toast = useToast();
   const p = usePalette();
+  const app = useApp();
   const editing = entry && entry !== 'new' ? entry : null;
   const [day, setDay] = useState<string | null>(null);
   const [time, setTime] = useState('');
@@ -488,7 +490,8 @@ function LogSheet({ entry, onClose, metrics, unit, onSaved, last }: {
   const fields = enterable(metrics);
   return (
     <Sheet visible={!!entry} onClose={onClose} title={editing ? 'Edit weigh-in' : 'Log weigh-in'}>
-      <Field label={`Weight (${unitLabel(unit)})`} value={weight} onChangeText={setWeight} keyboardType="decimal-pad" autoFocus={!editing}
+      <WeightRuler value={weight} fallbackKg={editing?.weight_kg ?? last?.weight_kg} unit={unit} format={app.prefs.number} onChange={setWeight} />
+      <Field label={`Weight (${unitLabel(unit)})`} value={weight} onChangeText={setWeight} keyboardType="decimal-pad"
         placeholder={last ? String(Math.round(fromKg(last.weight_kg, unit) * 10) / 10) : ''} />
       {fields.length > 0 && <>
         <Txt v="smallBold" color={p.muted} style={{ marginBottom: 8 }}>From your scale (optional)</Txt>
