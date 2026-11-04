@@ -6,7 +6,7 @@ import { Segmented, SectionLabel } from '@/components/bits';
 import { ChangeBars, Gauge, LineChart, type Series } from '@/components/charts';
 import { DateField } from '@/components/date-field';
 import { Fab, time12, TimeField, Toggle } from '@/components/pickers';
-import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from './health-connect';
+import { connectScaleHealth, healthStatus, openHealthSettings, requestScaleHistoryAccess, scalePermissions, type HealthStatus } from './health-connect';
 import { healthSync, setHealthSync, syncHealth } from './scale-sync';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui';
@@ -394,43 +394,96 @@ function HealthCard({ userId, list, reload }: { userId: string; list: Weighin[];
   const toast = useToast();
   const p = usePalette();
   const [status, setStatus] = useState<HealthStatus | null>(null);
-  const [on, setOn] = useState(() => healthSync(userId).on);
-  const [busy, setBusy] = useState<'connect' | 'history' | null>(null);
-  useEffect(() => { healthStatus().then(setStatus); }, []);
-  const last = healthSync(userId).last;
-  const run = async (kind: 'connect' | 'history') => {
+  const [state, setState] = useState(() => healthSync(userId));
+  const [weightAllowed, setWeightAllowed] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState<'connect' | 'history' | 'sync' | null>(null);
+  const refresh = useCallback(async () => {
+    setState(healthSync(userId));
+    if (Platform.OS === 'android' && await healthStatus() === 'ready') {
+      try { setWeightAllowed((await scalePermissions()).weight); }
+      catch { setWeightAllowed(false); }
+    }
+  }, [userId]);
+  useEffect(() => {
+    let active = true;
+    healthStatus().then((result) => { if (active) setStatus(result); });
+    refresh().catch(() => {});
+    return () => { active = false; };
+  }, [refresh]);
+  const run = async (kind: 'connect' | 'history' | 'sync') => {
     setBusy(kind);
     try {
-      if (kind === 'connect' && !(await connectHealth())) return toast('Allow Dragonfly to read your weight in Health Connect to sync', false);
-      const n = await syncHealth(userId, list, kind === 'history' ? new Date(Date.now() - 10 * 365 * 86_400_000) : undefined);
-      setOn(true); reload();
-      if (n) toast(`Added ${n} weigh-in${n === 1 ? '' : 's'}`);
-      else toast(list.length ? 'All caught up' : 'No weigh-ins in Health Connect yet. In the RENPHO app, turn on sharing Weight to Health Connect, weigh in, then Sync now.', !!list.length);
-    } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
+      if (kind === 'connect' && !(await connectScaleHealth())) {
+        toast('Allow Dragonfly access to Weight in Health Connect, then try again.', false);
+        return;
+      }
+      if (kind === 'history') {
+        if (!(await scalePermissions()).weight) {
+          toast('First connect Weight permission in Health Connect.', false);
+          return;
+        }
+        // Health Connect requires a separate, optional permission to read older data.
+        // The installed native library may not report history permission reliably;
+        // a successful historical read is the only confirmation in the app.
+        await requestScaleHistoryAccess();
+      }
+      const added = await syncHealth(userId, list, kind === 'history'
+        ? new Date(Date.now() - 10 * 365 * 86_400_000) : undefined);
+      await refresh();
+      reload();
+      toast(added ? `Added ${added} weigh-in${added === 1 ? '' : 's'}` : 'Sync complete — no new readings.');
+    } catch (error) {
+      await refresh();
+      toast(kind === 'history'
+        ? 'Historical sync failed or older-data access was not granted. Check Health Connect permissions and try again.'
+        : errText(error), false);
+    } finally { setBusy(null); }
   };
-  if (status === null) return null;
+  if (status === null) return <Card><Txt v="small">Checking Health Connect availability…</Txt></Card>;
   if (status === 'unsupported') return (
-    <Card><Txt v="small">Automatic sync uses Health Connect, so it works in the Dragonfly app on Android. Turn it on there and weigh-ins from your RENPHO, Libra, Samsung Health, Fitbit or Withings show up here too.</Txt></Card>
+    <Card style={{ gap: 8 }}>
+      <Txt v="bold">Automatic scale syncing is available on Android</Txt>
+      <Txt v="small">Use the Dragonfly Coach Android app to connect Health Connect. For iPhone or web, use manual weight entry or import a compatible CSV file.</Txt>
+    </Card>
   );
   if (status !== 'ready') return (
-    <Card style={{ gap: 10 }}>
-      <Txt>{status === 'update_needed' ? 'Health Connect needs an update before Dragonfly can use it.' : 'Install Health Connect (free from Google) to sync weigh-ins from your scale’s app.'}</Txt>
+    <Card style={{ gap: 8 }}>
+      <Txt v="bold">{status === 'update_needed' ? 'Update Health Connect' : 'Health Connect is not available'}</Txt>
+      <Txt v="small">Install or update Health Connect, then reopen this screen to set up automatic measurements.</Txt>
       <Button kind="ghost" icon="open_in_new" title="Open Health Connect" onPress={openHealthSettings} style={{ alignSelf: 'flex-start' }} />
     </Card>
   );
   return (
-    <Card style={{ gap: 10 }}>
-      <Txt v="small">Your RENPHO app (or Libra, Samsung Health, Fitbit, Withings…) shares each weigh-in with Health Connect, and Dragonfly picks it up whenever you open the Scale: weight, body fat, bone mass, body water and BMR. In the RENPHO app, switch on sharing to Health Connect (in its settings, under connected apps or integrations).</Txt>
-      {on ? <>
-        {list.length === 0 && <Txt v="small" color={p.gold}>Nothing has come in yet. Open the RENPHO app → Me → Health Connect (or Settings → Connected apps), allow it to write Weight, Body fat and the rest, then tap Sync now.</Txt>}
-        <Txt v="bold">✓ Syncing{last ? ` · last checked ${new Date(last).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}</Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <Button kind="ghost" icon="sync" title="Sync now" busy={busy === 'connect'} onPress={() => run('connect')} />
-          <Button kind="ghost" icon="download" title="Bring in all history" busy={busy === 'history'} onPress={() => run('history')} />
-          <Button kind="quiet" title="Turn off" onPress={() => { setHealthSync(userId, { on: false, last }); setOn(false); }} />
-        </View>
-        <Txt v="small">Muscle mass, visceral fat, metabolic age and the arm/leg/trunk readings aren’t shared through Health Connect; add those with a RENPHO CSV export now and then.</Txt>
-      </> : <Button title="Connect Health Connect" icon="monitor_weight" busy={busy === 'connect'} onPress={() => run('connect')} style={{ alignSelf: 'flex-start' }} />}
+    <Card style={{ gap: 12 }}>
+      <Txt v="bold">Connect your scale data</Txt>
+      <Txt v="small">1. In your scale's app (RENPHO, Libra, or another supported app), enable sharing weight to Health Connect.</Txt>
+      <Txt v="small">2. Allow that app to write measurements to Health Connect. Then let Dragonfly read Weight and any body-composition fields you want to share.</Txt>
+      <Txt v="small">3. Tap Connect, then Sync now. After setup, Dragonfly checks for new readings when you open Scale.</Txt>
+      <View style={{ gap: 3, padding: 10, backgroundColor: p.soft, borderRadius: 10 }}>
+        <Txt v="smallBold">Connection: {weightAllowed === null ? 'Checking permissions…' : !weightAllowed ? 'Weight permission needed' : state.on ? 'Automatic sync on' : 'Weight allowed · sync off'}</Txt>
+        <Txt v="small">Last successful check: {state.last ? new Date(state.last).toLocaleString() : 'Not yet'}</Txt>
+        {state.last != null && <Txt v="small">Last check: {state.lastAdded ?? 0} new · {state.lastSkipped ?? 0} already recorded or duplicate</Txt>}
+        {!!state.sources?.length && <Txt v="small">Detected weight sources: {state.sources.join(', ')}</Txt>}
+        {state.last && !state.sources?.length && <Txt v="small">No scale app has shared identifiable weight data in the most recent check.</Txt>}
+        {state.lastError && <Txt v="small" color={p.danger}>Last sync issue: {state.lastError}</Txt>}
+        {!!state.historyImportedAt && <Txt v="small">Historical import checked: {new Date(state.historyImportedAt).toLocaleDateString()}</Txt>}
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Button title={weightAllowed ? state.on ? 'Reconnect' : 'Enable syncing' : 'Connect Health Connect'}
+          icon="monitor_weight" busy={busy === 'connect'} disabled={busy !== null && busy !== 'connect'}
+          onPress={() => run('connect')} />
+        {state.on && <>
+          <Button kind="ghost" icon="sync" title="Sync now" busy={busy === 'sync'}
+            disabled={busy !== null && busy !== 'sync'} onPress={() => run('sync')} />
+          <Button kind="ghost" icon="download" title="Import older history" busy={busy === 'history'}
+            disabled={busy !== null && busy !== 'history'} onPress={() => run('history')} />
+          <Button kind="quiet" title="Turn off" disabled={busy !== null}
+            onPress={() => { const updated = { ...state, on: false }; setHealthSync(userId, updated); setState(updated); }} />
+        </>}
+        <Button kind="quiet" icon="open_in_new" title="Manage permissions" onPress={openHealthSettings} />
+      </View>
+      {state.on && <Txt v="small">Older history requires additional Health Connect access, and can only include readings your other apps already shared there. If access is unavailable, recent readings can still sync normally.</Txt>}
+      <Txt v="small">Sources are identified from Health Connect's records, not from apps installed on your phone. Detailed segmental muscle and fat measurements may still require the manufacturer's export file.</Txt>
     </Card>
   );
 }
