@@ -310,7 +310,7 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
           .select('id,measured_at,weight_kg,metrics').eq('user_id', settings.user_id)
           .in('measured_at', dates.slice(i, i + 100));
         if (error) throw error;
-        existing.push(...(data ?? []) as typeof existing);
+        existing.push(...((data ?? []) as typeof existing));
       }
       const plan = planCsvImport(rows, existing);
       const changes = plan.inserts.length + plan.enrichments.length;
