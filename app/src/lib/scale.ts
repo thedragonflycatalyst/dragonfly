@@ -5,6 +5,17 @@ export type Weighin = { id: string; user_id: string; measured_at: string; weight
 export type ScaleSettings = { user_id: string; metrics: MetricKey[]; goal_kg: number | null; goal_date: string | null; height_cm: number | null; sex: 'male' | 'female' | 'other' | null; reminder_on: boolean; reminder_time: string };
 export type BodyUnit = 'lb' | 'kg' | 'st';
 
+/** Keep stored readings that are not shown in the current edit form; clear only visible blank fields. */
+export function editedMetrics(previous: Weighin['metrics'] | undefined, visible: ReadingKey[], edits: Partial<Record<ReadingKey, number | null>>): Weighin['metrics'] {
+  const result: Weighin['metrics'] = { ...previous };
+  for (const key of visible) {
+    const value = edits[key];
+    if (value == null) delete result[key];
+    else result[key] = value;
+  }
+  return result;
+}
+
 /** Readings a scale can give (stored in `metrics`). Percentages are of body weight. */
 export const READINGS = {
   body_fat_pct: { label: 'Body fat', short: 'BF', unit: '%', max: 75 },
