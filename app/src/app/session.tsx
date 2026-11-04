@@ -14,6 +14,7 @@ import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
+import { canStartLinkedTimer, canStartTimedSet } from '@/features/lapis/timer-ownership';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
@@ -251,7 +252,7 @@ export default function Session() {
             return savedTimer
               ? <LinkedLapisRunner key={b.id} timer={savedTimer}
                   initialClock={runnerClocks[b.id]}
-                  blocked={(activeTimerId !== null && activeTimerId !== b.id) || activeSetTimerKey !== null}
+                  blocked={!canStartLinkedTimer({ linked: activeTimerId, timedSet: activeSetTimerKey }, b.id)}
                   onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))}
                   onStart={() => {
                     // Hold the rest countdown and cancel its backstop before
@@ -330,7 +331,7 @@ export default function Session() {
                       if (lapisTime) {
                         const k = `${bi}:${si}:${side ?? '-'}`;
                         return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
-                          blocked={activeTimerId !== null || (activeSetTimerKey !== null && activeSetTimerKey !== k)}
+                          blocked={!canStartTimedSet({ linked: activeTimerId, timedSet: activeSetTimerKey }, k)}
                           onRunningChange={(running) => setActiveSetTimerKey((current) => running ? k : current === k ? null : current)}
                           onDone={(sec) => {
                             const patch: Partial<SetLog> = { [tk]: sec };
