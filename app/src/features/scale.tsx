@@ -326,7 +326,7 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
         ...(plan.duplicateRows ? [`${plan.duplicateRows} repeated file rows combined`] : []),
         ...(skipped ? [`${skipped} unreadable rows skipped`] : []),
         'Existing weights, manually entered measurements and notes will never be replaced.',
-      ].join('\\n');
+      ].join('\n');
       if (!(await confirm('Review CSV import', preview, 'Import safely'))) return;
       for (let i = 0; i < plan.inserts.length; i += 200) {
         const { error } = await sb.from('coach_weighins').upsert(
