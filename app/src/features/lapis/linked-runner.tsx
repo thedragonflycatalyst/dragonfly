@@ -43,7 +43,10 @@ export function LinkedLapisRunner({
   const foreground = useRef(AppState.currentState === 'active');
   const explicitlyStarted = useRef(false);
   const lastCuePosition = useRef<number | null>(null);
-  const reported = useRef(false);
+  // A completed checkpoint from an earlier app session must not be logged
+  // again with a new timestamp merely because the component remounted.
+  const reported = useRef(!!initialClock?.hasStarted &&
+    initialClock.since === null && initialClock.elapsedBefore >= timeline.totalSeconds);
   const changeRef = useRef(onClockChange);
   changeRef.current = onClockChange;
   // Save on every control change, not every 200ms display tick.

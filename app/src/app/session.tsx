@@ -19,7 +19,8 @@ import type { RestClock } from '@/features/lapis/rest-clock';
 import type { TimedSetClock } from '@/features/lapis/timed-set-clock';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
-import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
+import { matchesPendingAssignment } from '@/features/lapis/integration-guards';
+import { recoverLinkedClocks, recoverTimedSetClocks } from '@/features/lapis/session-recovery';
 import { canResumeRest, canStartLinkedTimer, canStartTimedSet } from '@/features/lapis/timer-ownership';
 import { activeWorkoutTimers, clearTimerCompletion, recordTimerCompletion, shouldAcceptTimedSetCompletion } from '@/features/lapis/completion-integrity';
 import { ExerciseHistory } from '@/features/exercise-history';
@@ -158,9 +159,26 @@ export default function Session() {
       if (cancelled) return;
       if (s?.assignment?.status === 'done') { setSrc(s); setReadyKey(key); return; }
       const d = loadWorkoutDraft(storage, key);
-      if (s && d?.key === key) { rest.restore(d.restClock ?? null); setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setTimedSetClocks(d.timedSetClocks ?? {});
-        setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
-        setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
+      const totals: Record<string, number> = {};
+      for (const block of s?.blocks ?? []) {
+        if (block.kind !== 'timed' || block.timer.source?.app !== 'lapis') continue;
+        const timer = parseLapisTimer(block.timer.source.snapshot);
+        if (timer) totals[block.id] = lapisTimerSeconds(timer);
+      }
+      const recoveredLinked = recoverLinkedClocks(d?.runnerClocks, totals,
+        (d?.timerResults ?? []).map((result) => result.block_id), Date.now());
+      const recoveredSets = recoverTimedSetClocks(d?.timedSetClocks, Date.now());
+      if (s && d?.key === key) {
+        rest.restore(d.restClock ?? null);
+        setLog(d.log);
+        setTimerResults(d.timerResults ?? []);
+        setRunnerClocks(recoveredLinked);
+        setTimedSetClocks(recoveredSets);
+        setActiveTimerId(null);
+        setPendingAssignmentId(d.pendingAssignmentId ?? null);
+        setStarted(d.started);
+        setClientId(d.client_id ?? s.assignment?.client_id ?? null);
+      }
       else if (s) {
         rest.restore(null);
         setLog(startLog(s.blocks, unit));
@@ -171,6 +189,7 @@ export default function Session() {
         setActiveSetTimerKey(null);
         setPendingAssignmentId(null);
         setStarted(Date.now());
+        setClientId(s.assignment?.client_id ?? null);
       }
       if (cancelled) return;
       if (s) {
@@ -182,13 +201,19 @@ export default function Session() {
           started: d?.key === key ? d.started : Date.now(),
           log: d?.key === key ? d.log : startLog(s.blocks, unit),
           timerResults: d?.key === key ? d.timerResults ?? [] : [],
-          runnerClocks: d?.key === key ? d.runnerClocks ?? {} : {},
-          timedSetClocks: d?.key === key ? d.timedSetClocks ?? {} : {},
+          runnerClocks: d?.key === key ? recoveredLinked : {},
+          timedSetClocks: d?.key === key ? recoveredSets : {},
           restClock: d?.key === key ? d.restClock ?? null : null,
           pendingAssignmentId: d?.key === key ? d.pendingAssignmentId ?? null : null,
         };
-        try { beginWorkoutDraft(storage, workoutDraftSlot(key), initial); }
-        catch { /* retain progress in memory if storage is unavailable */ }
+        try {
+          beginWorkoutDraft(storage, workoutDraftSlot(key), initial);
+          // Normalize the saved clock before mounting timer children; never
+          // let a stale running checkpoint auto-complete after app restart.
+          writeDraftPatch(storage, workoutDraftSlot(key), key, {
+            runnerClocks: initial.runnerClocks, timedSetClocks: initial.timedSetClocks,
+          });
+        } catch { /* retain progress in memory if storage is unavailable */ }
       }
       setSrc(s);
       setReadyKey(key);
