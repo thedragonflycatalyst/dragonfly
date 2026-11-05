@@ -88,13 +88,13 @@ export function LinkedLapisRunner({
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       foreground.current = state === 'active';
-      if (state !== 'active' && clock.since !== null && !blocked) hush();
+      if (state !== 'active' && clock.since !== null && !blocked && screenFocused) hush();
       // On wake, reconcile elapsed time immediately; don't replay missed cues.
       lastCuePosition.current = null;
       setNow(Date.now());
     });
     return () => subscription.remove();
-  }, [clock.since, blocked]);
+  }, [clock.since, blocked, screenFocused]);
 
   useEffect(() => {
     if (since == null) return;

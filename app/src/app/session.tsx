@@ -53,7 +53,7 @@ export default function Session() {
   const [ownsSession, setOwnsSession] = useState(false);
   useEffect(() => {
     const token = leaseToken.current;
-    if (!activeScreen) {
+    if (!screenFocused) {
       if (releaseWorkoutSession(token)) {
         releaseLapisReminderSession(sessionId);
         hush();

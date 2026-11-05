@@ -158,6 +158,7 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
     if (AppState.currentState !== 'active') void backstop(sessionId, next.until);
   };
   const add = (seconds: number) => {
+    if (!canScheduleWorkoutNotification(sessionId)) return;
     const next = addRestSeconds(restRef.current, seconds, Date.now());
     for (const key of ['3', '2', '1', 'half']) fired.current.delete(key);
     update(next);
