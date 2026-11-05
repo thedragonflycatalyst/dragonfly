@@ -119,7 +119,8 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
 
   const left = rest ? restRemaining(rest, Date.now()) : 0;
   useEffect(() => {
-    if (!rest || rest.pausedLeft !== null || !canScheduleWorkoutNotification(sessionId)) return;
+    if (!rest || rest.pausedLeft !== null || !canScheduleWorkoutNotification(sessionId) ||
+        AppState.currentState !== 'active') return;
     const prefs = getPrefs(), f = fired.current, sec = Math.ceil(left);
     if (prefs.halfway && rest.total >= 20 && left <= rest.total / 2 && !f.has('half')) {
       f.add('half'); void say('Halfway');
@@ -283,9 +284,22 @@ export function SetTimer({
     updateClock(paused);
     reportRunning(false);
   }, [screenFocused, blocked]);
+  // A timed set is never marked complete just because the OS suspended JS
+  // through its deadline. Return paused; the user chooses when to resume.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' || stateRef.current.since === null) return;
+      const snapshot = pauseTimedSet(stateRef.current, Date.now());
+      updateClock(snapshot);
+      reportRunning(false);
+    });
+    return () => subscription.remove();
+  }, []);
+
   // A recovered stopwatch or countdown is paused, never silently marked done.
   useEffect(() => {
-    if (!screenFocused || !(canCue?.() ?? true) || !running || !target || finished.current) return;
+    if (!screenFocused || !(canCue?.() ?? true) || AppState.currentState !== 'active' ||
+        !running || !target || finished.current) return;
     const pr = getPrefs(), f = fired.current, s = Math.ceil(left);
     if (pr.halfway && target >= 20 && left <= target / 2 && !f.has('half')) {
       f.add('half'); void say('Halfway');
