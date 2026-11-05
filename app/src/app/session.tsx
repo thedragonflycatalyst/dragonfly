@@ -49,6 +49,8 @@ export default function Session() {
   const { aid, workout } = useLocalSearchParams<{ aid?: string; workout?: string }>();
   const screenFocused = useIsFocused();
   const key = aid ? `a:${aid}` : `w:${workout}`;
+  const currentRouteKey = useRef(key);
+  currentRouteKey.current = key;
   const sessionId = `${app.user?.id ?? 'unknown'}:${key}`;
   const leaseToken = useRef(Crypto.randomUUID());
   const [ownsSession, setOwnsSession] = useState(false);
@@ -107,6 +109,7 @@ export default function Session() {
   const [restSnapshot, setRestSnapshot] = useState<RestClock | null>(null);
   const rest = useRest(sessionId,
     (nextSetKey) => {
+      if (currentRouteKey.current !== key) return;
       // A rest that expired while another screen or the OS was foregrounded
       // must not surprise-start a timed exercise on return.
       if (activeScreen && AppState.currentState === 'active')
@@ -382,7 +385,7 @@ export default function Session() {
                   initialClock={runnerClocks[b.id]}
                   blocked={!canStartLinkedTimer({ linked: activeTimerId, timedSet: activeSetTimerKey }, b.id)}
                   onClockChange={(clock) => {
-                    if (!activeScreen) {
+                    if (!activeScreen || currentRouteKey.current !== key) {
                       try {
                         const serialized = patchDraftClock(
                           loadWorkoutDraft(storage, key), key, b.id, clock,
@@ -390,18 +393,19 @@ export default function Session() {
                         if (serialized) storage.setItem(workoutDraftSlot(key), serialized);
                       } catch { /* in-memory runner remains available */ }
                     }
-                    setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
+                    if (currentRouteKey.current === key)
+                      setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
                   }}
                   onStart={(freshRun) => {
-                    if (saved.current) return;
+                    if (saved.current || currentRouteKey.current !== key) return;
                     rest.pause();
                     setActiveTimerId(b.id);
                     if (freshRun) setTimerResults((prior) => clearTimerCompletion(prior, b.id));
                   }}
-                  onPause={() => setActiveTimerId((current) => current === b.id ? null : current)}
-                  onReset={() => setTimerResults((prior) => clearTimerCompletion(prior, b.id))}
+                  onPause={() => { if (currentRouteKey.current === key) setActiveTimerId((current) => current === b.id ? null : current); }}
+                  onReset={() => { if (currentRouteKey.current === key) setTimerResults((prior) => clearTimerCompletion(prior, b.id)); }}
                   onComplete={(actualSeconds) => {
-                    if (saved.current) return;
+                    if (saved.current || currentRouteKey.current !== key) return;
                     setActiveTimerId((current) => current === b.id ? null : current);
                     const result: LapisTimerResult = {
                       block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
@@ -474,7 +478,7 @@ export default function Session() {
                           canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                           initialClock={timedSetClocks[k]}
                           onClockChange={(next) => {
-                            if (!activeScreen) {
+                            if (!activeScreen || currentRouteKey.current !== key) {
                               try {
                                 const serialized = patchDraftTimedSetClock(
                                   loadWorkoutDraft(storage, key), key, k, next,
@@ -482,14 +486,16 @@ export default function Session() {
                                 if (serialized) storage.setItem(workoutDraftSlot(key), serialized);
                               } catch { /* keep in-memory progress */ }
                             }
-                            setTimedSetClocks((prior) => ({ ...prior, [k]: next }));
+                            if (currentRouteKey.current === key)
+                              setTimedSetClocks((prior) => ({ ...prior, [k]: next }));
                           }}
                           onRunningChange={(running) => {
+                            if (currentRouteKey.current !== key) return;
                             if (running) rest.pause();
                             setActiveSetTimerKey((current) => running ? k : current === k ? null : current);
                           }}
                           onDone={(sec) => {
-                            if (saved.current) return;
+                            if (saved.current || currentRouteKey.current !== key) return;
                             const completionKey = `${k}:${started}`;
                             if (s.done || completedSetEvents.current.has(completionKey) ||
                                 !shouldAcceptTimedSetCompletion(false, sec)) return;
