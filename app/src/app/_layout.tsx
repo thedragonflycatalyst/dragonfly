@@ -9,6 +9,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from '@/components/ui';
 import { SidebarDrawer, SidebarRail, useWide } from '@/components/shell';
 import { AutoSync } from '@/features/auto-sync';
+import { BiometricSecurityProvider } from '@/features/biometric-security';
+import { BiometricGate } from '@/features/biometric-gate';
 import { ViewingBanner } from '@/features/team';
 import { AppProvider, useApp } from '@/lib/app-state';
 import { F, usePalette } from '@/lib/theme';
@@ -58,9 +60,14 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AppProvider>
-        <ToastProvider>
-          <Shell />
-        </ToastProvider>
+        <BiometricSecurityProvider>
+          <ToastProvider>
+            <View style={{ flex: 1 }}>
+              <Shell />
+              <BiometricGate />
+            </View>
+          </ToastProvider>
+        </BiometricSecurityProvider>
       </AppProvider>
     </SafeAreaProvider>
   );
