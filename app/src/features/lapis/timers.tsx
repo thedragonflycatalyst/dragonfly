@@ -388,3 +388,10 @@ export function SetTimer({
     </View>
   );
 }
+
+/** Clears the tagged rest reminder for a completed or discarded workout.
+ * The serialized queue makes an earlier in-flight schedule finish first.
+ */
+export async function clearWorkoutRestReminder(sessionId: string): Promise<void> {
+  await backstop(sessionId, null);
+}
