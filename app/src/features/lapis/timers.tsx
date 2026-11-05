@@ -7,25 +7,66 @@ import { clock } from '@/lib/session';
 import { F, R, usePalette } from '@/lib/theme';
 import { bell, buzz, say } from './audio';
 import { getPrefs } from './prefs';
+import { canScheduleWorkoutNotification } from './workout-session-lease';
 import { addRestSeconds, createRestClock, pauseRestClock, restRemaining, restoreRestClock, resumeRestClock, type RestClock } from './rest-clock';
 import { elapsedTimedSet, pauseTimedSet, resetTimedSet, restoreTimedSetClock, resumeTimedSet, type TimedSetClock } from './timed-set-clock';
 
-/* ---------- the backstop if the phone stops the app while locked ---------- */
-let pending: string | null = null;
-async function backstop(at: number | null, body = 'Rest is over. Next set!') {
-  if (Platform.OS === 'web') return;
-  try {
-    const N = await import('expo-notifications');
-    if (pending) { await N.cancelScheduledNotificationAsync(pending).catch(() => {}); pending = null; }
-    if (at == null) return;
-    const secs = Math.round((at - Date.now()) / 1000) + 2; // a moment after the app's own bell, so only one rings
-    if (secs < 2) return;
-    if (Platform.OS === 'android') await N.setNotificationChannelAsync('rest', { name: 'Rest timer', importance: N.AndroidImportance.HIGH, sound: 'bell_ring2.wav', vibrationPattern: [0, 250, 120, 250] });
-    pending = await N.scheduleNotificationAsync({
-      content: { title: 'Dragonfly', body, sound: 'bell_ring2.wav', data: { kind: 'rest' } },
-      trigger: { type: N.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: secs, channelId: 'rest' },
-    });
-  } catch { /* notifications off: the in-app timer still runs */ }
+/* ---------- background rest notifications, scoped to current workout ---------- */
+let backstopQueue: Promise<void> = Promise.resolve();
+async function backstop(sessionId: string, at: number | null, body = 'Rest is over. Next set!') {
+  const task = async () => {
+    if (Platform.OS === 'web') return;
+    try {
+      const N = await import('expo-notifications');
+      // A prior app process may have scheduled a rest notification. We only
+      // cancel our own rest reminders, not unrelated notification categories.
+      for (const item of await N.getAllScheduledNotificationsAsync()) {
+        if (item.content.data?.kind === 'rest' &&
+            item.content.data?.lapisSessionId === sessionId) {
+          await N.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+        }
+      }
+      if (at === null || !canScheduleWorkoutNotification(sessionId)) return;
+      const secs = Math.round((at - Date.now()) / 1000) + 2;
+      if (secs < 2) return;
+      if (Platform.OS === 'android') {
+        await N.setNotificationChannelAsync('rest', {
+          name: 'Rest timer', importance: N.AndroidImportance.HIGH,
+          sound: 'bell_ring2.wav', vibrationPattern: [0, 250, 120, 250],
+        });
+      }
+      if (!canScheduleWorkoutNotification(sessionId)) return;
+      const id = await N.scheduleNotificationAsync({
+        content: { title: 'Dragonfly', body, sound: 'bell_ring2.wav',
+          data: { kind: 'rest', lapisSessionId: sessionId } },
+        trigger: { type: N.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: secs, ...(Platform.OS === 'android' ? { channelId: 'rest' } : {}) },
+      });
+      if (!canScheduleWorkoutNotification(sessionId))
+        await N.cancelScheduledNotificationAsync(id).catch(() => {});
+    } catch { /* foreground rest clock remains authoritative */ }
+  };
+  const next = backstopQueue.catch(() => {}).then(task);
+  backstopQueue = next;
+  await next;
+}
+export async function clearOtherWorkoutRestReminders(sessionId: string) {
+  const task = async () => {
+    if (Platform.OS === 'web' || !canScheduleWorkoutNotification(sessionId)) return;
+    try {
+      const N = await import('expo-notifications');
+      for (const item of await N.getAllScheduledNotificationsAsync()) {
+        if (!canScheduleWorkoutNotification(sessionId)) return;
+        if (item.content.data?.kind === 'rest' &&
+          item.content.data?.lapisSessionId !== sessionId) {
+          await N.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+        }
+      }
+    } catch { /* native notifications may be unavailable */ }
+  };
+  const next = backstopQueue.catch(() => {}).then(task);
+  backstopQueue = next;
+  await next;
 }
 
 export type Rest = RestClock;
@@ -33,7 +74,7 @@ export type Rest = RestClock;
 /** Safe rest recovery: live clocks catch up by absolute time; restored clocks
  * always start paused and never replay missed cues or auto-start a timed set.
  */
-export function useRest(onNextSet?: (key: string) => void, onChange?: (rest: RestClock | null) => void) {
+export function useRest(sessionId: string, onNextSet?: (key: string) => void, onChange?: (rest: RestClock | null) => void) {
   const [rest, setRest] = useState<RestClock | null>(null);
   const [, setNow] = useState(Date.now());
   const fired = useRef(new Set<string>());
@@ -60,9 +101,10 @@ export function useRest(onNextSet?: (key: string) => void, onChange?: (rest: Res
   // rest reminder may fire; returning to foreground clears the reminder.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
+      if (!canScheduleWorkoutNotification(sessionId)) return;
       const latest = restRef.current;
       if (state === 'active') {
-        void backstop(null);
+        void backstop(sessionId, null);
         if (latest && latest.pausedLeft === null && latest.until <= Date.now()) {
           // OS may have suspended JS through the deadline. Dismiss an
           // overdue rest without replaying its bell or advancing a set.
@@ -70,14 +112,14 @@ export function useRest(onNextSet?: (key: string) => void, onChange?: (rest: Res
           update(null);
         }
       } else if (latest && latest.pausedLeft === null)
-        void backstop(latest.until, latest.label ? `Rest is over. ${latest.label}` : undefined);
+        void backstop(sessionId, latest.until, latest.label ? `Rest is over. ${latest.label}` : undefined);
     });
-    return () => { sub.remove(); void backstop(null); };
-  }, []);
+    return () => { sub.remove(); void backstop(sessionId, null); };
+  }, [sessionId]);
 
   const left = rest ? restRemaining(rest, Date.now()) : 0;
   useEffect(() => {
-    if (!rest || rest.pausedLeft !== null) return;
+    if (!rest || rest.pausedLeft !== null || !canScheduleWorkoutNotification(sessionId)) return;
     const prefs = getPrefs(), f = fired.current, sec = Math.ceil(left);
     if (prefs.halfway && rest.total >= 20 && left <= rest.total / 2 && !f.has('half')) {
       f.add('half'); void say('Halfway');
@@ -89,7 +131,7 @@ export function useRest(onNextSet?: (key: string) => void, onChange?: (rest: Res
     }
     if (left <= 0 && !f.has('end')) {
       f.add('end');
-      void backstop(null);
+      void backstop(sessionId, null);
       void bell();
       const nextKey = rest.nextSetKey;
       update(null);
@@ -99,10 +141,11 @@ export function useRest(onNextSet?: (key: string) => void, onChange?: (rest: Res
 
   const restore = (snapshot: unknown) => {
     fired.current = new Set();
-    void backstop(null);
+    void backstop(sessionId, null);
     update(restoreRestClock(snapshot, Date.now()));
   };
   const start = (seconds: number, label = '', nextSetKey: string | null = null) => {
+    if (!canScheduleWorkoutNotification(sessionId)) return;
     if (seconds <= 0) {
       if (nextSetKey) nextRef.current?.(nextSetKey);
       return;
@@ -112,28 +155,29 @@ export function useRest(onNextSet?: (key: string) => void, onChange?: (rest: Res
     update(next);
     buzz();
     if (getPrefs().sayRest) void say('Rest');
-    if (AppState.currentState !== 'active') void backstop(next.until);
+    if (AppState.currentState !== 'active') void backstop(sessionId, next.until);
   };
   const add = (seconds: number) => {
     const next = addRestSeconds(restRef.current, seconds, Date.now());
     for (const key of ['3', '2', '1', 'half']) fired.current.delete(key);
     update(next);
     if (next?.pausedLeft === null && AppState.currentState !== 'active')
-      void backstop(next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+      void backstop(sessionId, next.until, next.label ? `Rest is over. ${next.label}` : undefined);
   };
   const pause = () => {
-    void backstop(null);
+    void backstop(sessionId, null);
     const next = pauseRestClock(restRef.current, Date.now());
     if (next !== restRef.current) update(next);
   };
   const resume = () => {
+    if (!canScheduleWorkoutNotification(sessionId)) return;
     const next = resumeRestClock(restRef.current, Date.now());
     if (next === restRef.current) return;
     update(next);
     if (next && AppState.currentState !== 'active')
-      void backstop(next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+      void backstop(sessionId, next.until, next.label ? `Rest is over. ${next.label}` : undefined);
   };
-  const skip = () => { void backstop(null); update(null); };
+  const skip = () => { void backstop(sessionId, null); update(null); };
   return { rest, left, start, add, pause, resume, skip, restore };
 }
 
