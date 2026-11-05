@@ -358,7 +358,7 @@ export default function Session() {
       // Cleanup is scoped to this workout. Late native notifications must
       // not fire after its draft has been finalized.
       void clearWorkoutRestReminder(sessionId);
-      void clearWorkoutLinkedReminders(sessionId);
+      void clearWorkoutLinkedReminders(sessionId, Object.keys(linkedTimers));
       clearDraft();
       toast('Workout saved. Nice work!');
       router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId! } });
@@ -574,7 +574,7 @@ export default function Session() {
               rest.skip();
               hush();
               void clearWorkoutRestReminder(sessionId);
-              void clearWorkoutLinkedReminders(sessionId);
+              void clearWorkoutLinkedReminders(sessionId, Object.keys(linkedTimers));
               clearDraft();
               router.back();
             } }])} />

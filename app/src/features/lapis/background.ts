@@ -118,9 +118,13 @@ export function releaseLapisReminderSession(sessionId: string): void {
 /** Explicit cleanup for a saved/discarded workout, including notifications
  * left by a previous application process. Other sessions are untouched.
  */
-export async function clearWorkoutLinkedReminders(sessionId: string): Promise<void> {
+export async function clearWorkoutLinkedReminders(sessionId: string, blockIds: readonly string[] = []): Promise<void> {
   const prefix = PREFIX + encodeURIComponent(sessionId) + ':';
-  const keys = new Set<string>([...known.keys()].filter(key => key.startsWith(prefix)));
+  // Enqueue cancellation even for reminders that have not finished scheduling.
+  const keys = new Set<string>([
+    ...[...known.keys()].filter(key => key.startsWith(prefix)),
+    ...blockIds.map(blockId => lapisReminderKey(sessionId, blockId)),
+  ]);
   const N = await notifications();
   if (N) {
     try {
