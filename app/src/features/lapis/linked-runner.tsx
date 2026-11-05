@@ -235,7 +235,10 @@ export function LinkedLapisRunner({
           !done && <Button small title="Pause" icon="pause" onPress={pause} />}
         {!done && hasStarted && <Button small kind="ghost" title="Skip interval" icon="skip_next" onPress={skip} />}
         {hasStarted && <Button small kind="ghost" title="Reset" icon="replay" onPress={reset} />}
-        <Pressable accessibilityRole="button" accessibilityLabel={muted ? 'Enable timer cues' : 'Mute timer cues'} onPress={() => setMuted(!muted)}
+        <Pressable accessibilityRole="button" accessibilityLabel={muted ? 'Enable timer cues' : 'Mute timer cues'} onPress={() => {
+          if (!muted && (canCue?.() ?? true)) hush();
+          setMuted(!muted);
+        }}
           style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
           <Txt v="smallBold" color={p.focus}>{muted ? 'Unmute cues' : 'Mute cues'}</Txt>
         </Pressable>

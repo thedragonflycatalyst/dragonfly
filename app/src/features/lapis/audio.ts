@@ -2,6 +2,7 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import { clip } from './clips';
+import { sameAudioGeneration } from './audio-generation';
 import { getPrefs, type BellStyle, type MusicMode } from './prefs';
 
 const BELL_FILES: Record<BellStyle, number> = {
@@ -27,9 +28,6 @@ async function ready() {
 const live = new Map<AudioPlayer, () => void>();
 let audioGeneration = 0;
 export function currentAudioGeneration() { return audioGeneration; }
-export function sameAudioGeneration(start: number, now: number): boolean {
-  return start === now;
-}
 function play(source: string | number, volume: number, generation: number): Promise<void> {
   return new Promise((done) => {
     if (!sameAudioGeneration(generation, audioGeneration)) { done(); return; }
@@ -41,10 +39,11 @@ function play(source: string | number, volume: number, generation: number): Prom
       if (settled) return;
       settled = true;
       if (timeout !== null) clearTimeout(timeout);
-      removeListener();
+      try { removeListener(); } catch { /* listener already removed */ }
       if (player) {
         live.delete(player);
-        try { player.pause(); player.remove(); } catch { /* player already disposed */ }
+        try { player.pause(); } catch { /* already stopped */ }
+        try { player.remove(); } catch { /* already disposed */ }
       }
       done();
     };

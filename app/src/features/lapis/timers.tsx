@@ -356,7 +356,7 @@ export function SetTimer({
     }
   };
   const reset = () => {
-    if (!screenFocused || !(canCue?.() ?? true)) return;
+    if (!screenFocused || blocked || !(canCue?.() ?? true)) return;
     hush(); // Prevent a prior Go/bell from outliving manual reset.
     reportRunning(false);
     finished.current = false;
