@@ -353,6 +353,7 @@ export default function Session() {
             return savedTimer
               ? <LinkedLapisRunner key={b.id} timer={savedTimer} reminderKey={lapisReminderKey(sessionId, b.id)}
                   screenFocused={activeScreen}
+                  canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                   initialClock={runnerClocks[b.id]}
                   blocked={!canStartLinkedTimer({ linked: activeTimerId, timedSet: activeSetTimerKey }, b.id)}
                   onClockChange={(clock) => {
@@ -445,6 +446,7 @@ export default function Session() {
                         return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
                           blocked={!canStartTimedSet({ linked: activeTimerId, timedSet: activeSetTimerKey }, k)}
                           screenFocused={activeScreen}
+                          canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                           initialClock={timedSetClocks[k]}
                           onClockChange={(next) => {
                             if (!activeScreen) {

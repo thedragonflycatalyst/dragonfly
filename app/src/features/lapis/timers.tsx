@@ -214,7 +214,7 @@ export function RestBar({ t, blocked = false }: { t: ReturnType<typeof useRest>;
  */
 export function SetTimer({
   target, onDone, label, compact, go: autoGo, blocked = false,
-  screenFocused = true, onRunningChange, initialClock, onClockChange,
+  screenFocused = true, canCue, onRunningChange, initialClock, onClockChange,
 }: {
   target: number | null;
   onDone: (seconds: number) => void;
@@ -223,6 +223,7 @@ export function SetTimer({
   go?: number;
   blocked?: boolean;
   screenFocused?: boolean;
+  canCue?: () => boolean;
   onRunningChange?: (running: boolean) => void;
   initialClock?: TimedSetClock;
   onClockChange?: (clock: TimedSetClock) => void;
@@ -284,7 +285,7 @@ export function SetTimer({
   }, [screenFocused, blocked]);
   // A recovered stopwatch or countdown is paused, never silently marked done.
   useEffect(() => {
-    if (!screenFocused || !running || !target || finished.current) return;
+    if (!screenFocused || !(canCue?.() ?? true) || !running || !target || finished.current) return;
     const pr = getPrefs(), f = fired.current, s = Math.ceil(left);
     if (pr.halfway && target >= 20 && left <= target / 2 && !f.has('half')) {
       f.add('half'); void say('Halfway');
@@ -304,7 +305,7 @@ export function SetTimer({
   }, [screenFocused, running, target, left]);
 
   const start = () => {
-    if (blocked || !screenFocused || running) return;
+    if (blocked || !screenFocused || !(canCue?.() ?? true) || running) return;
     fired.current = new Set();
     finished.current = false;
     const tick = Date.now();
