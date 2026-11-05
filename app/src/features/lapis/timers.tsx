@@ -5,7 +5,7 @@ import { AppState, Platform, Pressable, View } from 'react-native';
 import { Icon, Txt } from '@/components/ui';
 import { clock } from '@/lib/session';
 import { F, R, usePalette } from '@/lib/theme';
-import { bell, buzz, say } from './audio';
+import { bell, bellThenSay, buzz, hush, say } from './audio';
 import { getPrefs } from './prefs';
 import { canScheduleWorkoutNotification } from './workout-session-lease';
 import { addRestSeconds, createRestClock, pauseRestClock, restRemaining, restoreRestClock, resumeRestClock, type RestClock } from './rest-clock';
@@ -209,10 +209,10 @@ export function RestBar({ t, blocked = false }: { t: ReturnType<typeof useRest>;
           <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>{paused ? (blocked ? 'Paused for Lapis' : 'Paused') : 'Rest'}{t.rest.label ? ` · ${t.rest.label}` : ''}</Txt>
           <Txt style={{ fontFamily: F.display, fontSize: 34, fontVariant: ['tabular-nums'], color: p.ink }}>{clock(Math.ceil(t.left))}</Txt>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="15 seconds less" onPress={() => t.add(-15)} style={btn}><Txt v="smallBold" color={p.ink}>−15</Txt></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="15 seconds more" onPress={() => t.add(15)} style={btn}><Txt v="smallBold" color={p.ink}>+15</Txt></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="15 seconds less" disabled={blocked} onPress={() => t.add(-15)} style={[btn, blocked && { opacity: 0.45 }]}><Txt v="smallBold" color={p.ink}>−15</Txt></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="15 seconds more" disabled={blocked} onPress={() => t.add(15)} style={[btn, blocked && { opacity: 0.45 }]}><Txt v="smallBold" color={p.ink}>+15</Txt></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={resumeBlocked ? 'Pause Lapis to resume rest' : paused ? 'Resume rest' : 'Pause rest'} disabled={resumeBlocked} onPress={paused ? t.resume : t.pause} style={[btn, resumeBlocked && { opacity: 0.4 }]}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" onPress={t.skip} style={[btn, { backgroundColor: p.focus }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" disabled={blocked} onPress={t.skip} style={[btn, { backgroundColor: p.focus }, blocked && { opacity: 0.45 }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
       </View>
     </View>
   );
@@ -335,17 +335,20 @@ export function SetTimer({
     setNow(tick);
     updateClock(resumeTimedSet(stateRef.current, tick));
     reportRunning(true);
-    void bell().then(() => say('Go'));
+    void bellThenSay('Go');
   };
   useEffect(() => {
     if (autoGo && !running && !blocked && screenFocused && stateRef.current.elapsedBefore === 0) start();
   }, [autoGo]); // An explicit parent auto-start is a single event.
   const stop = () => {
+    if (!screenFocused || !(canCue?.() ?? true) || stateRef.current.since === null) return;
+    // Cancel a delayed "Go" after the start bell, before the stop bell.
+    hush();
     const snapshot = pauseTimedSet(stateRef.current, Date.now());
     updateClock(snapshot);
     reportRunning(false);
     const seconds = Math.round(snapshot.elapsedBefore);
-    if (seconds > 0) {
+    if (seconds > 0 && !finished.current) {
       finished.current = true;
       void bell();
       callbacks.current.onDone(seconds);
@@ -353,6 +356,8 @@ export function SetTimer({
     }
   };
   const reset = () => {
+    if (!screenFocused || !(canCue?.() ?? true)) return;
+    hush(); // Prevent a prior Go/bell from outliving manual reset.
     reportRunning(false);
     finished.current = false;
     fired.current = new Set();
