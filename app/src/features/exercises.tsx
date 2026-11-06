@@ -11,8 +11,10 @@ import { coverUrl } from '@/components/cover';
 import { useApp } from '@/lib/app-state';
 import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
 import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
+import { matchMachine, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
+import { MachineScanner, scanMachinePhoto } from './machine-scan';
 
 const MEDIA = 'coach-media';
 
@@ -135,8 +137,11 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   const [recent, setRecent] = useState<string[]>([]);
   const [info, setInfo] = useState<LibExercise | null>(null);
   const [creating, setCreating] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState<MachineRead | null>(null);
 
   useEffect(() => {
+    if (!visible) setScanned(null);
     if (!visible || !trainerId) return;
     setPicked([]);
     sb.from('coach_exercise_favorites').select('ref').then(({ data }) => setFavs(new Set((data ?? []).map((r) => r.ref))));
@@ -151,11 +156,12 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
 
   const all = useMemo(() => [...mine, ...builtIn()], [mine]);
   const list = useMemo(() => {
+    if (scanned) return matchMachine(scanned, all);
     if (tab === 'recent') return recent.map((r) => byRef(r, mine)).filter(Boolean).filter((e) => search([e!], { q })[0]) as LibExercise[];
     if (tab === 'favorites') return search(all.filter((e) => favs.has(e.ref)), { q });
     if (tab === 'mine') return search(mine, { q });
     return search(all, { q, part: tab === 'part' ? part : null, equipment: tab === 'equipment' ? equip : null }).slice(0, 300);
-  }, [tab, q, part, equip, all, mine, favs, recent]);
+  }, [tab, q, part, equip, all, mine, favs, recent, scanned]);
 
   const toggleFav = async (e: LibExercise) => {
     const on = favs.has(e.ref);
@@ -168,21 +174,37 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
     if (single) { onPick([e]); onClose(); return; }
     setPicked((x) => (x.includes(e.ref) ? x.filter((r) => r !== e.ref) : [...x, e.ref]));
   };
-  const showFilterChips = (tab === 'part' && !part) || (tab === 'equipment' && !equip);
+  const showFilterChips = !scanned && ((tab === 'part' && !part) || (tab === 'equipment' && !equip));
+  /** Scan a machine: the live scanner on phones, a photo on the web */
+  const scan = async () => {
+    if (Platform.OS !== 'web') { setScanning(true); return; }
+    const r = await scanMachinePhoto(toast);
+    if (r) setScanned(r);
+  };
 
   return (
     <Sheet visible={visible} onClose={onClose} title={title} full>
       <View style={{ paddingHorizontal: 16, gap: 10 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {([['search', 'Search'], ['part', 'Body part'], ['equipment', 'Equipment'], ['recent', 'Recent'], ['favorites', 'Favorites'], ['mine', 'My exercises']] as [Tab, string][])
-            .map(([k, l]) => <Chip key={k} label={l} selected={tab === k} onPress={() => setTab(k)} />)}
+            .map(([k, l]) => <Chip key={k} label={l} selected={!scanned && tab === k} onPress={() => { setScanned(null); setTab(k); }} />)}
         </ScrollView>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.surface, borderWidth: 1.5, borderColor: p.line, borderRadius: R.pill, paddingHorizontal: 14, height: 46 }}>
           <Icon name="search" size={20} color={p.muted} />
-          <TextInput value={q} onChangeText={setQ} placeholder="Search exercises" placeholderTextColor={p.muted} accessibilityLabel="Search exercises"
+          <TextInput value={q} onChangeText={(t) => { setScanned(null); setQ(t); }} placeholder="Search exercises" placeholderTextColor={p.muted} accessibilityLabel="Search exercises"
             autoCorrect={false} style={{ flex: 1, fontFamily: F.body, fontSize: 16, color: p.ink, height: 44 }} />
           {q ? <Pressable accessibilityLabel="Clear search" onPress={() => setQ('')} hitSlop={8}><Icon name="close" size={18} color={p.muted} /></Pressable> : null}
+          <Pressable accessibilityRole="button" accessibilityLabel="Scan a machine" onPress={scan} hitSlop={8}><Icon name="photo_camera" size={22} color={p.focus} /></Pressable>
         </View>
+        {scanned && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Icon name="photo_camera" size={18} color={p.focus} />
+            <Txt v="small" style={{ flex: 1 }} numberOfLines={2}>
+              {scanned.machine ? `${titleCase(scanned.machine)}${scanned.brand ? ` (${scanned.brand})` : ''}` : 'Scanned equipment'}: tap a picture to watch the demo.
+            </Txt>
+            <Chip label="Clear ✕" selected onPress={() => setScanned(null)} />
+          </View>
+        )}
         {tab === 'part' && part && <Chip label={`${BODY_PARTS.find((b) => b.key === part)?.label} ✕`} selected onPress={() => setPart(null)} />}
         {tab === 'equipment' && equip && <Chip label={`${titleCase(equip)} ✕`} selected onPress={() => setEquip(null)} />}
         {tab === 'mine' && <Button small kind="ghost" icon="add" title="Create an exercise" style={{ alignSelf: 'flex-start' }} onPress={() => setCreating(true)} />}
@@ -198,7 +220,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
         <FlatList data={list} keyExtractor={(e) => e.ref} keyboardShouldPersistTaps="handled" initialNumToRender={14}
           contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
           ListEmptyComponent={<Txt v="small" center style={{ marginTop: 30 }}>
-            {tab === 'favorites' ? 'Tap the star on any exercise to keep it here.' : tab === 'recent' ? 'Exercises you use in workouts show up here.' : tab === 'mine' ? 'Create your own exercises, like your TRX moves, with your own demo videos.' : 'No exercises match.'}
+            {scanned ? 'No library exercises match that machine yet. Try searching by what it works.' : tab === 'favorites' ? 'Tap the star on any exercise to keep it here.' : tab === 'recent' ? 'Exercises you use in workouts show up here.' : tab === 'mine' ? 'Create your own exercises, like your TRX moves, with your own demo videos.' : 'No exercises match.'}
           </Txt>}
           renderItem={({ item: e }) => {
             const on = picked.includes(e.ref);
@@ -231,6 +253,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
       )}
       <ExerciseInfo ex={info ? { name: info.name, ref: info.ref, img: info.images[0], video: info.video } : null} onClose={() => setInfo(null)} />
       <MyExerciseEditor visible={creating} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />
+      <MachineScanner visible={scanning} onClose={() => setScanning(false)} onFound={setScanned} />
     </Sheet>
   );
 }
