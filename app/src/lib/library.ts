@@ -165,3 +165,40 @@ export function similarTo(s: Suggestion, all: LibExercise[], n = 40): LibExercis
   return all.map((e) => [score(e), e] as const).filter(([k]) => k > 0).sort((a, b) => b[0] - a[0] || a[1].name.localeCompare(b[1].name))
     .slice(0, n).map(([, e]) => e);
 }
+
+/** Equipment words that make an equipment version of a move ("Dumbbell Push Press" is the dumbbell version of "Push Press") */
+const GEAR_WORDS = ['plate-loaded', 'smith machine', 'ez-bar', 'ez bar', 'trap bar', 'hex bar', 'safety squat bar', 'resistance band', 'mini band', 'medicine ball',
+  'med ball', 'slam ball', 'stability ball', 'swiss ball', 'barbell', 'dumbbells?', 'kettlebells?', 'cable', 'banded', 'band', 'landmine', 'sandbag', 'plate',
+  'trx', 'suspension', 'machine', 'bodyweight'];
+const VERSION_NAME: Record<string, string> = { 'ez-bar': 'EZ bar', 'ez bar': 'EZ bar', trx: 'TRX', suspension: 'TRX', banded: 'Band', 'resistance band': 'Band',
+  dumbbells: 'Dumbbell', kettlebells: 'Kettlebell', 'swiss ball': 'Stability ball', 'med ball': 'Medicine ball', 'hex bar': 'Trap bar', 'plate-loaded': 'Plate-loaded machine' };
+const GEAR_RE = new RegExp(`(^|[\\s(/-])(${GEAR_WORDS.join('|')})(?=$|[\\s)/-])`, 'gi');
+/** The move an exercise is a version of, and which version it is: "Kettlebell Push Press" → push press / Kettlebell */
+export function familyOf(e: Pick<LibExercise, 'name' | 'gear'>): { key: string; name: string; version: string } {
+  const found: string[] = [];
+  const name = e.name.replace(GEAR_RE, (_m, pre: string, w: string) => { found.push(w); return pre === '(' ? pre : ' '; })
+    .replace(/\(\s*\)/g, '').replace(/\s*-\s*(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
+  const version = found.length ? found.map((w) => VERSION_NAME[low(w)] ?? w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' + ')
+    : e.gear?.find((g) => !/bench|mat|step|wall/i.test(g)) ?? 'Bodyweight';
+  return { key: low(name).replace(/[^a-z0-9]+/g, ' ').trim(), name, version };
+}
+
+export type ListItem = { kind: 'one'; e: LibExercise } | { kind: 'family'; key: string; name: string; members: { e: LibExercise; version: string }[] };
+/** Folds equipment versions of the same move into one line (in the order they first appear), so a search isn't flooded */
+export function groupFamilies(list: LibExercise[]): ListItem[] {
+  const fam = new Map<string, { name: string; members: { e: LibExercise; version: string }[] }>();
+  const order: string[] = [];
+  for (const e of list) {
+    const f = familyOf(e);
+    const k = f.key || e.ref;
+    if (!fam.has(k)) { fam.set(k, { name: f.name, members: [] }); order.push(k); }
+    const g = fam.get(k)!;
+    g.members.push({ e, version: f.version });
+    if (same(e.name, f.name)) g.name = e.name; // the plain version names the move
+  }
+  return order.map((k) => {
+    const g = fam.get(k)!;
+    const versions = new Set(g.members.map((m) => low(m.version)));
+    return g.members.length > 1 && versions.size > 1 ? [{ kind: 'family', key: k, name: g.name, members: g.members } as ListItem] : g.members.map((m): ListItem => ({ kind: 'one', e: m.e }));
+  }).flat();
+}

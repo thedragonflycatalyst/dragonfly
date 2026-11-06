@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { alternativesFor, builtIn, byRef, search, setLibraryExtras, similarTo, titleCase, youTubeThumb } from './library.ts';
+import { alternativesFor, builtIn, byRef, familyOf, groupFamilies, search, setLibraryExtras, similarTo, titleCase, youTubeThumb } from './library.ts';
 import { defaultMetric } from './workouts.ts';
 
 test('library loads every Coach exercise once, with full details', () => {
@@ -95,4 +95,17 @@ test('a suggestion is compared with the most similar library moves', () => {
   assert.ok(got.slice(0, 10).includes('Close-Grip Bench Press'), got.slice(0, 10).join(', '));
   assert.ok(got.length <= 40);
   assert.equal(similarTo({ name: 'zzz', gear: [], main: [] }, builtIn()).length, 0);
+});
+
+test('equipment versions of a move fold into one line', () => {
+  assert.deepEqual(familyOf({ name: 'Kettlebell Push Press', gear: ['Kettlebell'] }), { key: 'push press', name: 'Push Press', version: 'Kettlebell' });
+  assert.equal(familyOf({ name: 'Push Press', gear: ['Barbell'] }).version, 'Barbell');
+  assert.equal(familyOf({ name: 'Banded Bench Press', gear: ['Barbell', 'Resistance band'] }).version, 'Band');
+  const items = groupFamilies(search(builtIn(), { q: 'push press' }));
+  const first = items[0];
+  assert.ok(first.kind === 'family' && first.name === 'Push Press', 'the move comes first as one line');
+  if (first.kind === 'family') for (const v of ['Barbell', 'Dumbbell', 'Kettlebell']) assert.ok(first.members.some((m) => m.version === v), v);
+  assert.ok(items.some((i) => i.kind === 'one' && i.e.name === 'Behind-the-Neck Push Press'), 'different moves stay separate');
+  const all = items.flatMap((i) => (i.kind === 'one' ? [i.e] : i.members.map((m) => m.e)));
+  assert.equal(all.length, search(builtIn(), { q: 'push press' }).length, 'nothing is lost');
 });

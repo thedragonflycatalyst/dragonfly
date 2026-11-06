@@ -10,13 +10,13 @@ import { Sheet } from '@/components/sheet';
 import { Button, Chip, Field, Icon, Txt, useToast } from '@/components/ui';
 import { coverUrl } from '@/components/cover';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
+import { BODY_PARTS, builtIn, byRef, EQUIPMENT, groupFamilies, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise, type ListItem } from '@/lib/library';
 import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
 import { MACHINES } from '@/data/machines';
 import { findMachines, machineMatches, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
-import { reviewText, suggestExercise } from './library-extras';
+import { REPORT_KINDS, reportExercise, reviewText, suggestExercise, useHidden, type ReportKind } from './library-extras';
 import { MachineScanner, scanMachinePhoto } from './machine-scan';
 
 const MEDIA = 'coach-media';
@@ -108,7 +108,46 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
         </View>
       ))}
       {(full?.steps ?? []).map((s, i) => <Txt key={i} style={{ marginBottom: 8 }}>{full?.mine ? s : `${i + 1}. ${s}`}</Txt>)}
+      {ex?.ref?.startsWith('lib:') && <LibraryActions refId={ex.ref} name={ex.name} />}
     </Sheet>
+  );
+}
+
+/** Report a library exercise for review, or hide it from your own lists */
+function LibraryActions({ refId, name }: { refId: string; name: string }) {
+  const p = usePalette();
+  const toast = useToast();
+  const [hidden, toggleHidden] = useHidden();
+  const [reporting, setReporting] = useState(false);
+  const [kind, setKind] = useState<ReportKind | null>(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setReporting(false); setKind(null); setNote(''); }, [refId]);
+  const isHidden = hidden.has(refId);
+  const send = async () => {
+    if (!kind) return toast('Choose what’s wrong', false);
+    setBusy(true);
+    try { await reportExercise(refId, name, kind, note); toast('Thanks, sent for review'); setReporting(false); setKind(null); setNote(''); }
+    catch (e) { toast(errText(e), false); } finally { setBusy(false); }
+  };
+  return (
+    <View style={{ borderTopWidth: 1, borderTopColor: p.line, marginTop: 16, paddingTop: 12, gap: 10 }}>
+      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+        <Button small kind="ghost" icon="flag" title="Report a problem" onPress={() => setReporting((r) => !r)} />
+        <Button small kind="quiet" icon={isHidden ? 'visibility' : 'visibility_off'} title={isHidden ? 'Show in my lists again' : 'Hide from my lists'}
+          onPress={() => toggleHidden(refId, !isHidden).then(() => toast(isHidden ? 'It’s back in your lists' : 'Hidden. Find it under Hidden in the exercise search to bring it back.'), (e: unknown) => toast(errText(e), false))} />
+      </View>
+      {reporting && (
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {REPORT_KINDS.map(([k, l]) => <Chip key={k} label={l} selected={kind === k} onPress={() => setKind(k)} />)}
+          </View>
+          <Field label="Details" hint="(optional)" value={note} onChangeText={setNote} multiline
+            placeholder={kind === 'redundant' ? 'Which exercise is it the same as?' : 'What’s wrong with it?'} />
+          <Button small title="Send report" busy={busy} onPress={send} style={{ alignSelf: 'flex-start' }} />
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -120,7 +159,7 @@ function AnyImage({ src, label }: { src: string; label: string }) {
   return <Image source={url ? { uri: url } : null} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: R.sm, backgroundColor: p.soft }} contentFit="cover" accessibilityLabel={label} />;
 }
 
-type Tab = 'search' | 'part' | 'equipment' | 'recent' | 'favorites' | 'mine';
+type Tab = 'search' | 'part' | 'equipment' | 'recent' | 'favorites' | 'mine' | 'hidden';
 
 /** Exercise search: by name, body part, equipment, recently used, favorites, or the trainer's own. Pick one or many. */
 export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add exercises' }: {
@@ -142,6 +181,8 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   const [creating, setCreating] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState<MachineRead | null>(null);
+  const [hidden, toggleHidden] = useHidden();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!visible) setScanned(null);
@@ -162,12 +203,18 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   const scannedMachine = scanned?.id ? MACHINES.find((m) => m.id === scanned.id) : undefined;
   const fromScan = useMemo(() => (scanned ? machineMatches(scanned, all) : null), [scanned, all]);
   const list = useMemo(() => {
-    if (fromScan) return fromScan.list;
+    if (tab === 'hidden') return search(all.filter((e) => hidden.has(e.ref)), { q });
+    if (fromScan) return fromScan.list.filter((e) => !hidden.has(e.ref));
     if (tab === 'recent') return recent.map((r) => byRef(r, mine)).filter(Boolean).filter((e) => search([e!], { q })[0]) as LibExercise[];
     if (tab === 'favorites') return search(all.filter((e) => favs.has(e.ref)), { q });
     if (tab === 'mine') return search(mine, { q });
     return search(all, { q, part: tab === 'part' ? part : null, equipment: tab === 'equipment' ? equip : null }).slice(0, 300);
-  }, [tab, q, part, equip, all, mine, favs, recent, fromScan]);
+  }, [tab, q, part, equip, all, mine, favs, recent, fromScan, hidden]);
+  // Search and body-part lists fold equipment versions of a move into one line (tap it to see them)
+  const items = useMemo((): ListItem[] => {
+    const shown = tab === 'hidden' ? list : list.filter((e) => !hidden.has(e.ref));
+    return !fromScan && (tab === 'search' || tab === 'part') ? groupFamilies(shown) : shown.map((e) => ({ kind: 'one', e }));
+  }, [list, hidden, fromScan, tab]);
 
   const toggleFav = async (e: LibExercise) => {
     const on = favs.has(e.ref);
@@ -179,6 +226,37 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   const choose = (e: LibExercise) => {
     if (single) { onPick([e]); onClose(); return; }
     setPicked((x) => (x.includes(e.ref) ? x.filter((r) => r !== e.ref) : [...x, e.ref]));
+  };
+  /** One exercise line: tap the picture for details, tap the name to pick it */
+  const row = (e: LibExercise, version?: string) => {
+    const on = picked.includes(e.ref);
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: version ? 0 : 1, borderBottomColor: p.line }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${e.name} details`} onPress={() => setInfo(e)}><ExerciseThumb img={e.images[0]} video={e.video} size={version ? 48 : 56} /></Pressable>
+        <Pressable accessibilityRole={single ? 'button' : 'checkbox'} accessibilityState={{ checked: on }} onPress={() => choose(e)} style={{ flex: 1, gap: 2 }}>
+          <Txt v="bold">{version ? `${version}: ${e.name}` : e.name}</Txt>
+          {fromScan ? (
+            <>
+              <Txt v="small" numberOfLines={1}>Focus: {e.primary.map(titleCase).join(', ') || 'Full body'}{e.pattern ? ` · ${e.pattern}` : ''}</Txt>
+              {!!e.how?.setup && <Txt v="small" numberOfLines={2} style={{ color: p.muted }}>{e.how.setup.split('. ')[0].replace(/\.$/, '')}.</Txt>}
+            </>
+          ) : <Txt v="small" numberOfLines={1}>{[e.primary.map(titleCase).join(', '), titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>}
+        </Pressable>
+        {tab === 'hidden' ? (
+          <Button small kind="quiet" title="Show" onPress={() => toggleHidden(e.ref, false).catch((x: unknown) => toast(errText(x), false))} />
+        ) : (
+          <Pressable accessibilityRole="button" accessibilityLabel={favs.has(e.ref) ? 'Remove from favorites' : 'Add to favorites'} onPress={() => toggleFav(e)} hitSlop={8}>
+            <Icon name={favs.has(e.ref) ? 'star' : 'star_outline'} size={24} color={favs.has(e.ref) ? p.gold : p.muted} />
+          </Pressable>
+        )}
+        {!single && tab !== 'hidden' && (
+          <Pressable onPress={() => choose(e)} accessibilityLabel={`Select ${e.name}`} hitSlop={8}
+            style={{ width: 26, height: 26, borderRadius: 7, borderWidth: 2, borderColor: on ? p.focus : p.muted, backgroundColor: on ? p.focus : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+            {on && <Icon name="check" size={18} color={p.onAccent} />}
+          </Pressable>
+        )}
+      </View>
+    );
   };
   const showFilterChips = !scanned && ((tab === 'part' && !part) || (tab === 'equipment' && !equip));
   /** Scan a machine: the live scanner on phones, a photo on the web */
@@ -192,7 +270,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
     <Sheet visible={visible} onClose={onClose} title={title} full>
       <View style={{ paddingHorizontal: 16, gap: 10 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {([['search', 'Search'], ['part', 'Body part'], ['equipment', 'Equipment'], ['recent', 'Recent'], ['favorites', 'Favorites'], ['mine', 'My exercises']] as [Tab, string][])
+          {([['search', 'Search'], ['part', 'Body part'], ['equipment', 'Equipment'], ['recent', 'Recent'], ['favorites', 'Favorites'], ['mine', 'My exercises'], ...(hidden.size ? [['hidden', `Hidden (${hidden.size})`]] : [])] as [Tab, string][])
             .map(([k, l]) => <Chip key={k} label={l} selected={!scanned && tab === k} onPress={() => { setScanned(null); setTab(k); }} />)}
         </ScrollView>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.surface, borderWidth: 1.5, borderColor: p.line, borderRadius: R.pill, paddingHorizontal: 14, height: 46 }}>
@@ -239,34 +317,35 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
             : EQUIPMENT.map((e) => <Chip key={e} label={titleCase(e)} onPress={() => setEquip(e)} />)}
         </ScrollView>
       ) : (
-        <FlatList data={list} keyExtractor={(e) => e.ref} keyboardShouldPersistTaps="handled" initialNumToRender={14}
+        <FlatList data={items} keyExtractor={(it) => (it.kind === 'one' ? it.e.ref : `fam:${it.key}`)} keyboardShouldPersistTaps="handled" initialNumToRender={14}
           contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
           ListEmptyComponent={<Txt v="small" center style={{ marginTop: 30 }}>
-            {scanned ? 'No library exercises match that machine yet. Try searching by what it works.' : tab === 'favorites' ? 'Tap the star on any exercise to keep it here.' : tab === 'recent' ? 'Exercises you use in workouts show up here.' : tab === 'mine' ? 'Create your own exercises, like your TRX moves, with your own demo videos.' : 'No exercises match.'}
+            {scanned ? 'No library exercises match that machine yet. Try searching by what it works.' : tab === 'hidden' ? 'Nothing hidden.' : tab === 'favorites' ? 'Tap the star on any exercise to keep it here.' : tab === 'recent' ? 'Exercises you use in workouts show up here.' : tab === 'mine' ? 'Create your own exercises, like your TRX moves, with your own demo videos.' : 'No exercises match.'}
           </Txt>}
-          renderItem={({ item: e }) => {
-            const on = picked.includes(e.ref);
+          renderItem={({ item }) => {
+            if (item.kind === 'one') return row(item.e);
+            const open = expanded.has(item.key);
+            const lead = item.members[0].e;
             return (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.line }}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`${e.name} details`} onPress={() => setInfo(e)}><ExerciseThumb img={e.images[0]} video={e.video} size={56} /></Pressable>
-                <Pressable accessibilityRole={single ? 'button' : 'checkbox'} accessibilityState={{ checked: on }} onPress={() => choose(e)} style={{ flex: 1, gap: 2 }}>
-                  <Txt v="bold">{e.name}</Txt>
-                  {fromScan ? (
-                    <>
-                      <Txt v="small" numberOfLines={1}>Focus: {e.primary.map(titleCase).join(', ') || 'Full body'}{e.pattern ? ` · ${e.pattern}` : ''}</Txt>
-                      {!!e.how?.setup && <Txt v="small" numberOfLines={2} style={{ color: p.muted }}>{e.how.setup.split('. ')[0].replace(/\.$/, '')}.</Txt>}
-                    </>
-                  ) : <Txt v="small" numberOfLines={1}>{[e.primary.map(titleCase).join(', '), titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>}
+              <View style={{ borderBottomWidth: 1, borderBottomColor: p.line }}>
+                <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${item.name}, ${item.members.length} versions`}
+                  onPress={() => setExpanded((x) => { const n = new Set(x); if (open) n.delete(item.key); else n.add(item.key); return n; })}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 }}>
+                  <ExerciseThumb img={lead.images[0]} video={lead.video} size={56} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <Txt v="bold">{item.name}</Txt>
+                      <View style={{ backgroundColor: p.soft, borderRadius: R.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                        <Txt v="small" style={{ color: p.focus, fontFamily: F.bodyBold }}>{item.members.length} versions</Txt>
+                      </View>
+                    </View>
+                    <Txt v="small" numberOfLines={2}>{item.members.map((m) => m.version).join(' · ')}</Txt>
+                  </View>
+                  <Icon name={open ? 'expand_less' : 'expand_more'} size={24} color={p.muted} />
                 </Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel={favs.has(e.ref) ? 'Remove from favorites' : 'Add to favorites'} onPress={() => toggleFav(e)} hitSlop={8}>
-                  <Icon name={favs.has(e.ref) ? 'star' : 'star_outline'} size={24} color={favs.has(e.ref) ? p.gold : p.muted} />
-                </Pressable>
-                {!single && (
-                  <Pressable onPress={() => choose(e)} accessibilityLabel={`Select ${e.name}`} hitSlop={8}
-                    style={{ width: 26, height: 26, borderRadius: 7, borderWidth: 2, borderColor: on ? p.focus : p.muted, backgroundColor: on ? p.focus : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                    {on && <Icon name="check" size={18} color={p.onAccent} />}
-                  </Pressable>
-                )}
+                {open && <View style={{ paddingLeft: 18, borderLeftWidth: 2, borderLeftColor: p.focus, marginLeft: 26, marginBottom: 6 }}>
+                  {item.members.map((m) => <View key={m.e.ref}>{row(m.e, m.version)}</View>)}
+                </View>}
               </View>
             );
           }} />
@@ -344,7 +423,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
     try {
       const r = await suggestExercise({ name: row.name, category, gear: equipment, main: main ? [main] : [], other: row.secondary_muscles, description: steps.trim(),
         video: isLink(video) ? video.trim() : undefined });
-      toast(`Exercise saved. ${reviewText(r)}`, r.outcome === 'added' || r.outcome === 'alias' || r.outcome === 'already_listed');
+      toast(`Exercise saved. ${reviewText(r)}`, r.outcome === 'pending' || r.outcome === 'already_listed');
     } catch (e) { toast(`Exercise saved, but the suggestion couldn’t be sent: ${errText(e)}`, false); }
     setBusy(null); onSaved();
   };
@@ -389,7 +468,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
       <Button small kind="ghost" icon="add" title="Select alternative exercises" disabled={alts.length >= 12} style={{ alignSelf: 'flex-start', marginBottom: 20 }} onPress={() => setPicking(true)} />
       <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingTop: 16 }}>
         <Toggle label="Suggest it for the Dragonfly library" value={suggest} onChange={setSuggest}
-          sub="Your exercise is saved for you either way. A suggestion is checked against the library: if it's already there under another name, your name is added to search; if it's a new variation that's well described, it's added for everyone." />
+          sub="Your exercise is yours to use with clients either way. A suggestion is checked against the library, then reviewed by the Dragonfly team: an exercise we already have can get your name as a search name; a new, well-described variation can be added for everyone." />
         <Button title="Save exercise" busy={busy === 'save'} onPress={save} style={{ alignSelf: 'flex-start' }} />
       </View>
       <ExercisePicker visible={picking} title="Select alternatives" onClose={() => setPicking(false)}

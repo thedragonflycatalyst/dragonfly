@@ -22,7 +22,7 @@ const SF: Partial<Record<AndroidSymbol, SFSymbol>> = {
   photo_camera: 'camera', image: 'photo', edit_note: 'square.and.pencil', notifications: 'bell', flag: 'flag', directions: 'arrow.triangle.turn.up.right.diamond',
   close: 'xmark', logout: 'rectangle.portrait.and.arrow.right', edit: 'pencil', delete: 'trash', public: 'globe', event_available: 'calendar.badge.checkmark',
   shield_person: 'person.badge.shield.checkmark', local_fire_department: 'flame', add: 'plus', info: 'info.circle',
-  mail: 'envelope', key: 'key', devices: 'laptopcomputer.and.iphone', download: 'square.and.arrow.down', expand_less: 'chevron.up', person: 'person', schedule: 'clock',
+  mail: 'envelope', key: 'key', devices: 'laptopcomputer.and.iphone', download: 'square.and.arrow.down', expand_less: 'chevron.up', expand_more: 'chevron.down', person: 'person', schedule: 'clock',
   document_scanner: 'doc.viewfinder', flash_on: 'bolt.fill', flash_off: 'bolt.slash', photo_library: 'photo.on.rectangle',
   group_add: 'person.2.badge.plus', person_add: 'person.badge.plus', content_copy: 'doc.on.doc', fitness_center: 'dumbbell', swap_horiz: 'arrow.left.arrow.right',
   sports_gymnastics: 'figure.strengthtraining.traditional', link: 'link', pause: 'pause.circle', archive: 'archivebox', badge: 'person.text.rectangle',
@@ -32,7 +32,8 @@ const SF: Partial<Record<AndroidSymbol, SFSymbol>> = {
   description: 'doc.text', attach_file: 'paperclip', sticky_note_2: 'note.text', checklist: 'checklist', health_and_safety: 'cross.case', straighten: 'ruler',
   timeline: 'chart.xyaxis.line', settings: 'gearshape', payments: 'creditcard', event: 'calendar', groups: 'person.3', inbox: 'tray', link_off: 'personalhotspot.slash',
   push_pin: 'pin', lock: 'lock', warning: 'exclamationmark.triangle', task_alt: 'checkmark.circle', open_in_new: 'arrow.up.right.square',
-  monitor_weight: 'scalemass', restaurant: 'fork.knife', watch: 'applewatch', school: 'graduationcap',
+  monitor_weight: 'scalemass', restaurant: 'fork.knife', watch: 'applewatch', school: 'graduationcap', visibility: 'eye', visibility_off: 'eye.slash',
+  unfold_more: 'chevron.up.chevron.down', rule: 'checklist.checked',
   chat_bubble: 'bubble.right', send: 'paperplane.fill', reply: 'arrowshape.turn.up.left', more_horiz: 'ellipsis',
 };
 export function Icon({ name, size = 22, color }: { name: AndroidSymbol; size?: number; color?: string }) {

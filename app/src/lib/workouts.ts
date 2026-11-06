@@ -143,3 +143,13 @@ export function coverColors(cover: string | null | undefined, name: string): [st
   let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return COVERS[h % COVERS.length];
 }
+
+/** A workout's blocks with one exercise swapped for good: the block with this id, or (if the workout was edited since) the
+ *  first block that still uses the old exercise. Sets, notes and grouping stay the same. Returns null when nothing matched. */
+export function swapBlock(blocks: WorkoutBlock[], blockId: string, from: ExerciseRef, to: ExerciseRef): WorkoutBlock[] | null {
+  const sameEx = (b: WorkoutBlock) => b.kind === 'exercise' && b.ex.src === from.src && b.ex.id === from.id;
+  let i = blocks.findIndex((b) => b.id === blockId && b.kind === 'exercise');
+  if (i < 0 || !sameEx(blocks[i])) i = blocks.findIndex(sameEx);
+  if (i < 0) return null;
+  return blocks.map((b, n) => (n === i && b.kind === 'exercise' ? { ...b, ex: to } : b));
+}

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { builtIn } from './library.ts';
 import type { ExerciseBlock, WorkoutBlock } from './model.ts';
 import { TEMPLATES } from '../data/templates.ts';
-import { addSet, cloneBlocks, estimateMinutes, fmtSeconds, linkNext, move, newBlock, normalizeGroups, parseSeconds, removeSet, setsDone, setsTotal, startLog, supersetLabels, unlink, volume } from './workouts.ts';
+import { addSet, cloneBlocks, estimateMinutes, fmtSeconds, linkNext, move, newBlock, normalizeGroups, parseSeconds, removeSet, setsDone, setsTotal, startLog, supersetLabels, swapBlock, unlink, volume } from './workouts.ts';
 
 const lib = (name: string) => builtIn().find((e) => e.name === name)!;
 
@@ -82,4 +82,18 @@ test('every starter template uses real library exercises', () => {
     if (b.kind === 'exercise') assert.ok(refs.has(`lib:${b.ex.id}`), `${t.name}: ${b.ex.id} not in library`);
   }
   assert.ok(TEMPLATES.length >= 6);
+});
+
+test('swapping an exercise for good changes only that block', () => {
+  const sq = { src: 'lib' as const, id: 'c-back-squat', name: 'Back Squat' }, lp = { src: 'lib' as const, id: 'c-leg-press', name: 'Leg Press' };
+  const blocks = [
+    { id: 'a', kind: 'exercise' as const, ex: sq, metric: 'reps' as const, sets: [{ reps: '5' }], note: 'heavy' },
+    { id: 'b', kind: 'note' as const, text: 'rest' },
+    { id: 'c', kind: 'exercise' as const, ex: sq, metric: 'reps' as const, sets: [{ reps: '10' }] },
+  ];
+  const out = swapBlock(blocks, 'c', sq, lp)!;
+  assert.deepEqual(out.map((b) => (b.kind === 'exercise' ? b.ex.id : b.kind)), ['c-back-squat', 'note', 'c-leg-press']);
+  assert.equal((out[2] as { sets: unknown[] }).sets.length, 1, 'sets stay');
+  assert.equal((swapBlock(blocks, 'gone', sq, lp)![0] as { ex: { id: string } }).ex.id, 'c-leg-press', 'falls back to the first block with that exercise');
+  assert.equal(swapBlock(blocks, 'a', lp, sq), null, 'nothing matched');
 });
