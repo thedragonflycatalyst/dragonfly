@@ -1,42 +1,78 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { builtIn, byRef, search, youTubeThumb } from './library.ts';
+import { alternativesFor, builtIn, byRef, search, titleCase, youTubeThumb } from './library.ts';
+import { defaultMetric } from './workouts.ts';
 
-test('library loads every exercise once, with images', () => {
+test('library loads every Coach exercise once, with full details', () => {
   const all = builtIn();
-  assert.ok(all.length > 890, `only ${all.length}`);
+  assert.ok(all.length >= 1700, `only ${all.length}`);
   assert.equal(new Set(all.map((e) => e.ref)).size, all.length, 'refs are unique');
-  const plank = all.find((e) => e.name === 'Plank');
-  assert.ok(plank && plank.images.length === 2 && plank.images[0].startsWith('https://cdn.jsdelivr.net/'));
-  assert.ok(all.some((e) => e.equipment === 'suspension trainer'), 'suspension set included');
+  for (const e of all) {
+    assert.match(e.ref, /^lib:c-[a-z0-9-]{1,118}$/, e.name);
+    assert.ok(e.how?.setup && e.how.move && e.how.cues, `${e.name}: how-to`);
+    assert.ok(e.primary.length && e.gear?.length && e.category && e.kind && e.pattern, `${e.name}: details`);
+    assert.ok(!e.legacy);
+  }
 });
 
-test('search ranks name matches first and supports filters', () => {
+test('every alternate name finds its exercise, ranked first', () => {
   const all = builtIn();
-  const r = search(all, { q: 'plank' });
-  assert.equal(r[0].name, 'Plank');
-  assert.ok(r.length > 3);
-  assert.ok(search(all, { q: 'suspension row' }).some((e) => e.ref === 'lib:trx_row'));
-  const chest = search(all, { part: 'chest', equipment: 'dumbbell' });
-  assert.ok(chest.length > 5 && chest.every((e) => e.primary.includes('chest') && e.equipment === 'dumbbell'));
+  const owners = new Map<string, string>();
+  for (const e of all) for (const a of e.aliases ?? []) {
+    assert.ok(!owners.has(a.toLowerCase()) || owners.get(a.toLowerCase()) === e.ref, `"${a}" belongs to two exercises`);
+    owners.set(a.toLowerCase(), e.ref);
+  }
+  let checked = 0;
+  for (const [a, ref] of owners) {
+    if (all.some((e) => e.name.toLowerCase() === a)) continue; // another exercise's exact name wins
+    assert.equal(search(all, { q: a })[0]?.ref, ref, `searching "${a}"`);
+    checked++;
+  }
+  assert.ok(checked > 5000, `checked ${checked}`);
+  assert.equal(search(all, { q: 'standing fallout' })[0].name, 'TRX Standing Rollout');
+  assert.equal(search(all, { q: 'trx fallout' })[0].name, 'TRX Standing Rollout');
+  assert.equal(search(all, { q: 'bench press' })[0].name, 'Barbell Bench Press');
+});
+
+test('search filters by body part, equipment and category', () => {
+  const all = builtIn();
+  const chest = search(all, { part: 'chest', equipment: 'Dumbbell' });
+  assert.ok(chest.length > 10 && chest.every((e) => e.primary.some((m) => /chest/i.test(m)) && e.gear?.includes('Dumbbell')));
+  assert.ok(search(all, { part: 'legs', category: 'corrective' }).some((e) => e.name === 'Quad Set'));
+  assert.ok(search(all, { equipment: 'suspension trainer (trx)' }).length > 100);
   assert.equal(search(all, { q: 'zzzz nothing' }).length, 0);
 });
 
-test('lookups and video thumbnails', () => {
+test('workouts saved with the earlier library still open', () => {
   assert.equal(byRef('lib:trx_row')?.name, 'Suspension Row');
+  assert.ok(byRef('lib:Pushups')?.legacy && byRef('lib:Pushups')?.images.length);
+  assert.equal(byRef('lib:c-push-up')?.name, 'Push-Up');
+  assert.equal(byRef('lib:does-not-exist'), undefined);
   assert.equal(byRef('my:x', [{ ref: 'my:x', name: 'Mine' } as never])?.name, 'Mine');
+});
+
+test('starting metric follows the movement pattern', () => {
+  const by = (n: string) => builtIn().find((e) => e.name === n)!;
+  assert.equal(defaultMetric(by('Forearm Plank')), 'time');
+  assert.equal(defaultMetric(by("Farmer's Walk")), 'distance');
+  assert.equal(defaultMetric(by('Glute Bridge')), 'reps');
+  assert.equal(defaultMetric(by('Push-Up')), 'reps');
+});
+
+test('names and video thumbnails', () => {
+  assert.equal(titleCase('middle back'), 'Middle Back');
+  assert.equal(titleCase('Feet and ankles'), 'Feet and ankles');
   assert.equal(youTubeThumb('https://youtu.be/dQw4w9WgXcQ'), 'https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
   assert.equal(youTubeThumb('https://www.youtube.com/shorts/dQw4w9WgXcQ?x=1'), 'https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
   assert.equal(youTubeThumb('https://example.com/video.mp4'), null);
 });
 
-test('alternatives: trainer picks first, then similar moves for the same muscle', async () => {
-  const { alternativesFor, builtIn } = await import('./library');
-  const bench = builtIn().find((e) => /^Barbell Bench Press/i.test(e.name))!;
+test('alternatives: trainer picks first, then similar moves for the same muscle and pattern', () => {
+  const bench = builtIn().find((e) => e.name === 'Barbell Bench Press')!;
   const alts = alternativesFor(bench);
-  assert.ok(alts.length > 0 && alts.length <= 6);
-  assert.ok(alts.every((e) => e.ref !== bench.ref && e.primary.includes('chest')));
-  const pick = builtIn().find((e) => e.name === 'Pushups')!;
+  assert.equal(alts.length, 6);
+  assert.ok(alts.every((e) => e.ref !== bench.ref && e.primary.includes('Chest') && e.pattern === 'Horizontal push'));
+  const pick = builtIn().find((e) => e.name === 'Push-Up')!;
   const mine = { ...bench, ref: 'my:x', mine: true, alts: [pick.ref, 'lib:does-not-exist'] };
   const withPick = alternativesFor(mine);
   assert.equal(withPick[0].ref, pick.ref);

@@ -9,7 +9,7 @@ import { Sheet } from '@/components/sheet';
 import { Button, Chip, Field, Icon, Txt, useToast } from '@/components/ui';
 import { coverUrl } from '@/components/cover';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
+import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
 import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
@@ -90,10 +90,18 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
           ))}
         </View>
       )}
+      {full?.aliases?.length ? <Txt v="small" style={{ marginBottom: 8 }}>Also called: {full.aliases.join(', ')}</Txt> : null}
       {full && (
         <Txt v="small" style={{ marginBottom: 8 }}>{[full.primary.map(titleCase).join(', '), titleCase(full.equipment), full.level && titleCase(full.level)].filter(Boolean).join(' · ')}</Txt>
       )}
       {full?.secondary.length ? <Txt v="small" style={{ marginBottom: 8 }}>Also works: {full.secondary.map(titleCase).join(', ')}</Txt> : null}
+      {full?.pattern ? <Txt v="small" style={{ marginBottom: 8 }}>{[full.category, full.kind, full.pattern].filter(Boolean).join(' · ')}</Txt> : null}
+      {full?.how && ([['Setup', full.how.setup], ['Movement and return', full.how.move], ['Key cues', full.how.cues]] as const).filter(([, s]) => s).map(([h, s]) => (
+        <View key={h} style={{ marginTop: 8 }}>
+          <Txt v="bold" style={{ fontSize: 15, marginBottom: 4 }}>{h}</Txt>
+          <Txt style={{ marginBottom: 4 }}>{s}</Txt>
+        </View>
+      ))}
       {(full?.steps ?? []).map((s, i) => <Txt key={i} style={{ marginBottom: 8 }}>{full?.mine ? s : `${i + 1}. ${s}`}</Txt>)}
     </Sheet>
   );
@@ -227,8 +235,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   );
 }
 
-const MUSCLE_CHOICES = ['chest', 'shoulders', 'biceps', 'triceps', 'forearms', 'lats', 'middle back', 'lower back', 'traps', 'abdominals', 'obliques',
-  'quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors', 'hip flexors', 'neck', 'full body'];
+const MUSCLE_CHOICES = MUSCLES;
 
 /** Create or edit one of the trainer's own exercises: details, muscles, equipment, demo video and image, and alternatives. */
 export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visible: boolean; onClose: () => void; onSaved: () => void; initial?: MyExercise }) {
@@ -237,7 +244,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
   const app = useApp();
   const { mine } = useMyExercises(app.trainer?.user_id);
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('strength');
+  const [category, setCategory] = useState('Bodyweight');
   const [metric, setMetric] = useState<SetMetric>('reps');
   const [steps, setSteps] = useState('');
   const [main, setMain] = useState<string | null>(null);
@@ -250,7 +257,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
   const [busy, setBusy] = useState<string | null>(null);
   useEffect(() => {
     if (!visible) return;
-    setName(initial?.name ?? ''); setCategory(initial?.category ?? 'strength'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
+    setName(initial?.name ?? ''); setCategory(initial?.category ?? 'Bodyweight'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
     setMain(initial?.muscles[0] ?? null); setOther(initial?.secondary_muscles ?? []); setEquipment(initial?.equipment ?? []);
     setVideo(initial?.video_url ?? ''); setImage(initial?.image_path ?? null); setAlts(initial?.alternatives ?? []);
   }, [visible, initial]);

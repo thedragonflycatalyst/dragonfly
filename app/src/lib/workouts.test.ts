@@ -8,11 +8,11 @@ import { addSet, cloneBlocks, estimateMinutes, fmtSeconds, linkNext, move, newBl
 const lib = (name: string) => builtIn().find((e) => e.name === name)!;
 
 test('new blocks get sensible starting sets', () => {
-  const squat = newBlock(lib('Barbell Squat'));
+  const squat = newBlock(lib('Barbell High-Bar Back Squat'));
   assert.equal(squat.metric, 'reps');
   assert.equal(squat.sets.length, 3);
-  assert.equal(squat.ex.id, 'Barbell_Squat');
-  assert.equal(newBlock(lib('Plank')).metric, 'time');
+  assert.equal(squat.ex.id, 'c-barbell-high-bar-back-squat');
+  assert.equal(newBlock(lib('Forearm Plank')).metric, 'time');
   const more = addSet(squat);
   assert.equal(more.sets.length, 4);
   assert.notEqual(more.sets[3], more.sets[2], 'added set is a copy, not the same object');
@@ -20,7 +20,7 @@ test('new blocks get sensible starting sets', () => {
 });
 
 test('supersets link neighbors, stay unbroken and label A, B…', () => {
-  let blocks: WorkoutBlock[] = ['Barbell Squat', 'Pushups', 'Plank', 'Crunches', 'Dead Bug'].map((n) => newBlock(lib(n)));
+  let blocks: WorkoutBlock[] = ['Barbell High-Bar Back Squat', 'Push-Up', 'Forearm Plank', 'Crunch', 'Dead Bug'].map((n) => newBlock(lib(n)));
   blocks = linkNext(blocks, 0);
   assert.deepEqual(supersetLabels(blocks), ['A', 'A', null, null, null]);
   blocks = linkNext(blocks, 1); // plank joins: the superset grows
@@ -41,7 +41,7 @@ test('supersets link neighbors, stay unbroken and label A, B…', () => {
 test('moving, cloning and timing', () => {
   assert.deepEqual(move([1, 2, 3], 0, 2), [2, 3, 1]);
   assert.deepEqual(move([1, 2, 3], 0, -1), [1, 2, 3]);
-  const blocks = [newBlock(lib('Pushups'))];
+  const blocks = [newBlock(lib('Push-Up'))];
   const copy = cloneBlocks(blocks);
   assert.notEqual(copy[0].id, blocks[0].id);
   (copy[0] as ExerciseBlock).sets[0].reps = '99';
