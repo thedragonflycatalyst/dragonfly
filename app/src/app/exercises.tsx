@@ -6,7 +6,7 @@ import { Sheet } from '@/components/sheet';
 import { Button, Chip, Icon, Txt, useToast } from '@/components/ui';
 import { ExerciseInfo, ExerciseThumb, MyExerciseEditor, toLib } from '@/features/exercises';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, EQUIPMENT, MY_CATEGORIES, search, titleCase, type LibExercise } from '@/lib/library';
+import { BODY_PARTS, builtIn, CATEGORIES, EQUIPMENT, search, titleCase, type LibExercise } from '@/lib/library';
 import { errText, type MyExercise } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { F, MAX_W, R, usePalette } from '@/lib/theme';
@@ -118,7 +118,7 @@ export default function Exercises() {
         </View>
         <Txt v="smallBold" style={{ marginBottom: 8 }}>Category</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-          {MY_CATEGORIES.map((x) => <Chip key={x} label={titleCase(x)} selected={category === x} onPress={() => setCategory(category === x ? null : x)} />)}
+          {CATEGORIES.map((x) => <Chip key={x} label={titleCase(x)} selected={category === x} onPress={() => setCategory(category === x ? null : x)} />)}
         </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Button title="Done" onPress={() => setFiltering(false)} />
