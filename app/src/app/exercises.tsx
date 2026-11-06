@@ -87,7 +87,7 @@ export default function Exercises() {
             return (
               <Pressable accessibilityRole={selecting ? 'checkbox' : 'button'} accessibilityState={selecting ? { checked: on } : undefined} accessibilityLabel={e.name} onPress={() => tap(e)}
                 style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.line, opacity: pressed ? 0.6 : 1 })}>
-                <ExerciseThumb img={e.images[0]} video={e.video} size={56} />
+                <ExerciseThumb img={e.images[0]} video={e.video} size={56} ex={e} />
                 <View style={{ flex: 1 }}>
                   <Txt v="bold">{e.name}</Txt>
                   <Txt v="small">{[e.primary.map(titleCase).join(', '), titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>

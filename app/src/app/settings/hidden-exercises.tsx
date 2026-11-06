@@ -20,7 +20,7 @@ export default function HiddenExercises() {
       {list.length > 0 && <Card style={{ padding: 0 }}>
         {list.map(({ ref, e }, i) => (
           <View key={ref} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderTopWidth: i ? 1 : 0, borderTopColor: 'rgba(127,127,127,.2)' }}>
-            <ExerciseThumb img={e?.images[0]} video={e?.video} size={48} />
+            <ExerciseThumb img={e?.images[0]} video={e?.video} size={48} ex={e} />
             <Txt v="bold" style={{ flex: 1 }}>{e?.name ?? 'Removed exercise'}</Txt>
             <Button small kind="ghost" title="Show again" onPress={() => toggle(ref, false).then(() => toast(`${e?.name ?? 'It'} is back in your lists`), (x: unknown) => toast(errText(x), false))} />
           </View>

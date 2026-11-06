@@ -17,7 +17,7 @@ import { usePalette } from '@/lib/theme';
 
 type Group = { key: string; title: string; icon: AndroidSymbol; items: [string, string, string][] };
 const GROUPS: Group[] = [
-  { key: 'general', title: 'General', icon: 'person', items: [['My details', 'Name, address, time zone, birthday', '/settings/details'], ['Account', 'Picture, email, password, devices', '/account']] },
+  { key: 'general', title: 'General', icon: 'person', items: [['My details', 'Name, address, time zone, birthday', '/settings/details'], ['Account', 'Picture, email, password, devices', '/account'], ['Credentials', 'Your certifications, renewals and what to earn next', '/credentials']] },
   { key: 'custom', title: 'Customisation', icon: 'star', items: [['Branding', 'Your logo and colour in your clients’ app', '/settings/branding']] },
   { key: 'features', title: 'Feature settings', icon: 'notifications', items: [['Notifications', 'What you’re told about, and how', '/settings/notifications'], ['Unit of measurement', 'Weights, bodyweight, lengths, distance', '/settings/units'], ['Rest timer · Lapis', 'Voice, bell, countdown and music during workouts', '/settings/rest-timer'], ['Permissions', 'What clients (and your trainers) can do', '/settings/permissions'], ['Hidden exercises', 'Library exercises you’ve hidden from your lists', '/settings/hidden-exercises']] },
   { key: 'money', title: 'Payments & packages', icon: 'payments', items: [['Packages & vouchers', 'Session packs, memberships, discount codes', '/packages'], ['Payments', 'Income, payments, refunds, subscriptions', '/financials']] },

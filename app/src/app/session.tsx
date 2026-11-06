@@ -199,7 +199,7 @@ export default function Session() {
             return (
               <Card key={e.block_id} style={{ gap: 10 }}>
                 <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`${e.ex?.name ?? 'Exercise'} details`} onPress={() => e.ex && setInfo(e.ex)}><ExerciseThumb img={e.ex?.img} video={e.ex?.video} size={52} /></Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`${e.ex?.name ?? 'Exercise'} details`} onPress={() => e.ex && setInfo(e.ex)}><ExerciseThumb img={e.ex?.img} video={e.ex?.video} size={52} ex={e.ex ? byRef(`${e.ex.src}:${e.ex.id}`) ?? { name: e.ex.name } : null} /></Pressable>
                   <View style={{ flex: 1 }}>
                     <Txt v="h3">{e.ex?.name ?? 'Exercise'}</Txt>
                     {e.swapped_from ? <Txt v="small">Instead of {e.swapped_from}</Txt> : null}
@@ -390,7 +390,7 @@ function SwapSheet({ entry, trainerId, workoutTitle, past, onClose, onSwap }: {
           ) : null}
         <Pressable accessibilityRole="button" accessibilityLabel={`Swap to ${e.name}`} onPress={() => onSwap(e, forGood)}
           style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.line, opacity: pressed ? 0.6 : 1 })}>
-          <ExerciseThumb img={e.images[0]} video={e.video} size={52} />
+          <ExerciseThumb img={e.images[0]} video={e.video} size={52} ex={e} />
           <View style={{ flex: 1 }}>
             <Txt v="bold">{e.name}</Txt>
             <Txt v="small">{[chosen.has(e.ref) ? 'Picked by your trainer' : null, why || null, titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>

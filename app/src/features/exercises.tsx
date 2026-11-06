@@ -9,6 +9,8 @@ import { Toggle } from '@/components/pickers';
 import { Sheet } from '@/components/sheet';
 import { Button, Chip, Field, Icon, Txt, useToast } from '@/components/ui';
 import { coverUrl } from '@/components/cover';
+import { WORKOUT_IMAGES } from '@/lib/art';
+import { exerciseArt } from '@/lib/art-match';
 import { useApp } from '@/lib/app-state';
 import { BODY_PARTS, builtIn, byRef, EQUIPMENT, groupFamilies, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise, type ListItem } from '@/lib/library';
 import { errText, type GalleryItem, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
@@ -41,7 +43,11 @@ export function useMyExercises(trainerId: string | undefined) {
 }
 
 /** Square thumbnail: the exercise's start image, a video frame, or an icon. Shows a play badge when there's a video. */
-export function ExerciseThumb({ img, video, size = 64 }: { img?: string | null; video?: string | null; size?: number }) {
+/** An exercise's picture: its own image, else its demo video's frame, else a placeholder that fits the exercise (leg moves get
+ *  the legs picture, and so on) until a verified video is added */
+export function ExerciseThumb({ img, video, size = 64, ex }: {
+  img?: string | null; video?: string | null; size?: number; ex?: { name: string; category?: string; pattern?: string; primary?: string[]; gear?: string[] } | null;
+}) {
   const p = usePalette();
   const [stored, setStored] = useState<string | null>(null);
   useEffect(() => { if (img?.startsWith('media:')) coverUrl(img.slice(6)).then(setStored); else setStored(null); }, [img]);
@@ -49,6 +55,7 @@ export function ExerciseThumb({ img, video, size = 64 }: { img?: string | null; 
   return (
     <View style={{ width: size, height: size, borderRadius: R.sm, overflow: 'hidden', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
       {src ? <Image source={{ uri: src }} style={{ width: size, height: size }} contentFit="cover" transition={120} accessibilityIgnoresInvertColors />
+        : ex ? <Image source={WORKOUT_IMAGES[exerciseArt(ex)]} style={{ width: size, height: size, opacity: 0.85 }} contentFit="cover" accessibilityIgnoresInvertColors />
         : <Icon name="fitness_center" size={size * 0.42} color={p.muted} />}
       {video ? (
         <View style={{ position: 'absolute', width: size * 0.4, height: size * 0.4, borderRadius: size, backgroundColor: '#000a', alignItems: 'center', justifyContent: 'center' }}>
@@ -263,7 +270,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
     const on = picked.includes(e.ref);
     return (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: version ? 0 : 1, borderBottomColor: p.line }}>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${e.name} details`} onPress={() => setInfo(e)}><ExerciseThumb img={e.images[0]} video={e.video} size={version ? 48 : 56} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${e.name} details`} onPress={() => setInfo(e)}><ExerciseThumb img={e.images[0]} video={e.video} size={version ? 48 : 56} ex={e} /></Pressable>
         <Pressable accessibilityRole={single ? 'button' : 'checkbox'} accessibilityState={{ checked: on }} onPress={() => choose(e)} style={{ flex: 1, gap: 2 }}>
           <Txt v="bold">{version ? `${version}: ${e.name}` : e.name}</Txt>
           {fromScan ? (
@@ -362,7 +369,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
                 <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${item.name}, ${item.members.length} versions`}
                   onPress={() => setExpanded((x) => { const n = new Set(x); if (open) n.delete(item.key); else n.add(item.key); return n; })}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 }}>
-                  <ExerciseThumb img={lead.images[0]} video={lead.video} size={56} />
+                  <ExerciseThumb img={lead.images[0]} video={lead.video} size={56} ex={lead} />
                   <View style={{ flex: 1, gap: 2 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <Txt v="bold">{item.name}</Txt>
