@@ -18,11 +18,26 @@ export function utcToZoned(t: Date, tz: string) {
   return `${p.year}${p.month}${p.day}T${p.hour}${p.minute}${p.second}`;
 }
 
+// Outlook and Exchange feeds name zones the Windows way ("Eastern Standard Time"); map the common ones to IANA names.
+const WINDOWS_TZ: Record<string, string> = {
+  'Eastern Standard Time': 'America/New_York', 'US Eastern Standard Time': 'America/Indiana/Indianapolis', 'Central Standard Time': 'America/Chicago',
+  'Mountain Standard Time': 'America/Denver', 'US Mountain Standard Time': 'America/Phoenix', 'Pacific Standard Time': 'America/Los_Angeles',
+  'Alaskan Standard Time': 'America/Anchorage', 'Hawaiian Standard Time': 'Pacific/Honolulu', 'Atlantic Standard Time': 'America/Halifax',
+  'GMT Standard Time': 'Europe/London', 'Greenwich Standard Time': 'Atlantic/Reykjavik', 'W. Europe Standard Time': 'Europe/Berlin',
+  'Romance Standard Time': 'Europe/Paris', 'Central Europe Standard Time': 'Europe/Budapest', 'E. Europe Standard Time': 'Europe/Chisinau',
+  'UTC': 'UTC', 'Coordinated Universal Time': 'UTC',
+};
+/** An IANA zone for a TZID (Windows names mapped); unknown zones fall back to the calendar's own zone. */
+export function ianaZone(tz: string, fallback: string): string {
+  const t = WINDOWS_TZ[tz] ?? tz;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: t }); return t; } catch { return fallback; }
+}
+
 function parseStamp(v: string, params: string, fallbackTz: string): { at: Date; allDay: boolean } | null {
   const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
   if (!m) return null;
   const [y, mo, d] = [+m[1], +m[2], +m[3]];
-  const tz = params.match(/TZID=([^;:]+)/)?.[1]?.replace(/^"|"$/g, '') ?? fallbackTz;
+  const tz = ianaZone(params.match(/TZID=([^;:]+)/)?.[1]?.replace(/^"|"$/g, '') ?? fallbackTz, fallbackTz);
   if (!m[4]) return { at: zonedToUtc(y, mo, d, 0, 0, 0, fallbackTz), allDay: true };
   if (m[7]) return { at: new Date(Date.UTC(y, mo - 1, d, +m[4], +m[5], +m[6])), allDay: false };
   return { at: zonedToUtc(y, mo, d, +m[4], +m[5], +m[6], tz), allDay: false };
@@ -74,7 +89,7 @@ export function busyFromIcs(text: string, from: Date, to: Date, tz = 'UTC', max 
     const skip = new Set<number>(overrides.get(uid ?? '') ?? []);
     for (const x of e.EXDATE ?? []) for (const v of x.value.split(',')) { const s = parseStamp(v, x.params, tz); if (s) skip.add(s.at.getTime()); }
     // Walk the repeats in the event's own time zone so they keep their clock time across daylight saving
-    const ezone = ds.params.match(/TZID=([^;:]+)/)?.[1]?.replace(/^"|"$/g, '') ?? (ds.value.endsWith('Z') ? 'UTC' : tz);
+    const ezone = ianaZone(ds.params.match(/TZID=([^;:]+)/)?.[1]?.replace(/^"|"$/g, '') ?? (ds.value.endsWith('Z') ? 'UTC' : tz), tz);
     const w = utcToZoned(start.at, ezone);
     const [y0, m0, d0, hh, mm, ss] = [+w.slice(0, 4), +w.slice(4, 6), +w.slice(6, 8), +w.slice(9, 11), +w.slice(11, 13), +w.slice(13, 15)];
     const days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];

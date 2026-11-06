@@ -66,3 +66,15 @@ test('busyFromIcs reads a ClubAutomation staff feed (folded lines, TZID times, b
   assert.equal(blocked.ends_at, '2026-11-26T23:00:00.000Z');
   assert.equal(b.find((x) => x.title === 'MBP')!.starts_at, '2026-11-10T16:00:00.000Z');
 });
+
+test('busyFromIcs understands Outlook (Windows) time zone names', () => {
+  const ics = ['BEGIN:VCALENDAR', 'PRODID:Microsoft Exchange Server 2010', 'BEGIN:VEVENT', 'UID:o', 'SUMMARY:Staff meeting',
+    'DTSTART;TZID=Eastern Standard Time:20261112T090000', 'DTEND;TZID=Eastern Standard Time:20261112T100000', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:w', 'SUMMARY:Weekly', 'RRULE:FREQ=WEEKLY;COUNT=2', 'DTSTART;TZID=Eastern Standard Time:20261113T170000', 'DTEND;TZID=Eastern Standard Time:20261113T173000', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:x', 'SUMMARY:Odd zone', 'DTSTART;TZID=Made Up Zone:20261114T090000', 'DTEND;TZID=Made Up Zone:20261114T091500', 'END:VEVENT',
+    'END:VCALENDAR'].join('\r\n');
+  const b = busyFromIcs(ics, new Date('2026-11-01T00:00:00Z'), new Date('2026-12-31T00:00:00Z'), 'America/New_York');
+  assert.equal(b.find((x) => x.title === 'Staff meeting')!.starts_at, '2026-11-12T14:00:00.000Z');
+  assert.deepEqual(b.filter((x) => x.title === 'Weekly').map((x) => x.starts_at), ['2026-11-13T22:00:00.000Z', '2026-11-20T22:00:00.000Z']);
+  assert.equal(b.find((x) => x.title === 'Odd zone')!.starts_at, '2026-11-14T14:00:00.000Z'); // unknown zone → calendar's zone
+});

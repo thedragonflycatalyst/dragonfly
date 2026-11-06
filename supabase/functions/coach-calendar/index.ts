@@ -56,9 +56,13 @@ Deno.serve(async (req) => {
   if (body.action === 'refresh_all') {
     const { data: ok } = await admin.rpc('coach_cron_ok', { p: req.headers.get('x-cron-secret') ?? '' });
     if (ok !== true) return json(401, { error: 'unauthorized' });
-    const { data: list } = await admin.from('coach_trainer_details').select('user_id').not('busy_ics_url', 'is', null);
+    const [{ data: a }, { data: b }] = await Promise.all([
+      admin.from('coach_trainer_details').select('user_id').not('busy_ics_url', 'is', null),
+      admin.from('coach_calendar_feeds').select('trainer_id'),
+    ]);
+    const ids = new Set<string>([...(a ?? []).map((x: { user_id: string }) => x.user_id), ...(b ?? []).map((x: { trainer_id: string }) => x.trainer_id)]);
     const results: Record<string, unknown> = {};
-    for (const t of list ?? []) results[t.user_id] = await refresh(admin, t.user_id);
+    for (const t of ids) results[t] = await refresh(admin, t);
     return json(200, { trainers: results });
   }
 
@@ -69,33 +73,46 @@ Deno.serve(async (req) => {
   return json(r.status, r.status === 200 ? { blocks: r.blocks } : { error: r.error });
 });
 
-// Reads the trainer's linked calendar and swaps in its busy times in one step (never an empty gap a booking could slip into).
-// The result is recorded on coach_trainer_details (busy_synced_at / busy_error) so a feed that stops working is visible.
+// Refreshes every calendar the trainer linked (coach_calendar_feeds: ClubAutomation, Outlook, …). Each feed's busy times
+// are swapped in one step; a feed that fails keeps its last good times and records the error, so nothing opens up by mistake.
+// The single link from the Coach app's Connections screen (busy_ics_url) is added as a feed if it isn't one yet.
 // deno-lint-ignore no-explicit-any
-async function refresh(admin: any, tid: string): Promise<{ status: number; blocks?: number; error?: string }> {
+async function refresh(admin: any, tid: string): Promise<{ status: number; blocks?: number; error?: string; feeds?: unknown[] }> {
   const [{ data: det }, { data: tr }] = await Promise.all([
     admin.from('coach_trainer_details').select('busy_ics_url').eq('user_id', tid).maybeSingle(),
     admin.from('coach_trainers').select('timezone').eq('user_id', tid).maybeSingle(),
   ]);
-  const done = async (status: number, error: string | null, blocks?: number) => {
-    await admin.from('coach_trainer_details').update(error ? { busy_error: error } : { busy_error: null, busy_synced_at: new Date().toISOString() }).eq('user_id', tid);
-    return error ? { status, error } : { status, blocks };
-  };
   if (!tr) return { status: 403, error: 'not_a_trainer' };
-  if (!det?.busy_ics_url) { await admin.rpc('coach_replace_busy', { p_trainer: tid, p_rows: [] }); return { status: 200, blocks: 0 }; }
-  const link = calendarUrl(det.busy_ics_url);
-  if (!link) return done(400, 'calendar_link_not_allowed');
+  if (det?.busy_ics_url) {
+    await admin.from('coach_calendar_feeds').upsert({ trainer_id: tid, label: 'Linked calendar', url: det.busy_ics_url }, { onConflict: 'trainer_id,url', ignoreDuplicates: true });
+  }
+  const { data: feeds } = await admin.from('coach_calendar_feeds').select('id,label,url').eq('trainer_id', tid);
+  const out: unknown[] = [];
+  let total = 0, failed = 0;
+  for (const f of feeds ?? []) {
+    const r = await refreshFeed(admin, f, tr.timezone || 'UTC');
+    if (r.error) { failed++; await admin.from('coach_calendar_feeds').update({ error: r.error }).eq('id', f.id); }
+    else total += r.blocks ?? 0;
+    out.push({ label: f.label, ...r });
+  }
+  if (failed) await admin.from('coach_trainer_details').update({ busy_error: `${failed}_feed${failed > 1 ? 's' : ''}_failing` }).eq('user_id', tid);
+  return { status: failed && failed === (feeds ?? []).length ? 502 : 200, blocks: total, feeds: out, ...(failed ? { error: 'some_feeds_failing' } : {}) };
+}
+
+// deno-lint-ignore no-explicit-any
+async function refreshFeed(admin: any, f: { id: string; url: string }, tz: string): Promise<{ blocks?: number; error?: string }> {
+  const link = calendarUrl(f.url);
+  if (!link) return { error: 'calendar_link_not_allowed' };
   let text = '';
   try {
     const res = await fetch(link, { redirect: 'error', headers: { 'cache-control': 'no-cache', pragma: 'no-cache' }, signal: AbortSignal.timeout(20_000) });
-    if (!res.ok) return done(502, `calendar_unreachable_${res.status}`);
-    const len = Number(res.headers.get('content-length') ?? 0);
-    if (len > 8_000_000) return done(413, 'calendar_too_big');
+    if (!res.ok) return { error: `calendar_unreachable_${res.status}` };
+    if (Number(res.headers.get('content-length') ?? 0) > 8_000_000) return { error: 'calendar_too_big' };
     text = await res.text();
-    if (text.length > 8_000_000 || !text.includes('BEGIN:VCALENDAR')) return done(502, 'calendar_unreachable');
-  } catch { return done(502, 'calendar_unreachable'); }
-  const blocks = busyFromIcs(text, new Date(Date.now() - DAY), new Date(Date.now() + 90 * DAY), tr.timezone || 'UTC', 3000);
-  const { error } = await admin.rpc('coach_replace_busy', { p_trainer: tid, p_rows: blocks });
-  if (error) { console.error(error.message); return done(500, 'save_failed'); }
-  return done(200, null, blocks.length);
+    if (text.length > 8_000_000 || !text.includes('BEGIN:VCALENDAR')) return { error: 'calendar_unreachable' };
+  } catch { return { error: 'calendar_unreachable' }; }
+  const blocks = busyFromIcs(text, new Date(Date.now() - DAY), new Date(Date.now() + 90 * DAY), tz, 3000);
+  const { data: n, error } = await admin.rpc('coach_replace_feed_busy', { p_feed: f.id, p_rows: blocks });
+  if (error) { console.error(error.message); return { error: 'save_failed' }; }
+  return { blocks: n ?? blocks.length };
 }
