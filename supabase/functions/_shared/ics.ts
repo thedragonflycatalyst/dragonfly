@@ -136,6 +136,6 @@ export function calendarUrl(raw: string): string | null {
   let u: URL;
   try { u = new URL(raw.trim().replace(/^webcals?:\/\//i, 'https://')); } catch { return null; }
   if (u.protocol !== 'https:' || u.port || u.username || u.password) return null;
-  const ok = /^(calendar\.google\.com|outlook\.office365\.com|outlook\.live\.com|outlook\.office\.com|[a-z0-9-]+\.icloud\.com|calendar\.zoho\.(com|eu)|calendar\.proton\.me|calendar\.yahoo\.com|export\.calendar\.yandex\.com|calendar\.fastmail\.com|ical\.mac\.com)$/i;
+  const ok = /^(calendar\.google\.com|outlook\.office365\.com|outlook\.live\.com|outlook\.office\.com|[a-z0-9-]+\.icloud\.com|calendar\.zoho\.(com|eu)|calendar\.proton\.me|calendar\.yahoo\.com|export\.calendar\.yandex\.com|calendar\.fastmail\.com|ical\.mac\.com|[a-z0-9-]+\.clubautomation\.com)$/i;
   return ok.test(u.hostname) ? u.toString() : null;
 }

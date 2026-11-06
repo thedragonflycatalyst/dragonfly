@@ -2,6 +2,7 @@
 //
 // GET  ?token=…                 → .ics feed of sessions and events (subscribe from Google, Outlook or Apple Calendar)
 // POST { action: 'refresh_busy' } → fetches the trainer's private calendar link and blocks those times for client bookings
+// POST { action: 'refresh_all' } + x-cron-secret → the same for every trainer with a linked calendar (pg_cron, every 5 min)
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0';
 import { buildIcs, busyFromIcs, calendarUrl, type FeedItem } from '../_shared/ics.ts';
 
@@ -47,35 +48,54 @@ Deno.serve(async (req) => {
   }
 
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
-  const { data: me } = await admin.auth.getUser((req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, ''));
-  if (!me?.user) return json(401, { error: 'sign_in_required' });
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json(400, { error: 'bad_request' }); }
-  if (body.action !== 'refresh_busy') return json(400, { error: 'bad_request' });
 
-  const tid = me.user.id; // only the trainer themselves (not a team viewer) refreshes their own calendar
+  // Every 5 minutes (pg_cron job coach-busy-refresh): refresh every trainer who linked a calendar, so moved and
+  // cancelled appointments (e.g. ClubAutomation) reach the website's booking calendar within minutes.
+  if (body.action === 'refresh_all') {
+    const { data: ok } = await admin.rpc('coach_cron_ok', { p: req.headers.get('x-cron-secret') ?? '' });
+    if (ok !== true) return json(401, { error: 'unauthorized' });
+    const { data: list } = await admin.from('coach_trainer_details').select('user_id').not('busy_ics_url', 'is', null);
+    const results: Record<string, unknown> = {};
+    for (const t of list ?? []) results[t.user_id] = await refresh(admin, t.user_id);
+    return json(200, { trainers: results });
+  }
+
+  const { data: me } = await admin.auth.getUser((req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, ''));
+  if (!me?.user) return json(401, { error: 'sign_in_required' });
+  if (body.action !== 'refresh_busy') return json(400, { error: 'bad_request' });
+  const r = await refresh(admin, me.user.id); // only the trainer themselves (not a team viewer) refreshes their own calendar
+  return json(r.status, r.status === 200 ? { blocks: r.blocks } : { error: r.error });
+});
+
+// Reads the trainer's linked calendar and swaps in its busy times in one step (never an empty gap a booking could slip into).
+// The result is recorded on coach_trainer_details (busy_synced_at / busy_error) so a feed that stops working is visible.
+// deno-lint-ignore no-explicit-any
+async function refresh(admin: any, tid: string): Promise<{ status: number; blocks?: number; error?: string }> {
   const [{ data: det }, { data: tr }] = await Promise.all([
     admin.from('coach_trainer_details').select('busy_ics_url').eq('user_id', tid).maybeSingle(),
     admin.from('coach_trainers').select('timezone').eq('user_id', tid).maybeSingle(),
   ]);
-  if (!tr) return json(403, { error: 'not_a_trainer' });
-  if (!det?.busy_ics_url) { await admin.from('coach_external_busy').delete().eq('trainer_id', tid); return json(200, { blocks: 0 }); }
+  const done = async (status: number, error: string | null, blocks?: number) => {
+    await admin.from('coach_trainer_details').update(error ? { busy_error: error } : { busy_error: null, busy_synced_at: new Date().toISOString() }).eq('user_id', tid);
+    return error ? { status, error } : { status, blocks };
+  };
+  if (!tr) return { status: 403, error: 'not_a_trainer' };
+  if (!det?.busy_ics_url) { await admin.rpc('coach_replace_busy', { p_trainer: tid, p_rows: [] }); return { status: 200, blocks: 0 }; }
   const link = calendarUrl(det.busy_ics_url);
-  if (!link) return json(400, { error: 'calendar_link_not_allowed' });
+  if (!link) return done(400, 'calendar_link_not_allowed');
   let text = '';
   try {
-    const res = await fetch(link, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) return json(502, { error: 'calendar_unreachable' });
+    const res = await fetch(link, { redirect: 'error', headers: { 'cache-control': 'no-cache', pragma: 'no-cache' }, signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return done(502, `calendar_unreachable_${res.status}`);
     const len = Number(res.headers.get('content-length') ?? 0);
-    if (len > 8_000_000) return json(413, { error: 'calendar_too_big' });
+    if (len > 8_000_000) return done(413, 'calendar_too_big');
     text = await res.text();
-    if (text.length > 8_000_000 || !text.includes('BEGIN:VCALENDAR')) return json(502, { error: 'calendar_unreachable' });
-  } catch { return json(502, { error: 'calendar_unreachable' }); }
-  const blocks = busyFromIcs(text, new Date(), new Date(Date.now() + 60 * DAY), tr.timezone || 'UTC', 1500);
-  await admin.from('coach_external_busy').delete().eq('trainer_id', tid);
-  for (let i = 0; i < blocks.length; i += 500) {
-    const { error } = await admin.from('coach_external_busy').insert(blocks.slice(i, i + 500).map((b) => ({ ...b, trainer_id: tid })));
-    if (error) { console.error(error.message); return json(500, { error: 'save_failed' }); }
-  }
-  return json(200, { blocks: blocks.length });
-});
+    if (text.length > 8_000_000 || !text.includes('BEGIN:VCALENDAR')) return done(502, 'calendar_unreachable');
+  } catch { return done(502, 'calendar_unreachable'); }
+  const blocks = busyFromIcs(text, new Date(Date.now() - DAY), new Date(Date.now() + 90 * DAY), tr.timezone || 'UTC', 3000);
+  const { error } = await admin.rpc('coach_replace_busy', { p_trainer: tid, p_rows: blocks });
+  if (error) { console.error(error.message); return done(500, 'save_failed'); }
+  return done(200, null, blocks.length);
+}
