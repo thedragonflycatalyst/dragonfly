@@ -1,9 +1,9 @@
 // coach-machine-scan: name the gym machine or equipment in a photo and the exercises done on it, so the exercise picker can
 // show the matching library moves (with their demo videos) to someone who doesn't know what the machine is called.
 //
-// POST { image: base64 JPEG, gear: string[] }  (Authorization: a Dragonfly session; trainers and active clients only)
-//   gear: the app's equipment list, so the answer uses the same names
-// → { machine, brand, gear: string[], exercises: string[] }  (machine '' when no equipment is in view). Nothing is saved.
+// POST { image: base64 JPEG, gear: string[], machines?: string[] }  (Authorization: a Dragonfly session; trainers and active clients only)
+//   gear: the app's equipment list, so the answer uses the same names; machines: the app's machine catalog as "id: name (also: …)"
+// → { id, machine, brand, gear: string[], exercises: string[] }  (id: the closest catalog machine, or '')  (machine '' when no equipment is in view). Nothing is saved.
 // Needs the ANTHROPIC_API_KEY secret (answers { error: 'not_configured' } without it). DAILY_LIMIT scans per person per day.
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0';
 
@@ -24,6 +24,7 @@ const TOOL = {
   input_schema: {
     type: 'object',
     properties: {
+      machine_id: { type: 'string', description: 'The id of the closest machine in the catalog (the same kind of machine from any brand counts), or empty when none is close.' },
       machine: { type: 'string', description: 'Common name of the main machine or equipment in view, e.g. "Seated leg curl machine". Empty when there is none.' },
       brand: { type: 'string', description: 'Brand or model if printed on it, else empty.' },
       gear: { type: 'array', items: { type: 'string' }, description: 'The equipment it is, chosen only from the allowed list.' },
@@ -53,10 +54,12 @@ Deno.serve(async (req) => {
   ]);
   if (!trainer && !client) return reply(403, { error: 'not_allowed' });
 
-  let body: { image?: unknown; gear?: unknown };
+  let body: { image?: unknown; gear?: unknown; machines?: unknown };
   try { body = await req.json(); } catch { return reply(400, { error: 'bad_request' }); }
   const image = typeof body.image === 'string' ? body.image.replace(/^data:image\/\w+;base64,/, '') : '';
   if (!image || image.length > MAX_IMAGE || !/^[A-Za-z0-9+/=\s]+$/.test(image)) return reply(400, { error: 'bad_image' });
+  const catalog = Array.isArray(body.machines) ? body.machines.filter((g): g is string => typeof g === 'string').slice(0, 200).map((g) => g.slice(0, 300)) : [];
+  const ids = new Set(catalog.map((c) => c.split(':')[0].trim()));
   const allowed = Array.isArray(body.gear) ? body.gear.filter((g): g is string => typeof g === 'string').slice(0, 120).map((g) => g.slice(0, 40)) : [];
 
   const since = new Date(Date.now() - 86_400_000).toISOString();
@@ -69,7 +72,7 @@ Deno.serve(async (req) => {
     headers: { 'x-api-key': aiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     body: JSON.stringify({
       model: Deno.env.get('AI_MODEL') ?? 'claude-sonnet-5-5',
-      max_tokens: 800,
+      max_tokens: 900,
       tools: [TOOL],
       // Newer models don't accept a forced tool, so ask for it and allow it
       tool_choice: { type: 'auto' },
@@ -78,7 +81,7 @@ Deno.serve(async (req) => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
-          { type: 'text', text: `Someone in a gym pointed their phone at a machine or piece of equipment they want to use, possibly not knowing its name. Identify the main equipment in the centre of the photo (use any printed name, brand, placard or exercise diagram on it). List the exercises done on exactly that equipment, most common first: its main exercise, its usual variations (stance, foot position, grip, facing the other way, single-limb) and other moves people commonly use it for (e.g. calf raises on a leg press or hack squat). Use plain standard names a trainer would use. Allowed equipment names for "gear": ${JSON.stringify(allowed)}. If no gym equipment is in view, set machine to "" and both lists empty.` },
+          { type: 'text', text: `Someone in a gym pointed their phone at a machine or piece of equipment they want to use, possibly not knowing its name. Identify the main equipment in the centre of the photo (use any printed name, brand, placard or exercise diagram on it). List the exercises done on exactly that equipment, most common first: its main exercise, its usual variations (stance, foot position, grip, facing the other way, single-limb) and other moves people commonly use it for (e.g. calf raises on a leg press or hack squat). Use plain standard names a trainer would use. Allowed equipment names for "gear": ${JSON.stringify(allowed)}.${catalog.length ? `\nMachine catalog for machine_id (pick the closest; the same kind of machine from another brand or with a slightly different design counts):\n${catalog.join('\n')}` : ''} If no gym equipment is in view, set machine and machine_id to "" and both lists empty.` },
         ],
       }],
     }),
@@ -88,7 +91,9 @@ Deno.serve(async (req) => {
   const got = (out.content ?? []).find((c: { type: string }) => c.type === 'tool_use')?.input ?? {};
   const list = (v: unknown, n: number) => (Array.isArray(v) ? v.map((x) => str(x, 80)).filter(Boolean).slice(0, n) : []);
   const ok = new Set(allowed.map((g) => g.toLowerCase()));
+  const id = str(got.machine_id, 60);
   return reply(200, {
+    id: ids.has(id) ? id : '',
     machine: str(got.machine, 80), brand: str(got.brand, 60),
     gear: list(got.gear, 6).filter((g) => !ok.size || ok.has(g.toLowerCase())),
     exercises: list(got.exercises, 15),

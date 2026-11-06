@@ -1,9 +1,13 @@
 // Turns what the AI saw in a gym-equipment photo into exercises from the library, so a trainer or client can scan a machine
 // they don't know the name of and pick the move (with its demo video).
+import { MACHINES } from '../data/machines';
 import { search, uses, type LibExercise } from './library';
 
-/** What the machine scanner reads from one photo */
-export type MachineRead = { machine: string; brand: string; gear: string[]; exercises: string[] };
+/** What the machine scanner reads from one photo. id: the closest machine in MACHINES, or '' when none is close. */
+export type MachineRead = { id?: string; machine: string; brand: string; gear: string[]; exercises: string[] };
+
+/** The machine list the scanner's AI chooses from */
+export const machineChoices = () => MACHINES.map((m) => `${m.id}: ${m.name}${m.aliases.length ? ` (also: ${m.aliases.join(', ')})` : ''}`);
 
 /** Equipment too common to say much about the machine on its own */
 const BROAD = new Set(['bodyweight', 'machine', 'bench', 'weight plate', 'mat', 'wall', 'other', 'dumbbell', 'barbell']);
@@ -20,24 +24,32 @@ function best(all: LibExercise[], name: string): LibExercise | undefined {
 }
 
 /**
- * Library exercises for the scanned equipment, best first: the exercises the AI named (in its order), then variations of the
- * machine itself, then (only when that found little) other moves on the same specific equipment. At most `n`.
+ * Library exercises for the scanned equipment, best first. For a machine in MACHINES: every exercise listed for it, then any
+ * other ones the AI named. Otherwise: the exercises the AI named, then variations of the machine's name, then (only when
+ * that found little) other moves on the same specific equipment. At most `n`.
  */
-export function matchMachine(read: MachineRead, all: LibExercise[], n = 30): LibExercise[] {
+export function matchMachine(read: MachineRead, all: LibExercise[], n = 60): LibExercise[] {
   return machineMatches(read, all, n).list;
 }
 
 /** Same as matchMachine, plus the moves the AI named that the library doesn't have yet (shown as text, no demo) */
-export function machineMatches(read: MachineRead, all: LibExercise[], n = 30): { list: LibExercise[]; extra: string[] } {
+export function machineMatches(read: MachineRead, all: LibExercise[], n = 60): { list: LibExercise[]; extra: string[] } {
   const out = new Map<string, LibExercise>();
   const extra: string[] = [];
   const add = (e: LibExercise | undefined) => { if (e && !e.legacy && out.size < n) out.set(e.ref, e); };
+  // A known machine: its whole list of exercises and variations
+  const known = MACHINES.find((m) => m.id === read.id);
+  if (known) {
+    for (const name of known.ex) add(all.find((e) => !e.legacy && e.name === name));
+    const more = known.more;
+    if (more) for (const e of all) if (uses(e, more.gear) && (!more.named || more.named.test(e.name))) add(e);
+  }
   for (const name of read.exercises) { const e = best(all, name); if (e) add(e); else if (!extra.includes(name)) extra.push(name); }
   // Variations of the machine itself ("Leg Press" → narrow, wide, high-foot leg press…)
-  const core = read.machine.replace(FILLER, ' ').replace(/\s+/g, ' ').trim();
+  const core = known ? '' : read.machine.replace(FILLER, ' ').replace(/\s+/g, ' ').trim();
   if (core) for (const e of search(all, { q: core })) add(e);
   // Still little to go on: other moves on the same specific equipment
   const specific = read.gear.filter((g) => !BROAD.has(g.toLowerCase()));
-  if (out.size < 4 && specific.length) for (const e of all) if (specific.some((g) => uses(e, g))) add(e);
+  if (!known && out.size < 4 && specific.length) for (const e of all) if (specific.some((g) => uses(e, g))) add(e);
   return { list: [...out.values()], extra };
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { builtIn } from './library.ts';
+import { MACHINES } from '../data/machines.ts';
 import { machineMatches, matchMachine } from './machine-match.ts';
 
 const all = builtIn();
@@ -30,4 +31,22 @@ test('every variation of the machine shows, and unknown moves are listed apart',
   const got = r.list.map((e) => e.name);
   for (const n of ['Leg Press', 'High Foot Leg Press', 'Leg Press Calf Raise', 'Low Foot Leg Press', 'Wide Stance Leg Press', 'Single-Leg Leg Press']) assert.ok(got.includes(n), n);
   assert.deepEqual(r.extra, ['Leg Press Donkey Kick']);
+});
+
+test('every machine in the catalog lists real library exercises', () => {
+  const names = new Set(all.map((e) => e.name));
+  for (const m of MACHINES) {
+    for (const n of m.ex) assert.ok(names.has(n), `${m.id}: ${n}`);
+    const got = matchMachine({ id: m.id, machine: m.name, brand: '', gear: [], exercises: [] }, all);
+    assert.ok(got.length >= 1, `${m.id} finds nothing`);
+    assert.deepEqual(got.slice(0, m.ex.length).map((e) => e.name), m.ex, `${m.id} keeps its order`);
+  }
+  assert.equal(new Set(MACHINES.map((m) => m.id)).size, MACHINES.length, 'ids are unique');
+});
+
+test('a scanned V-squat brings up facing the pad and calf raises too', () => {
+  const got = names({ id: 'v-squat', machine: 'Power squat', brand: '', gear: [], exercises: [] });
+  assert.deepEqual(got, ['V-Squat Machine', 'Reverse V-Squat', 'V-Squat Calf Raise']);
+  const smith = names({ id: 'smith', machine: 'Smith machine', brand: '', gear: [], exercises: [] });
+  assert.ok(smith.length >= 20 && smith.includes('Smith Machine Squat'));
 });

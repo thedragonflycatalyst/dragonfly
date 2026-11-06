@@ -6,13 +6,13 @@ import { Modal, Platform } from 'react-native';
 import { ScanCamera } from '@/components/scan-camera';
 import { callFn, fnText } from '@/lib/fn';
 import { EQUIPMENT } from '@/lib/library';
-import type { MachineRead } from '@/lib/machine-match';
+import { machineChoices, type MachineRead } from '@/lib/machine-match';
 
 /** Sends one photo to be read (nothing is saved) */
 export async function readMachine(uri: string, width: number, height: number): Promise<MachineRead> {
   const out = await ImageManipulator.manipulateAsync(uri, Math.max(width, height) > 1280 ? [{ resize: width >= height ? { width: 1280 } : { height: 1280 } }] : [],
     { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true });
-  return callFn<MachineRead>('coach-machine-scan', { image: out.base64, gear: EQUIPMENT });
+  return callFn<MachineRead>('coach-machine-scan', { image: out.base64, gear: EQUIPMENT, machines: machineChoices() });
 }
 
 const found = (r: MachineRead) => !!r.machine || r.exercises.length > 0;
