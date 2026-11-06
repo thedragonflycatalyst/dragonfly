@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, fmtMetric, fmtNum, goalEta, kcalPerDay, monthlyChange, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
+import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, goalEta, kcalPerDay, monthlyChange, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
 import { occurrences, openSlots, priceLabel, toCents, voucherPrice, voucherState, weekOf, spotsText, eventCost, byMonth as moneyByMonth, type Booking } from './business';
 import { bigEmoji, layout, linkify, seenBy, tally, chatName, type Message, type ChatMember } from './chat';
 import { unitPrefs, notifyPrefs } from './prefs';
@@ -13,6 +13,15 @@ test('units and number formats', () => {
   assert.equal(fmtNum(1200.5, 2), '1,200.50');
   assert.equal(fmtNum(1200.5, 2, 'comma'), '1.200,50');
   assert.equal(fmtNum(-3.25, 1), '−3.3');
+});
+
+test('weight ruler snaps tenths and respects weight limits for all units', () => {
+  assert.equal(weightRulerValue(244.84, 'lb'), 244.8);
+  assert.equal(weightRulerValue(244.86, 'lb'), 244.9);
+  assert.equal(weightRulerValue(-100, 'kg'), 20);
+  assert.equal(weightRulerValue(900, 'kg'), 400);
+  assert.equal(weightRulerValue(0, 'st'), Math.ceil(fromKg(20, 'st') * 10) / 10);
+  assert.equal(weightRulerValue(1000, 'lb'), Math.floor(fromKg(400, 'lb') * 10) / 10);
 });
 
 test('derived values: lean, fat and muscle mass from percentages', () => {

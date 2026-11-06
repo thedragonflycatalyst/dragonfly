@@ -67,6 +67,12 @@ const LB = 2.2046226218;
 export const fromKg = (kg: number, u: BodyUnit) => (u === 'kg' ? kg : u === 'lb' ? kg * LB : (kg * LB) / 14);
 export const toKgFrom = (v: number, u: BodyUnit) => (u === 'kg' ? v : u === 'lb' ? v / LB : (v * 14) / LB);
 export const unitLabel = (u: BodyUnit) => (u === 'lb' ? 'lbs' : u === 'kg' ? 'kg' : 'st');
+/** Clamp ruler input to the accepted 20–400 kg entry range and snap to a tenth of the displayed unit. */
+export function weightRulerValue(value: number, unit: BodyUnit): number {
+  const min = Math.ceil(fromKg(20, unit) * 10) / 10;
+  const max = Math.floor(fromKg(400, unit) * 10) / 10;
+  return Math.max(min, Math.min(max, Math.round(value * 10) / 10));
+}
 const r1 = (n: number) => Math.round(n * 10) / 10;
 /** Number with one decimal, in the person's number format (dot: 1,200.5 · comma: 1.200,5) */
 export function fmtNum(n: number, dp = 1, format: 'dot' | 'comma' = 'dot') {
