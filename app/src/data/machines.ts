@@ -1,9 +1,10 @@
 // Mainstream gym machines and stations, and the library exercises done on each, for the machine scanner. The scanner's AI
 // picks the closest machine here (the same kind of machine from any brand counts), and the picker lists its exercises.
-// `ex`: library exercise names, most common first. `more`: also every library exercise that uses this equipment (and,
-// when given, whose name matches `named`).
+// Home gyms are listed by brand and model too (Centr 1, Bowflex, Total Gym, Force USA, Tonal…), so a client can type the name
+// on the box or scan it. `ex`: library exercise names, most common first. `more`: also every library exercise that uses any of
+// this equipment (and, when given, whose name matches `named`). `home`: home-gym equipment. `note`: shown with the list.
 
-export type GymMachine = { id: string; name: string; aliases: string[]; ex: string[]; more?: { gear: string; named?: RegExp } };
+export type GymMachine = { id: string; name: string; aliases: string[]; ex: string[]; more?: { gear: string[]; named?: RegExp }; home?: boolean; note?: string };
 
 export const MACHINES: GymMachine[] = [
   // Chest
@@ -45,7 +46,7 @@ export const MACHINES: GymMachine[] = [
   { id: 'biceps-curl', name: 'Biceps curl machine', aliases: ['Preacher curl machine', 'Arm curl machine', 'Bicep machine'],
     ex: ['Machine Preacher Curl', 'Single-Arm Machine Preacher Curl'] },
   { id: 'triceps-extension', name: 'Triceps extension machine', aliases: ['Triceps machine', 'Overhead triceps machine'], ex: ['Triceps Extension Machine', 'Seated Machine Dip'] },
-  { id: 'preacher-bench', name: 'Preacher curl bench', aliases: ['Preacher bench', 'Scott bench'], ex: [], more: { gear: 'Preacher bench' } },
+  { id: 'preacher-bench', name: 'Preacher curl bench', aliases: ['Preacher bench', 'Scott bench'], ex: [], more: { gear: ['Preacher bench'] } },
   // Legs
   { id: 'leg-press', name: '45-degree leg press', aliases: ['Leg press', 'Plate-loaded leg press', 'Sled leg press', 'Incline leg press'],
     ex: ['Leg Press', 'High Foot Leg Press', 'Low Foot Leg Press', 'Wide Stance Leg Press', 'Narrow Stance Leg Press', 'Single-Leg Leg Press', 'Leg Press Calf Raise'] },
@@ -58,7 +59,7 @@ export const MACHINES: GymMachine[] = [
   { id: 'v-squat', name: 'V-squat / leverage squat machine', aliases: ['V-squat', 'Leverage squat', 'Power squat machine', 'Super squat'],
     ex: ['V-Squat Machine', 'Reverse V-Squat', 'V-Squat Calf Raise'] },
   { id: 'belt-squat', name: 'Belt squat machine', aliases: ['Hip belt squat', 'Pit shark'], ex: ['Belt Squat', 'Belt Squat March', 'Belt Squat Romanian Deadlift'] },
-  { id: 'smith', name: 'Smith machine', aliases: ['Smith rack'], ex: [], more: { gear: 'Smith machine' } },
+  { id: 'smith', name: 'Smith machine', aliases: ['Smith rack'], ex: [], more: { gear: ['Smith machine'] } },
   { id: 'leg-extension', name: 'Leg extension machine', aliases: ['Quad extension', 'Knee extension machine'], ex: ['Leg Extension', 'Single-Leg Leg Extension'] },
   { id: 'lying-leg-curl', name: 'Lying leg curl machine', aliases: ['Prone leg curl', 'Hamstring curl machine'], ex: ['Lying Leg Curl', 'Single-Leg Lying Leg Curl'] },
   { id: 'seated-leg-curl', name: 'Seated leg curl machine', aliases: ['Seated hamstring curl'], ex: ['Seated Leg Curl', 'Single-Leg Seated Leg Curl'] },
@@ -72,8 +73,8 @@ export const MACHINES: GymMachine[] = [
   { id: 'seated-calf', name: 'Seated calf raise machine', aliases: ['Seated calf'], ex: ['Seated Calf Raise'] },
   { id: 'donkey-calf', name: 'Donkey calf raise machine', aliases: [], ex: ['Donkey Calf Raise'] },
   { id: 'reverse-hyper', name: 'Reverse hyperextension machine', aliases: ['Reverse hyper'], ex: ['Reverse Hyperextension'] },
-  { id: 'back-extension', name: '45-degree back extension bench', aliases: ['Hyperextension bench', 'Roman chair'], ex: [], more: { gear: 'Back extension bench' } },
-  { id: 'ghd', name: 'Glute-ham developer (GHD)', aliases: ['GHD', 'Glute ham raise bench'], ex: [], more: { gear: 'GHD' } },
+  { id: 'back-extension', name: '45-degree back extension bench', aliases: ['Hyperextension bench', 'Roman chair'], ex: [], more: { gear: ['Back extension bench'] } },
+  { id: 'ghd', name: 'Glute-ham developer (GHD)', aliases: ['GHD', 'Glute ham raise bench'], ex: [], more: { gear: ['GHD'] } },
   // Core
   { id: 'ab-crunch', name: 'Ab crunch machine', aliases: ['Abdominal machine', 'Crunch machine'], ex: ['Machine Crunch'] },
   { id: 'torso-rotation', name: 'Torso rotation machine', aliases: ['Rotary torso', 'Oblique machine'], ex: ['Machine Torso Rotation'] },
@@ -81,18 +82,49 @@ export const MACHINES: GymMachine[] = [
     ex: ["Captain's Chair Knee Raise", "Captain's Chair Leg Raise", "Captain's Chair Oblique Knee Raise", 'Chest Dip', 'Triceps Dip', 'Pull-Up', 'Chin-Up'] },
   // Cable and free-standing stations
   { id: 'cable-crossover', name: 'Cable crossover / functional trainer', aliases: ['Cable machine', 'Dual cable', 'Cable tower', 'Adjustable pulley'],
-    ex: ['Cable Crossover', 'Cable Face Pull'], more: { gear: 'Cable machine' } },
-  { id: 'landmine', name: 'Landmine', aliases: ['Landmine attachment', 'T-bar landmine'], ex: [], more: { gear: 'Landmine' } },
-  { id: 'sled', name: 'Push sled / prowler', aliases: ['Prowler', 'Sled'], ex: [], more: { gear: 'Sled' } },
+    ex: ['Cable Crossover', 'Cable Face Pull'], more: { gear: ['Cable machine'] } },
+  { id: 'landmine', name: 'Landmine', aliases: ['Landmine attachment', 'T-bar landmine'], ex: [], more: { gear: ['Landmine'] } },
+  { id: 'sled', name: 'Push sled / prowler', aliases: ['Prowler', 'Sled'], ex: [], more: { gear: ['Sled'] } },
   // Cardio
-  { id: 'treadmill', name: 'Treadmill', aliases: ['Curved treadmill', 'Woodway'], ex: [], more: { gear: 'Treadmill' } },
-  { id: 'rower', name: 'Rowing machine', aliases: ['Rower', 'Concept2', 'Erg'], ex: [], more: { gear: 'Rower' } },
-  { id: 'bike', name: 'Exercise bike', aliases: ['Stationary bike', 'Spin bike', 'Recumbent bike', 'Upright bike'], ex: [], more: { gear: 'Exercise bike' } },
-  { id: 'air-bike', name: 'Air bike', aliases: ['Assault bike', 'Echo bike', 'Fan bike'], ex: [], more: { gear: 'Air bike' } },
-  { id: 'ski-erg', name: 'Ski erg', aliases: ['SkiErg'], ex: [], more: { gear: 'Ski erg' } },
-  { id: 'stair-climber', name: 'Stair climber', aliases: ['StairMaster', 'Stepmill', 'Stair stepper'], ex: [], more: { gear: 'Stair climber' } },
-  { id: 'elliptical', name: 'Elliptical', aliases: ['Cross trainer', 'Arc trainer'], ex: [], more: { gear: 'Elliptical' } },
+  { id: 'treadmill', name: 'Treadmill', aliases: ['Curved treadmill', 'Woodway', 'Peloton Tread', 'NordicTrack treadmill', 'ProForm treadmill', 'Sole treadmill', 'Walking pad'], ex: [], more: { gear: ['Treadmill'] } },
+  { id: 'rower', name: 'Rowing machine', aliases: ['Rower', 'Concept2', 'Erg', 'Hydrow', 'Ergatta', 'WaterRower', 'Peloton Row'], ex: [], more: { gear: ['Rower'] } },
+  { id: 'bike', name: 'Exercise bike', aliases: ['Stationary bike', 'Spin bike', 'Recumbent bike', 'Upright bike', 'Peloton', 'Peloton Bike', 'Echelon', 'NordicTrack bike', 'Schwinn IC4', 'Bowflex C6'], ex: [], more: { gear: ['Exercise bike'] } },
+  { id: 'air-bike', name: 'Air bike', aliases: ['Assault bike', 'Echo bike', 'Rogue Echo', 'Schwinn Airdyne', 'Fan bike'], ex: [], more: { gear: ['Air bike'] } },
+  { id: 'ski-erg', name: 'Ski erg', aliases: ['SkiErg'], ex: [], more: { gear: ['Ski erg'] } },
+  { id: 'stair-climber', name: 'Stair climber', aliases: ['StairMaster', 'Stepmill', 'Stair stepper'], ex: [], more: { gear: ['Stair climber'] } },
+  { id: 'elliptical', name: 'Elliptical', aliases: ['Cross trainer', 'Arc trainer', 'Bowflex Max Trainer', 'Max Trainer', 'NordicTrack elliptical'], ex: [], more: { gear: ['Elliptical'] } },
   { id: 'arm-ergometer', name: 'Arm ergometer', aliases: ['UBE', 'Upper body ergometer', 'Arm bike'], ex: ['Arm Ergometer'] },
   { id: 'versaclimber', name: 'VersaClimber', aliases: ['Climbing machine'], ex: ['VersaClimber'] },
   { id: 'jacobs-ladder', name: "Jacob's Ladder", aliases: ['Ladder machine'], ex: ["Jacob's Ladder"] },
+  // Home gyms (listed by brand and model so they can be typed in as well as scanned)
+  { id: 'home-functional-trainer', home: true, name: 'Home functional trainer (dual adjustable cables)', aliases: ['Centr 1', 'Centr multi gym', 'Centr home gym', 'Centr functional trainer', 'Inspire FT1', 'Inspire FT2', 'REP FT-3000', 'REP FT-5000', 'Titan functional trainer', 'Body-Solid functional trainer', 'Marcy functional trainer', 'Bowflex HVT', 'Life Fitness G7', 'Cable crossover home gym'],
+    note: 'Two adjustable cable arms: set the pulleys high, low or at chest height for these moves. Add the bench for the seated and lying ones.',
+    ex: ['Standing Cable Chest Press', 'Mid Cable Fly', 'Low-to-High Cable Fly', 'Single-Arm Lat Pulldown', 'Standing Cable Row', 'Cable Face Pull', 'Cable Curl', 'Rope Pushdown',
+      'Overhead Cable Triceps Extension', 'Cable Lateral Raise', 'Cable Shoulder Press', 'Cable Pull-Through', 'Cable Glute Kickback', 'Cable Woodchop', 'Pallof Press', 'Cable Crunch'],
+    more: { gear: ['Cable machine'] } },
+  { id: 'home-all-in-one', home: true, name: 'All-in-one home trainer (rack, Smith machine and cables)', aliases: ['Force USA G3', 'Force USA G6', 'Force USA G9', 'Force USA G10', 'Force USA G12', 'Force USA G15', 'Force USA G20', 'Force USA X20', 'Major Fitness all-in-one', 'Mikolo all-in-one', 'Bells of Steel all-in-one', 'REP Arcadia', 'Smith machine home gym', 'Power rack with cables'],
+    note: 'Combines a power rack, a Smith machine and a cable station, so every move on each of them works here.',
+    ex: ['Smith Machine Squat', 'Smith Machine Bench Press', 'Lat Pulldown', 'Seated Cable Row', 'Pull-Up', 'Cable Crossover'], more: { gear: ['Smith machine', 'Cable machine', 'Barbell'] } },
+  { id: 'home-multi-station', home: true, name: 'Weight-stack home gym (multi-station)', aliases: ['Marcy MWM-990', 'Marcy MWM-988', 'Marcy home gym', 'Body-Solid EXM', 'Body-Solid G1S', 'Body-Solid G2B', 'Body-Solid G9S', 'Bodycraft', 'Sporzon home gym', 'SereneLife home gym', 'Multi-station home gym', 'Universal gym'],
+    note: 'A weight stack with a lat tower, a press arm, a leg station and a low pulley.',
+    ex: ['Lat Pulldown', 'Behind-the-Neck Lat Pulldown', 'Seated Cable Row', 'Machine Chest Press', 'Pec Deck', 'Leg Extension', 'Standing Leg Curl', 'Cable Curl', 'Straight-Bar Triceps Pushdown',
+      'Rope Pushdown', 'Cable Upright Row', 'Cable Crunch', 'Standing Calf Raise'] },
+  { id: 'home-power-rod', home: true, name: 'Power rod home gym (Bowflex)', aliases: ['Bowflex', 'Bowflex Xtreme 2 SE', 'Bowflex PR1000', 'Bowflex PR3000', 'Bowflex Blaze', 'Bowflex Revolution', 'Bowflex Xceed', 'Power rods'],
+    note: 'Bending rods give the resistance through cables, so these cable moves are done the same way on it.',
+    ex: ['Lat Pulldown', 'Seated Cable Row', 'Seated Cable Chest Press', 'Flat Bench Cable Fly', 'Cable Curl', 'Rope Pushdown', 'Cable Lateral Raise', 'Cable Shoulder Press', 'Cable Upright Row',
+      'Leg Extension', 'Seated Leg Curl', 'Cable Crunch', 'Cable Hip Abduction', 'Cable Hip Adduction'] },
+  { id: 'total-gym', home: true, name: 'Total Gym (incline glideboard trainer)', aliases: ['Total Gym XLS', 'Total Gym FIT', 'Total Gym GTS', 'Total Gym Elevate', 'Total Gym 1400', 'Total Gym 1900', 'Weider Ultimate Body Works', 'Incline glideboard', 'Chuck Norris Total Gym'],
+    note: 'Your body weight on the sliding board is the resistance: raise the board for more, lower it for less.',
+    ex: [], more: { gear: ['Incline trainer (Total Gym)'] } },
+  { id: 'smart-cable', home: true, name: 'Smart cable trainer (Tonal, Speediance)', aliases: ['Tonal', 'Tonal 2', 'Speediance', 'Speediance Gym Monster', 'Speediance Gym Pal', 'Vitruvian', 'Amp', 'Digital weight home gym'],
+    note: 'The arms work like adjustable cables, so cable moves transfer directly; set the arm height to match each exercise.',
+    ex: ['Standing Cable Chest Press', 'Single-Arm Lat Pulldown', 'Standing Cable Row', 'Cable Face Pull', 'Cable Curl', 'Rope Pushdown', 'Cable Lateral Raise', 'Cable Pull-Through', 'Cable Woodchop', 'Pallof Press'],
+    more: { gear: ['Cable machine'] } },
+  { id: 'home-rack', home: true, name: 'Home power rack / squat rack', aliases: ['Power rack', 'Squat rack', 'Half rack', 'REP PR-4000', 'REP PR-5000', 'Rogue R-3', 'Rogue RML-390', 'Titan T-3', 'Titan X-3', 'Fitness Reality 810XLT', 'Garage gym rack'],
+    ex: ['Barbell High-Bar Back Squat', 'Barbell Bench Press', 'Pull-Up', 'Chin-Up'], more: { gear: ['Barbell', 'Pull-up bar'] } },
+  { id: 'adjustable-dumbbells', home: true, name: 'Adjustable dumbbells', aliases: ['Bowflex SelectTech', 'SelectTech 552', 'SelectTech 1090', 'PowerBlock', 'NÜOBELL', 'Nuobell', 'Core Home Fitness', 'Ironmaster'],
+    ex: [], more: { gear: ['Dumbbell'] } },
+  { id: 'suspension', home: true, name: 'Suspension trainer', aliases: ['TRX', 'TRX Home2', 'TRX Pro', 'Rings straps'], ex: [], more: { gear: ['Suspension trainer (TRX)'] } },
+  { id: 'resistance-bands', home: true, name: 'Resistance bands', aliases: ['Bodylastics', 'Tube bands', 'Loop bands', 'Booty bands'], ex: [], more: { gear: ['Resistance band', 'Mini band'] } },
+  { id: 'kettlebells', home: true, name: 'Kettlebells', aliases: ['Adjustable kettlebell', 'Bowflex SelectTech kettlebell'], ex: [], more: { gear: ['Kettlebell'] } },
 ];

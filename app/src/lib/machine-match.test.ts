@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { builtIn } from './library.ts';
 import { MACHINES } from '../data/machines.ts';
-import { machineMatches, matchMachine } from './machine-match.ts';
+import { findMachines, machineMatches, matchMachine } from './machine-match.ts';
 
 const all = builtIn();
 const names = (r: Parameters<typeof matchMachine>[0]) => matchMachine(r, all).map((e) => e.name);
@@ -49,4 +49,18 @@ test('a scanned V-squat brings up facing the pad and calf raises too', () => {
   assert.deepEqual(got, ['V-Squat Machine', 'Reverse V-Squat', 'V-Squat Calf Raise']);
   const smith = names({ id: 'smith', machine: 'Smith machine', brand: '', gear: [], exercises: [] });
   assert.ok(smith.length >= 20 && smith.includes('Smith Machine Squat'));
+});
+
+test('home gyms can be typed in by brand or model', () => {
+  assert.equal(findMachines('centr')[0]?.id, 'home-functional-trainer');
+  assert.equal(findMachines('Centr 1 Home Gym Functional Trainer')[0]?.id, 'home-functional-trainer');
+  assert.equal(findMachines('bowflex xtreme')[0]?.id, 'home-power-rod');
+  assert.ok(findMachines('bowflex').some((m) => m.id === 'adjustable-dumbbells'));
+  assert.equal(findMachines('total gym xls')[0]?.id, 'total-gym');
+  assert.deepEqual(findMachines('ab'), [], 'too short to search');
+  const tg = names({ id: 'total-gym', machine: '', brand: '', gear: [], exercises: [] });
+  assert.ok(tg.length >= 9 && tg.every((n) => n.startsWith('Total Gym')));
+  const centr = names({ id: 'home-functional-trainer', machine: '', brand: 'Centr', gear: [], exercises: [] });
+  assert.equal(centr[0], 'Standing Cable Chest Press');
+  assert.ok(centr.length > 50, 'every cable move is listed');
 });

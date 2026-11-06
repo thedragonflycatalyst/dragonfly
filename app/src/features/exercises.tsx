@@ -12,7 +12,8 @@ import { coverUrl } from '@/components/cover';
 import { useApp } from '@/lib/app-state';
 import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
 import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
-import { machineMatches, type MachineRead } from '@/lib/machine-match';
+import { MACHINES } from '@/data/machines';
+import { findMachines, machineMatches, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
 import { reviewText, suggestExercise } from './library-extras';
@@ -157,6 +158,8 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   }, [visible, trainerId]);
 
   const all = useMemo(() => [...mine, ...builtIn()], [mine, visible]); // reopening picks up new library additions
+  const typedMachines = useMemo(() => (scanned || tab !== 'search' ? [] : findMachines(q)), [q, tab, scanned]);
+  const scannedMachine = scanned?.id ? MACHINES.find((m) => m.id === scanned.id) : undefined;
   const fromScan = useMemo(() => (scanned ? machineMatches(scanned, all) : null), [scanned, all]);
   const list = useMemo(() => {
     if (fromScan) return fromScan.list;
@@ -203,15 +206,24 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
             <Txt v="small" style={{ color: p.focus, fontFamily: F.bodyBold }}>Scan machine</Txt>
           </Pressable>
         </View>
+        {typedMachines.length > 0 && (
+          <View style={{ gap: 6 }}>
+            <Txt v="small">Equipment that matches “{q.trim()}”: tap it to see everything you can do on it</Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {typedMachines.map((m) => <Chip key={m.id} label={m.name} onPress={() => setScanned({ id: m.id, machine: m.name, brand: '', gear: [], exercises: [] })} />)}
+            </View>
+          </View>
+        )}
         {scanned && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Icon name="photo_camera" size={18} color={p.focus} />
             <Txt v="small" style={{ flex: 1 }} numberOfLines={2}>
-              {scanned.machine ? `${titleCase(scanned.machine)}${scanned.brand ? ` (${scanned.brand})` : ''}` : 'Scanned equipment'}: everything you can do on it. Tap a picture to watch the demo.
+              {scannedMachine ? `${scannedMachine.name}${scanned.brand ? ` (${scanned.brand})` : ''}` : scanned.machine ? `${titleCase(scanned.machine)}${scanned.brand ? ` (${scanned.brand})` : ''}` : 'Scanned equipment'}: everything you can do on it. Tap a picture to watch the demo.
             </Txt>
             <Chip label="Clear ✕" selected onPress={() => setScanned(null)} />
           </View>
         )}
+        {!!scannedMachine?.note && <Txt v="small">{scannedMachine.note}</Txt>}
         {!!fromScan?.extra.length && (
           <Txt v="small">Also done on it (not in the library yet): {fromScan.extra.join(', ')}</Txt>
         )}

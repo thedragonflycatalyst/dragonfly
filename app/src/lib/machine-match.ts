@@ -1,6 +1,6 @@
 // Turns what the AI saw in a gym-equipment photo into exercises from the library, so a trainer or client can scan a machine
 // they don't know the name of and pick the move (with its demo video).
-import { MACHINES } from '../data/machines';
+import { MACHINES, type GymMachine } from '../data/machines';
 import { search, uses, type LibExercise } from './library';
 
 /** What the machine scanner reads from one photo. id: the closest machine in MACHINES, or '' when none is close. */
@@ -28,12 +28,12 @@ function best(all: LibExercise[], name: string): LibExercise | undefined {
  * other ones the AI named. Otherwise: the exercises the AI named, then variations of the machine's name, then (only when
  * that found little) other moves on the same specific equipment. At most `n`.
  */
-export function matchMachine(read: MachineRead, all: LibExercise[], n = 60): LibExercise[] {
+export function matchMachine(read: MachineRead, all: LibExercise[], n = 150): LibExercise[] {
   return machineMatches(read, all, n).list;
 }
 
 /** Same as matchMachine, plus the moves the AI named that the library doesn't have yet (shown as text, no demo) */
-export function machineMatches(read: MachineRead, all: LibExercise[], n = 60): { list: LibExercise[]; extra: string[] } {
+export function machineMatches(read: MachineRead, all: LibExercise[], n = 150): { list: LibExercise[]; extra: string[] } {
   const out = new Map<string, LibExercise>();
   const extra: string[] = [];
   const add = (e: LibExercise | undefined) => { if (e && out.size < n) out.set(e.ref, e); };
@@ -42,7 +42,7 @@ export function machineMatches(read: MachineRead, all: LibExercise[], n = 60): {
   if (known) {
     for (const name of known.ex) add(all.find((e) => e.name === name));
     const more = known.more;
-    if (more) for (const e of all) if (uses(e, more.gear) && (!more.named || more.named.test(e.name))) add(e);
+    if (more) for (const e of all) if (more.gear.some((g) => uses(e, g)) && (!more.named || more.named.test(e.name))) add(e);
   }
   for (const name of read.exercises) { const e = best(all, name); if (e) add(e); else if (!extra.includes(name)) extra.push(name); }
   // Variations of the machine itself ("Leg Press" → narrow, wide, high-foot leg press…)
@@ -52,4 +52,12 @@ export function machineMatches(read: MachineRead, all: LibExercise[], n = 60): {
   const specific = read.gear.filter((g) => !BROAD.has(g.toLowerCase()));
   if (!known && out.size < 4 && specific.length) for (const e of all) if (specific.some((g) => uses(e, g))) add(e);
   return { list: [...out.values()], extra };
+}
+
+/** Machines whose name, brand or model matches what was typed (at least 3 letters), best first */
+export function findMachines(q: string, n = 8): GymMachine[] {
+  const w = q.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (w.length < 3) return [];
+  const hit = (x: string) => { const s = x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); return s === w ? 0 : s.startsWith(w) ? 1 : s.includes(w) ? 2 : w.includes(s) && s.length >= 4 ? 3 : 9; };
+  return MACHINES.map((m) => [Math.min(...[m.name, ...m.aliases].map(hit)), m] as const).filter(([k]) => k < 9).sort((a, b) => a[0] - b[0]).slice(0, n).map(([, m]) => m);
 }
