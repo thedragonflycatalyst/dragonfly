@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { builtIn } from './library.ts';
-import { matchMachine } from './machine-match.ts';
+import { machineMatches, matchMachine } from './machine-match.ts';
 
 const all = builtIn();
 const names = (r: Parameters<typeof matchMachine>[0]) => matchMachine(r, all).map((e) => e.name);
@@ -23,4 +23,11 @@ test('falls back to the equipment only when little else matched', () => {
   const got = matchMachine({ machine: '', brand: '', gear: ['Rower'], exercises: [] }, all);
   assert.ok(got.length > 0 && got.every((e) => (e.gear ?? []).includes('Rower')));
   assert.deepEqual(matchMachine({ machine: '', brand: '', gear: ['Machine', 'Bench'], exercises: [] }, all), [], 'broad equipment alone is not enough');
+});
+
+test('every variation of the machine shows, and unknown moves are listed apart', () => {
+  const r = machineMatches({ machine: 'Leg press', brand: '', gear: ['Plate-loaded machine'], exercises: ['Leg Press', 'High Foot Leg Press', 'Leg Press Calf Raise', 'Leg Press Donkey Kick'] }, all);
+  const got = r.list.map((e) => e.name);
+  for (const n of ['Leg Press', 'High Foot Leg Press', 'Leg Press Calf Raise', 'Low Foot Leg Press', 'Wide Stance Leg Press', 'Single-Leg Leg Press']) assert.ok(got.includes(n), n);
+  assert.deepEqual(r.extra, ['Leg Press Donkey Kick']);
 });

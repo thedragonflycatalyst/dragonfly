@@ -27,7 +27,7 @@ const TOOL = {
       machine: { type: 'string', description: 'Common name of the main machine or equipment in view, e.g. "Seated leg curl machine". Empty when there is none.' },
       brand: { type: 'string', description: 'Brand or model if printed on it, else empty.' },
       gear: { type: 'array', items: { type: 'string' }, description: 'The equipment it is, chosen only from the allowed list.' },
-      exercises: { type: 'array', items: { type: 'string' }, description: 'Up to 8 standard exercise names done on exactly this equipment, most common first, e.g. "Seated Leg Curl".' },
+      exercises: { type: 'array', items: { type: 'string' }, description: 'Up to 15 standard exercise names done on exactly this equipment, most common first: its main exercise, its common variations (stance, foot position, grip, single-limb) and other moves people commonly do on it, e.g. for a leg press: "Leg Press", "High Foot Leg Press", "Single-Leg Leg Press", "Leg Press Calf Raise".' },
     },
     required: ['machine', 'gear', 'exercises'],
   },
@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
     headers: { 'x-api-key': aiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     body: JSON.stringify({
       model: Deno.env.get('AI_MODEL') ?? 'claude-sonnet-5-5',
-      max_tokens: 600,
+      max_tokens: 800,
       tools: [TOOL],
       // Newer models don't accept a forced tool, so ask for it and allow it
       tool_choice: { type: 'auto' },
@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
-          { type: 'text', text: `Someone in a gym pointed their phone at a machine or piece of equipment they want to use, possibly not knowing its name. Identify the main equipment in the centre of the photo (use any printed name, brand, placard or exercise diagram on it). List the standard exercises done on exactly that equipment, most common first, using plain standard names a trainer would use. Allowed equipment names for "gear": ${JSON.stringify(allowed)}. If no gym equipment is in view, set machine to "" and both lists empty.` },
+          { type: 'text', text: `Someone in a gym pointed their phone at a machine or piece of equipment they want to use, possibly not knowing its name. Identify the main equipment in the centre of the photo (use any printed name, brand, placard or exercise diagram on it). List the exercises done on exactly that equipment, most common first: its main exercise, its usual variations (stance, foot position, grip, facing the other way, single-limb) and other moves people commonly use it for (e.g. calf raises on a leg press or hack squat). Use plain standard names a trainer would use. Allowed equipment names for "gear": ${JSON.stringify(allowed)}. If no gym equipment is in view, set machine to "" and both lists empty.` },
         ],
       }],
     }),
@@ -91,6 +91,6 @@ Deno.serve(async (req) => {
   return reply(200, {
     machine: str(got.machine, 80), brand: str(got.brand, 60),
     gear: list(got.gear, 6).filter((g) => !ok.size || ok.has(g.toLowerCase())),
-    exercises: list(got.exercises, 8),
+    exercises: list(got.exercises, 15),
   });
 });

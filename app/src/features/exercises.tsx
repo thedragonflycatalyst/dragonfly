@@ -11,7 +11,7 @@ import { coverUrl } from '@/components/cover';
 import { useApp } from '@/lib/app-state';
 import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
 import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
-import { matchMachine, type MachineRead } from '@/lib/machine-match';
+import { machineMatches, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
 import { MachineScanner, scanMachinePhoto } from './machine-scan';
@@ -155,13 +155,14 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   }, [visible, trainerId]);
 
   const all = useMemo(() => [...mine, ...builtIn()], [mine]);
+  const fromScan = useMemo(() => (scanned ? machineMatches(scanned, all) : null), [scanned, all]);
   const list = useMemo(() => {
-    if (scanned) return matchMachine(scanned, all);
+    if (fromScan) return fromScan.list;
     if (tab === 'recent') return recent.map((r) => byRef(r, mine)).filter(Boolean).filter((e) => search([e!], { q })[0]) as LibExercise[];
     if (tab === 'favorites') return search(all.filter((e) => favs.has(e.ref)), { q });
     if (tab === 'mine') return search(mine, { q });
     return search(all, { q, part: tab === 'part' ? part : null, equipment: tab === 'equipment' ? equip : null }).slice(0, 300);
-  }, [tab, q, part, equip, all, mine, favs, recent, scanned]);
+  }, [tab, q, part, equip, all, mine, favs, recent, fromScan]);
 
   const toggleFav = async (e: LibExercise) => {
     const on = favs.has(e.ref);
@@ -194,16 +195,23 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
           <TextInput value={q} onChangeText={(t) => { setScanned(null); setQ(t); }} placeholder="Search exercises" placeholderTextColor={p.muted} accessibilityLabel="Search exercises"
             autoCorrect={false} style={{ flex: 1, fontFamily: F.body, fontSize: 16, color: p.ink, height: 44 }} />
           {q ? <Pressable accessibilityLabel="Clear search" onPress={() => setQ('')} hitSlop={8}><Icon name="close" size={18} color={p.muted} /></Pressable> : null}
-          <Pressable accessibilityRole="button" accessibilityLabel="Scan a machine" onPress={scan} hitSlop={8}><Icon name="photo_camera" size={22} color={p.focus} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Scan a machine" onPress={scan} hitSlop={8}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingLeft: 8, borderLeftWidth: 1, borderLeftColor: p.line }}>
+            <Icon name="photo_camera" size={20} color={p.focus} />
+            <Txt v="small" style={{ color: p.focus, fontFamily: F.bodyBold }}>Scan machine</Txt>
+          </Pressable>
         </View>
         {scanned && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Icon name="photo_camera" size={18} color={p.focus} />
             <Txt v="small" style={{ flex: 1 }} numberOfLines={2}>
-              {scanned.machine ? `${titleCase(scanned.machine)}${scanned.brand ? ` (${scanned.brand})` : ''}` : 'Scanned equipment'}: tap a picture to watch the demo.
+              {scanned.machine ? `${titleCase(scanned.machine)}${scanned.brand ? ` (${scanned.brand})` : ''}` : 'Scanned equipment'}: everything you can do on it. Tap a picture to watch the demo.
             </Txt>
             <Chip label="Clear ✕" selected onPress={() => setScanned(null)} />
           </View>
+        )}
+        {!!fromScan?.extra.length && (
+          <Txt v="small">Also done on it (not in the library yet): {fromScan.extra.join(', ')}</Txt>
         )}
         {tab === 'part' && part && <Chip label={`${BODY_PARTS.find((b) => b.key === part)?.label} ✕`} selected onPress={() => setPart(null)} />}
         {tab === 'equipment' && equip && <Chip label={`${titleCase(equip)} ✕`} selected onPress={() => setEquip(null)} />}
@@ -229,7 +237,12 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
                 <Pressable accessibilityRole="button" accessibilityLabel={`${e.name} details`} onPress={() => setInfo(e)}><ExerciseThumb img={e.images[0]} video={e.video} size={56} /></Pressable>
                 <Pressable accessibilityRole={single ? 'button' : 'checkbox'} accessibilityState={{ checked: on }} onPress={() => choose(e)} style={{ flex: 1, gap: 2 }}>
                   <Txt v="bold">{e.name}</Txt>
-                  <Txt v="small" numberOfLines={1}>{[e.primary.map(titleCase).join(', '), titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>
+                  {fromScan ? (
+                    <>
+                      <Txt v="small" numberOfLines={1}>Focus: {e.primary.map(titleCase).join(', ') || 'Full body'}{e.pattern ? ` · ${e.pattern}` : ''}</Txt>
+                      {!!e.how?.setup && <Txt v="small" numberOfLines={2} style={{ color: p.muted }}>{e.how.setup.split('. ')[0].replace(/\.$/, '')}.</Txt>}
+                    </>
+                  ) : <Txt v="small" numberOfLines={1}>{[e.primary.map(titleCase).join(', '), titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>}
                 </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel={favs.has(e.ref) ? 'Remove from favorites' : 'Add to favorites'} onPress={() => toggleFav(e)} hitSlop={8}>
                   <Icon name={favs.has(e.ref) ? 'star' : 'star_outline'} size={24} color={favs.has(e.ref) ? p.gold : p.muted} />
