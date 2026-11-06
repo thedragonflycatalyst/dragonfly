@@ -1,7 +1,8 @@
 import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Share, Text, View } from 'react-native';
 import { Segmented, SectionLabel } from '@/components/bits';
 import { ChangeBars, Gauge, LineChart, type Series } from '@/components/charts';
 import { DateField } from '@/components/date-field';
@@ -14,6 +15,7 @@ import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
+import { progressShareText, scaleProgress } from '@/lib/scale-report';
 import { errText } from '@/lib/model';
 import {
   bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
@@ -100,6 +102,20 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
   range: number | null; setRange: (r: number | null) => void; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; height: number | null;
 }) {
   const p = usePalette();
+  const toast = useToast();
+  const report = useMemo(() => scaleProgress(list, range, settings.goal_kg == null ? null : Number(settings.goal_kg)), [list, range, settings.goal_kg]);
+  const shareProgress = async () => {
+    if (!report) return;
+    const message = progressShareText(report, unit, fmt);
+    try {
+      if (Platform.OS === 'web') {
+        await Clipboard.setStringAsync(message);
+        toast('Progress summary copied. Paste it wherever you want to share.');
+      } else {
+        await Share.share({ message, title: 'Dragonfly Coach · Weight progress' });
+      }
+    } catch (error) { toast(errText(error), false); }
+  };
   const tr = useMemo(() => trend(list), [list]);
   const last = tr[tr.length - 1];
   const rate = ratePerWeek(tr);
@@ -148,6 +164,22 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {chartable.map((k) => <Chip key={k} label={metricLabel(k)} selected={sel.includes(k)} color={colorFor(k, 0)} onPress={() => toggle(k)} />)}
       </View>
+      {report && (
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <Txt v="bold">Progress summary</Txt>
+            <Txt v="small">{report.count} weigh-in{report.count === 1 ? '' : 's'} in period</Txt>
+          </View>
+          <Txt v="small">{new Date(report.start).toLocaleDateString()} – {new Date(report.end).toLocaleDateString()}</Txt>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <View><Txt v="small">First</Txt><Txt v="bold">{fmtMass(report.startKg, unit, fmt)}</Txt></View>
+            <View><Txt v="small">Latest</Txt><Txt v="bold">{fmtMass(report.endKg, unit, fmt)}</Txt></View>
+            <View><Txt v="small">Change</Txt><Txt v="bold">{report.count < 2 ? '—' : `${signed(fromKg(report.changeKg, unit), 1, fmt)} ${unitLabel(unit)}`}</Txt></View>
+          </View>
+          <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and optional goal information; review before sharing.</Txt>
+          <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+        </Card>
+      )}
       {last && (
         <Card style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <View style={{ gap: 2, minWidth: 130 }}>
