@@ -80,8 +80,8 @@ export const EQUIPMENT = ['Bodyweight', 'Barbell', 'Dumbbell', 'Kettlebell', 'EZ
 export const CATEGORIES = ['Barbell', 'Dumbbell', 'Kettlebell', 'Cable', 'Machine', 'Bodyweight', 'Calisthenics', 'Suspension (TRX)', 'Bands',
   'Landmine', 'Medicine ball', 'Stability ball', 'Sandbag', 'Plates', 'Sled', 'Strongman', 'Powerlifting', 'Olympic lifting', 'Plyometrics',
   'Speed and agility', 'Cardio', 'Conditioning', 'Abs and core', 'Stretching', 'Mobility', 'Yoga', 'Pilates', 'Corrective'];
-/** Categories a trainer can give their own exercises */
-export const MY_CATEGORIES = CATEGORIES;
+/** Categories a trainer can give their own exercises (the database accepts these; the Coach list needs a migration first) */
+export const MY_CATEGORIES = ['strength', 'cardio', 'stretching', 'mobility', 'plyometrics', 'suspension', 'powerlifting', 'olympic weightlifting', 'strongman'];
 
 const low = (s: string) => s.toLowerCase();
 const same = (a: string, b: string) => low(a) === low(b);
