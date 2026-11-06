@@ -140,6 +140,9 @@ export function errText(err: unknown): string {
   for (const k of Object.keys(FRIENDLY)) if (m.includes(k)) return FRIENDLY[k];
   if (/Invalid login credentials/i.test(m)) return FRIENDLY.invalid_credentials;
   if (/Email not confirmed/i.test(m)) return 'Confirm your email first. Check your inbox for the code.';
+  // Record-keeping rules (payments are kept 7 years; refunds and voids need a reason): their own wording is already plain
+  if (/Financial records are kept|paid payment's amount|Give a reason for marking/i.test(m)) return m.replace(/^.*?(Financial records|A paid payment|Give a reason)/, '$1');
+  if (/23514/.test(m)) return 'Give a reason first.';
   if (/row-level security|permission denied|42501/i.test(m)) return 'You don’t have access to that.';
   if (/duplicate key|already exists/i.test(m)) return 'That’s already done.';
   if (/Network request failed|Failed to fetch/i.test(m)) return 'Can’t reach the server. Check your connection and try again.';
