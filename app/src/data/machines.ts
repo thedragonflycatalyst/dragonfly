@@ -150,4 +150,10 @@ export const MACHINES: GymMachine[] = [
   { id: 'hip-thrust-bench', home: true, name: 'Hip thrust bench / glute bench', aliases: ['Glute bench', 'Hip thrust station', 'Booty builder', 'Thruster box'], ex: ['Machine Hip Thrust', 'Single-Leg Machine Hip Thrust'],
     more: { gear: ['Bench'], named: /hip thrust|glute bridge/i } },
   { id: 'nordic-bench', home: true, name: 'Nordic curl bench / strap', aliases: ['Nordic hamstring strap', 'Nordic bench', 'GHD alternative'], ex: [], more: { gear: ['GHD', 'Bodyweight'], named: /nordic|glute-ham|glute ham/i } },
+  // Pilates apparatus and the pool
+  { id: 'pilates-reformer', home: true, name: 'Pilates reformer', aliases: ['Reformer', 'Balanced Body reformer', 'Allegro reformer', 'Merrithew reformer', 'STOTT reformer', 'AeroPilates', 'Align-Pilates reformer', 'Elina Pilates reformer', 'Peak Pilates reformer', 'Club Pilates reformer', 'Folding reformer', 'Home reformer'],
+    note: 'Springs set the resistance. Lighter springs are not always easier: they ask for more control.', ex: [], more: { gear: ['Pilates reformer'] } },
+  { id: 'pilates-chair', home: true, name: 'Pilates chair (Wunda chair)', aliases: ['Wunda chair', 'Combo chair', 'Stability chair', 'Balanced Body Exo chair', 'Merrithew split-pedal chair'], ex: [], more: { gear: ['Pilates chair'] } },
+  { id: 'pool', name: 'Pool (aquatic exercise)', aliases: ['Swimming pool', 'Aqua fitness', 'Water aerobics', 'Aqua dumbbells', 'Pool noodle', 'Kickboard', 'Flotation belt', 'Aqua jogging belt'],
+    note: 'Water supports the body and resists every direction, so these are low impact. Faster movements push more water and work harder.', ex: [], more: { gear: ['Pool', 'Aqua dumbbells', 'Pool noodle', 'Kickboard'] } },
 ];

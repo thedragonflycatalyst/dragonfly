@@ -86,10 +86,10 @@ export const EQUIPMENT = ['Bodyweight', 'Barbell', 'Dumbbell', 'Kettlebell', 'EZ
   'Wall ball', 'Stability ball', 'BOSU', 'Sandbag', 'Plyo box', 'Step', 'Sliders', 'Ab wheel', 'GHD', 'Back extension bench', 'Battle ropes',
   'Climbing rope', 'Jump rope', 'Weighted vest', 'Chains', 'Mace', 'Indian clubs', 'Strongman implement', 'Tire', 'Sledgehammer', 'Foam roller',
   'Massage ball', 'Yoga block', 'Strap', 'Wall', 'Mat', 'Treadmill', 'Rower', 'Exercise bike', 'Air bike', 'Ski erg', 'Stair climber',
-  'Elliptical', 'Incline trainer (Total Gym)', 'Agility ladder', 'Cones', 'Hurdles', 'Pool', 'Other'];
+  'Elliptical', 'Incline trainer (Total Gym)', 'Pilates reformer', 'Pilates chair', 'Aqua dumbbells', 'Pool noodle', 'Kickboard', 'Agility ladder', 'Cones', 'Hurdles', 'Pool', 'Other'];
 export const CATEGORIES = ['Barbell', 'Dumbbell', 'Kettlebell', 'Cable', 'Machine', 'Bodyweight', 'Calisthenics', 'Suspension (TRX)', 'Bands',
   'Landmine', 'Medicine ball', 'Stability ball', 'Sandbag', 'Plates', 'Sled', 'Strongman', 'Powerlifting', 'Olympic lifting', 'Plyometrics',
-  'Speed and agility', 'Cardio', 'Conditioning', 'Abs and core', 'Stretching', 'Mobility', 'Yoga', 'Pilates', 'Corrective'];
+  'Speed and agility', 'Cardio', 'Conditioning', 'Abs and core', 'Stretching', 'Mobility', 'Yoga', 'Pilates', 'Corrective', 'Aquatics'];
 /** Categories a trainer can give their own exercises */
 export const MY_CATEGORIES = CATEGORIES;
 
