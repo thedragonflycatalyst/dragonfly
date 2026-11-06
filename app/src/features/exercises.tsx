@@ -244,7 +244,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
   const app = useApp();
   const { mine } = useMyExercises(app.trainer?.user_id);
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('strength');
+  const [category, setCategory] = useState('Bodyweight');
   const [metric, setMetric] = useState<SetMetric>('reps');
   const [steps, setSteps] = useState('');
   const [main, setMain] = useState<string | null>(null);
@@ -257,7 +257,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
   const [busy, setBusy] = useState<string | null>(null);
   useEffect(() => {
     if (!visible) return;
-    setName(initial?.name ?? ''); setCategory(initial?.category ?? 'strength'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
+    setName(initial?.name ?? ''); setCategory(initial?.category ?? 'Bodyweight'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
     setMain(initial?.muscles[0] ?? null); setOther(initial?.secondary_muscles ?? []); setEquipment(initial?.equipment ?? []);
     setVideo(initial?.video_url ?? ''); setImage(initial?.image_path ?? null); setAlts(initial?.alternatives ?? []);
   }, [visible, initial]);
