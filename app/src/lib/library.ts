@@ -1,9 +1,7 @@
 // The exercise library: the Dragonfly Coach Exercise Library (1,700+ exercises with alternate names, muscles, equipment and
-// how-to), bundled with the app. Videos are added later. Trainers' own exercises (coach_exercises) are merged in at search time.
-// The earlier public-domain set (Free Exercise DB) and suspension set stay loaded only so workouts saved with them still open.
+// how-to and demo videos), bundled with the app, plus approved trainer submissions loaded online (setLibraryExtras).
+// Trainers' own exercises (coach_exercises) are merged in at search time.
 import coach from '../data/coach-library.json';
-import legacyData from '../data/library.json';
-import { TRX, type Row } from '../data/trx';
 
 export type LibExercise = {
   ref: string;            // 'lib:<id>' or 'my:<uuid>'
@@ -20,7 +18,6 @@ export type LibExercise = {
   pattern?: string;       // movement pattern (Squat, Hinge, Horizontal push...)
   group?: string;         // library section
   how?: { setup: string; move: string; cues: string };
-  legacy?: boolean;       // from the earlier library: opens from old workouts, not listed
 };
 
 type CoachRow = [id: string, name: string, aliases: string[], category: string, kind: string, pattern: string, main: string[], other: string[],
@@ -30,23 +27,34 @@ const fromCoach = (r: CoachRow): LibExercise => ({
   gear: r[8], equipment: r[8].join(', '), how: { setup: r[9], move: r[10], cues: r[11] }, video: r[12] || null, group: r[13],
   level: '', mechanic: '', steps: [], images: [],
 });
-const IMG_BASE = `https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@${(legacyData as { commit: string }).commit}/exercises`;
-const fromRow = (r: Row): LibExercise => ({
-  ref: `lib:${r[0]}`, name: r[1], category: r[2], equipment: r[3], primary: r[4], secondary: r[5], level: r[6], mechanic: r[7], steps: r[8],
-  images: Array.from({ length: r[9] }, (_, i) => `${IMG_BASE}/${r[0]}/${i}.jpg`), legacy: true,
-});
 
 let cache: LibExercise[] | null = null;
 let byId: Map<string, LibExercise> | null = null;
+/** Approved additions from trainers' submissions (stored online) and extra names for existing exercises */
+let extraRows: CoachRow[] = [];
+let extraNames: { ref: string; alias: string }[] = [];
+/** Adds the approved community additions and extra names to the library (call after loading them) */
+export function setLibraryExtras(rows: unknown[], aliases: { ref: string; alias: string }[]) {
+  extraRows = rows.filter((r): r is CoachRow => Array.isArray(r) && r.length >= 14 && typeof r[0] === 'string' && typeof r[1] === 'string');
+  extraNames = aliases;
+  cache = null; byId = null;
+}
 /** Every library exercise, A to Z */
 export function builtIn(): LibExercise[] {
-  if (!cache) cache = (coach as unknown as { rows: CoachRow[] }).rows.map(fromCoach).sort((a, b) => a.name.localeCompare(b.name));
+  if (!cache) {
+    const all = [...(coach as unknown as { rows: CoachRow[] }).rows, ...extraRows].map(fromCoach);
+    const byRef = new Map(all.map((e) => [e.ref, e]));
+    for (const { ref, alias } of extraNames) {
+      const e = byRef.get(ref);
+      if (e && !same(e.name, alias) && !(e.aliases ?? []).some((a) => same(a, alias))) e.aliases = [...(e.aliases ?? []), alias];
+    }
+    cache = [...byRef.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
   return cache;
 }
 function index(): Map<string, LibExercise> {
   if (!byId) {
-    byId = new Map([...(legacyData as unknown as { rows: Row[] }).rows, ...TRX].map((r) => [`lib:${r[0]}`, fromRow(r)] as const));
-    for (const e of builtIn()) byId.set(e.ref, e);
+    byId = new Map(builtIn().map((e) => [e.ref, e] as const));
   }
   return byId;
 }
@@ -136,3 +144,24 @@ export function youTubeThumb(url: string | null | undefined): string | null {
   return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : null;
 }
 export const isLink = (v: string | null | undefined) => !!v && /^https?:\/\//i.test(v);
+
+/** A trainer's suggested exercise, as sent for review */
+export type Suggestion = { name: string; gear: string[]; main: string[] };
+const STOP = new Set(['the', 'a', 'an', 'with', 'and', 'on', 'of', 'to', 'exercise', 'machine']);
+/**
+ * Library exercises most like a suggested one (shared name words first, then equipment and main muscle), for the AI review to
+ * compare against. Only exercises sharing at least one name word or both equipment and a main muscle are returned.
+ */
+export function similarTo(s: Suggestion, all: LibExercise[], n = 40): LibExercise[] {
+  const words = (x: string) => low(x).split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !STOP.has(w));
+  const want = new Set(words(s.name));
+  const score = (e: LibExercise) => {
+    const names = new Set([e.name, ...(e.aliases ?? [])].flatMap(words));
+    const shared = [...want].filter((w) => names.has(w)).length;
+    const gear = s.gear.some((g) => uses(e, g)) ? 1 : 0;
+    const muscle = e.primary.some((m) => s.main.some((x) => same(x, m))) ? 1 : 0;
+    return shared ? shared * 3 + gear * 2 + muscle : gear && muscle ? 2 : 0;
+  };
+  return all.map((e) => [score(e), e] as const).filter(([k]) => k > 0).sort((a, b) => b[0] - a[0] || a[1].name.localeCompare(b[1].name))
+    .slice(0, n).map(([, e]) => e);
+}

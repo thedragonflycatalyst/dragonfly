@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from '@/components/ui';
 import { SidebarDrawer, SidebarRail, useWide } from '@/components/shell';
 import { AutoSync } from '@/features/auto-sync';
+import { loadLibraryExtras } from '@/features/library-extras';
 import { ViewingBanner } from '@/features/team';
 import { AppProvider, useApp } from '@/lib/app-state';
 import { F, usePalette } from '@/lib/theme';
@@ -17,13 +18,15 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function Shell() {
   const p = usePalette();
-  const { ready, viewing } = useApp();
+  const { ready, viewing, user } = useApp();
   const wide = useWide();
   const viewingKey = viewing?.trainer_id ?? 'me';
   const [fontsLoaded] = useFonts({ Inter_400Regular, Inter_600SemiBold, Inter_700Bold });
 
   useEffect(() => { SystemUI.setBackgroundColorAsync(p.bg).catch(() => {}); }, [p.bg]);
   useEffect(() => { if (fontsLoaded && ready) SplashScreen.hideAsync().catch(() => {}); }, [fontsLoaded, ready]);
+  // Trainers' approved library additions and extra search names (stored online)
+  useEffect(() => { if (ready && user) loadLibraryExtras().catch(() => {}); }, [ready, user]);
 
   if (!fontsLoaded || !ready) return null;
   const header = {

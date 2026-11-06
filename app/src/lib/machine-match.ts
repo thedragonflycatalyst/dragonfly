@@ -18,9 +18,9 @@ function best(all: LibExercise[], name: string): LibExercise | undefined {
   const norm = (x: string) => x.toLowerCase().replace(FILLER, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
   const want = norm(name);
   if (!want) return undefined;
-  return all.find((e) => !e.legacy && norm(e.name) === want)
-    ?? all.find((e) => !e.legacy && (e.aliases ?? []).some((x) => norm(x) === want))
-    ?? search(all, { q: want }).find((e) => !e.legacy && norm(e.name).split(' ').length - want.split(' ').length <= 1);
+  return all.find((e) => norm(e.name) === want)
+    ?? all.find((e) => (e.aliases ?? []).some((x) => norm(x) === want))
+    ?? search(all, { q: want }).find((e) => norm(e.name).split(' ').length - want.split(' ').length <= 1);
 }
 
 /**
@@ -36,11 +36,11 @@ export function matchMachine(read: MachineRead, all: LibExercise[], n = 60): Lib
 export function machineMatches(read: MachineRead, all: LibExercise[], n = 60): { list: LibExercise[]; extra: string[] } {
   const out = new Map<string, LibExercise>();
   const extra: string[] = [];
-  const add = (e: LibExercise | undefined) => { if (e && !e.legacy && out.size < n) out.set(e.ref, e); };
+  const add = (e: LibExercise | undefined) => { if (e && out.size < n) out.set(e.ref, e); };
   // A known machine: its whole list of exercises and variations
   const known = MACHINES.find((m) => m.id === read.id);
   if (known) {
-    for (const name of known.ex) add(all.find((e) => !e.legacy && e.name === name));
+    for (const name of known.ex) add(all.find((e) => e.name === name));
     const more = known.more;
     if (more) for (const e of all) if (uses(e, more.gear) && (!more.named || more.named.test(e.name))) add(e);
   }

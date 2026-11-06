@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { alternativesFor, builtIn, byRef, search, titleCase, youTubeThumb } from './library.ts';
+import { alternativesFor, builtIn, byRef, search, setLibraryExtras, similarTo, titleCase, youTubeThumb } from './library.ts';
 import { defaultMetric } from './workouts.ts';
 
 test('library loads every Coach exercise once, with full details', () => {
@@ -11,7 +11,6 @@ test('library loads every Coach exercise once, with full details', () => {
     assert.match(e.ref, /^lib:c-[a-z0-9-]{1,118}$/, e.name);
     assert.ok(e.how?.setup && e.how.move && e.how.cues, `${e.name}: how-to`);
     assert.ok(e.primary.length && e.gear?.length && e.category && e.kind && e.pattern, `${e.name}: details`);
-    assert.ok(!e.legacy);
   }
 });
 
@@ -43,9 +42,8 @@ test('search filters by body part, equipment and category', () => {
   assert.equal(search(all, { q: 'zzzz nothing' }).length, 0);
 });
 
-test('workouts saved with the earlier library still open', () => {
-  assert.equal(byRef('lib:trx_row')?.name, 'Suspension Row');
-  assert.ok(byRef('lib:Pushups')?.legacy && byRef('lib:Pushups')?.images.length);
+test('looking up exercises by reference', () => {
+  assert.equal(byRef('lib:trx_row'), undefined, 'the earlier still-image library is gone');
   assert.equal(byRef('lib:c-push-up')?.name, 'Push-Up');
   assert.equal(byRef('lib:does-not-exist'), undefined);
   assert.equal(byRef('my:x', [{ ref: 'my:x', name: 'Mine' } as never])?.name, 'Mine');
@@ -78,4 +76,23 @@ test('alternatives: trainer picks first, then similar moves for the same muscle 
   assert.equal(withPick[0].ref, pick.ref);
   assert.equal(new Set(withPick.map((e) => e.ref)).size, withPick.length);
   assert.deepEqual(alternativesFor({ ...bench, primary: [], alts: [] }), []);
+});
+
+test('approved additions and extra names join the library', () => {
+  setLibraryExtras([['x-ez-bar-close-grip-bench-press', 'EZ-Bar Close-Grip Bench Press', ['EZ Close Bench'], 'Barbell', 'Strength', 'Horizontal push',
+    ['Triceps', 'Chest'], [], ['EZ bar', 'Bench'], 'Setup.', 'Move.', 'Cues.', '', 'Community additions'], ['bad']],
+  [{ ref: 'lib:c-push-up', alias: 'Floor Press-Up' }, { ref: 'lib:c-push-up', alias: 'push-up' }]);
+  try {
+    assert.equal(byRef('lib:x-ez-bar-close-grip-bench-press')?.name, 'EZ-Bar Close-Grip Bench Press');
+    assert.equal(search(builtIn(), { q: 'floor press-up' })[0]?.name, 'Push-Up');
+    assert.equal(byRef('lib:c-push-up')?.aliases?.filter((a) => a.toLowerCase() === 'push-up').length, 0, 'no duplicate of the name');
+  } finally { setLibraryExtras([], []); }
+  assert.equal(byRef('lib:x-ez-bar-close-grip-bench-press'), undefined);
+});
+
+test('a suggestion is compared with the most similar library moves', () => {
+  const got = similarTo({ name: 'EZ Bar Close Grip Bench Press', gear: ['EZ bar'], main: ['Triceps'] }, builtIn()).map((e) => e.name);
+  assert.ok(got.slice(0, 10).includes('Close-Grip Bench Press'), got.slice(0, 10).join(', '));
+  assert.ok(got.length <= 40);
+  assert.equal(similarTo({ name: 'zzz', gear: [], main: [] }, builtIn()).length, 0);
 });

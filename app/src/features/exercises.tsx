@@ -5,6 +5,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Segmented } from '@/components/bits';
+import { Toggle } from '@/components/pickers';
 import { Sheet } from '@/components/sheet';
 import { Button, Chip, Field, Icon, Txt, useToast } from '@/components/ui';
 import { coverUrl } from '@/components/cover';
@@ -14,6 +15,7 @@ import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/mo
 import { machineMatches, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
+import { reviewText, suggestExercise } from './library-extras';
 import { MachineScanner, scanMachinePhoto } from './machine-scan';
 
 const MEDIA = 'coach-media';
@@ -154,7 +156,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
     });
   }, [visible, trainerId]);
 
-  const all = useMemo(() => [...mine, ...builtIn()], [mine]);
+  const all = useMemo(() => [...mine, ...builtIn()], [mine, visible]); // reopening picks up new library additions
   const fromScan = useMemo(() => (scanned ? machineMatches(scanned, all) : null), [scanned, all]);
   const list = useMemo(() => {
     if (fromScan) return fromScan.list;
@@ -291,8 +293,10 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
   const [alts, setAlts] = useState<string[]>([]);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [suggest, setSuggest] = useState(false);
   useEffect(() => {
     if (!visible) return;
+    setSuggest(false);
     setName(initial?.name ?? ''); setCategory(initial?.category ?? 'Bodyweight'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
     setMain(initial?.muscles[0] ?? null); setOther(initial?.secondary_muscles ?? []); setEquipment(initial?.equipment ?? []);
     setVideo(initial?.video_url ?? ''); setImage(initial?.image_path ?? null); setAlts(initial?.alternatives ?? []);
@@ -322,9 +326,15 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
     const row = { trainer_id: tid, name: name.trim(), category, default_metric: metric, instructions: steps.trim() || null,
       muscles: main ? [main] : [], secondary_muscles: other.filter((m) => m !== main), equipment, video_url: video.trim() || null, image_path: image, alternatives: alts };
     const { error } = initial ? await sb.from('coach_exercises').update(row).eq('id', initial.id) : await sb.from('coach_exercises').insert(row);
-    setBusy(null);
-    if (error) return toast(errText(error), false);
-    toast('Exercise saved'); onSaved();
+    if (error) { setBusy(null); return toast(errText(error), false); }
+    if (!suggest) { setBusy(null); toast('Exercise saved'); onSaved(); return; }
+    // Also suggested for the shared library: reviewed against the existing exercises before anything is added
+    try {
+      const r = await suggestExercise({ name: row.name, category, gear: equipment, main: main ? [main] : [], other: row.secondary_muscles, description: steps.trim(),
+        video: isLink(video) ? video.trim() : undefined });
+      toast(`Exercise saved. ${reviewText(r)}`, r.outcome === 'added' || r.outcome === 'alias' || r.outcome === 'already_listed');
+    } catch (e) { toast(`Exercise saved, but the suggestion couldn’t be sent: ${errText(e)}`, false); }
+    setBusy(null); onSaved();
   };
   const chips = (list: string[], on: (m: string) => boolean, tap: (m: string) => void) => (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>{list.map((m) => <Chip key={m} label={titleCase(m)} selected={on(m)} onPress={() => tap(m)} />)}</View>
@@ -366,6 +376,8 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
       </View>
       <Button small kind="ghost" icon="add" title="Select alternative exercises" disabled={alts.length >= 12} style={{ alignSelf: 'flex-start', marginBottom: 20 }} onPress={() => setPicking(true)} />
       <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingTop: 16 }}>
+        <Toggle label="Suggest it for the Dragonfly library" value={suggest} onChange={setSuggest}
+          sub="Your exercise is saved for you either way. A suggestion is checked against the library: if it's already there under another name, your name is added to search; if it's a new variation that's well described, it's added for everyone." />
         <Button title="Save exercise" busy={busy === 'save'} onPress={save} style={{ alignSelf: 'flex-start' }} />
       </View>
       <ExercisePicker visible={picking} title="Select alternatives" onClose={() => setPicking(false)}
