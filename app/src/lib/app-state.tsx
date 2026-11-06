@@ -5,6 +5,7 @@ import type { Client, Team, TeamMember, Trainer, Units } from './model';
 import { DEFAULT_PERMS, unitPrefs, type ClientPerms, type UnitPrefs } from './prefs';
 import { e164 } from './contact';
 import { recall, sb, setActing, store, SUPABASE_KEY, USERNAME_LOGIN_FN } from './supabase';
+import { rememberLogin } from './remember-login';
 
 export type Mode = 'coach' | 'client';
 
@@ -95,10 +96,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     sb.auth.getSession().then(async ({ data }) => {
-      lastUid.current = data.session?.user.id ?? null;
-      await loadFor(data.session?.user ?? null).catch(() => {});
+      let session = data.session;
+      // Supabase persists and refreshes sessions by default. A user who
+      // expressly opted out gets a device-local logout on next cold launch.
+      if (!rememberLogin() && session) {
+        await sb.auth.signOut({ scope: 'local' });
+        session = null;
+      }
+      lastUid.current = session?.user.id ?? null;
+      await loadFor(session?.user ?? null).catch(() => {});
       setReady(true);
-    });
+    }).catch(() => setReady(true));
     const { data: sub } = sb.auth.onAuthStateChange((_e, session) => {
       const uid = session?.user.id ?? null;
       if (uid !== lastUid.current) { lastUid.current = uid; setTimeout(() => loadFor(session?.user ?? null).catch(() => {}), 0); }

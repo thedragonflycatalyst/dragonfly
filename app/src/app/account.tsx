@@ -3,6 +3,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Share, View } from 'react-native';
+import { useBiometricSecurity } from '@/features/biometric-security';
+import { rememberLogin, setRememberLogin } from '@/lib/remember-login';
 import { Avatar } from '@/components/avatar';
 import { Button, Card, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import {
@@ -22,6 +24,8 @@ export default function Account() {
   const p = usePalette();
   const toast = useToast();
   const app = useApp();
+  const security = useBiometricSecurity();
+  const [remember, setRemember] = useState(rememberLogin());
   const [open, setOpen] = useState<Open>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [f, setF] = useState({ current: '', next: '', confirm: '', email: '', username: '', del: '', code: '' });
@@ -118,6 +122,17 @@ export default function Account() {
               : run('password', () => changePassword(email, f.current, f.next), 'Password changed for all Dragonfly apps', () => setOpen(null))} />
           </Panel>
         )}
+        <Row icon="login" title="Keep me signed in"
+          sub={remember ? 'On · remembered between app launches' : 'Off · sign in again after restarting'}
+          onPress={() => { const next = !remember; setRememberLogin(next); setRemember(next); }} />
+        <Row icon="fingerprint" title="Unlock with biometrics"
+          sub={security.enabled ? 'Enabled · face or fingerprint' : security.available ? 'Off · tap to enable on this phone' : 'Not available or not enrolled on this device'}
+          onPress={() => {
+            if (!security.enabled && !security.available) return toast('Set up Face ID or a fingerprint in your phone settings first', false);
+            void security.setEnabled(!security.enabled).then((ok) => {
+              if (!ok) toast('Biometric authentication was canceled or unavailable', false);
+            });
+          }} />
         <Row icon="devices" title="Signed-in devices" sub="See where you’re signed in" onPress={() => { toggle('devices'); if (open !== 'devices') loadDevices(); }} open={open === 'devices'} last={open !== 'devices'} />
         {open === 'devices' && (
           <Panel last>
