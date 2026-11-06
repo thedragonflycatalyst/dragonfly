@@ -1,16 +1,16 @@
 // coach-exercise-submit: a trainer suggests an exercise for the shared Dragonfly library. An AI compares it with the most
-// similar library exercises (sent by the app) and proposes:
-//   same         -> another name for an existing move: proposes the name as a search name for that move
-//   add          -> a distinct, well-explained variation: proposes it, written up in the library's style
-//   needs_detail -> might be new, but the description is too thin to tell or to write up (answered now, nothing queued)
-//   reject       -> not a real, safe exercise (answered now, nothing queued)
-// Proposals wait in coach_exercise_submissions (outcome 'pending') until a Dragonfly admin approves or declines them
-// (coach_review_submission); nothing joins the library without that.
+// similar library exercises (sent by the app) and decides, straight away:
+//   same         -> another name for an existing move: the name becomes a search name for it (coach_library_aliases)
+//   add          -> a distinct, well-explained variation: written up in the library's style and added (coach_library_extra)
+//   needs_detail -> might be new, but too thin to tell or to write up: says exactly what to add, so the trainer can resubmit
+//   reject       -> not a real, safe exercise
+// Every review is kept in coach_exercise_submissions. A trainer who can't get past the AI on something that needs a person
+// escalates it (coach_escalate_submission) to a Dragonfly admin; people report or hide bad entries.
 //
 // POST { exercise: { name, aliases?, category, gear[], main[], other[], description, video? },
 //        candidates: [{ ref, name, aliases[], category, pattern, gear[], main[], setup, move }],
 //        lists: { categories[], gear[], muscles[], patterns[] } }   (Authorization: a trainer's session)
-// → { outcome: 'pending' | 'already_listed' | 'needs_detail' | 'rejected', kind?: 'alias' | 'add', ref?, name?, reason }
+// → { id, outcome: 'alias' | 'added' | 'already_listed' | 'needs_detail' | 'rejected', ref?, name?, reason }
 // Needs ANTHROPIC_API_KEY (answers { error: 'not_configured' } without it). DAILY_LIMIT reviews per trainer per day.
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0';
 
@@ -38,7 +38,7 @@ const TOOL = {
       reason: { type: 'string', description: 'One or two plain sentences to the trainer explaining the decision (for needs_detail: what to add).' },
       entry: {
         type: 'object',
-        description: 'For "add" only: the library entry, written in the same style as the library (plain, specific, safe).',
+        description: 'For "add" (and for "needs_detail" when you can draft it): the library entry, written in the same style as the library (plain, specific, safe).',
         properties: {
           name: { type: 'string', description: 'Standard name in Title Case, e.g. "EZ-Bar Close-Grip Bench Press"' },
           aliases: { type: 'array', items: { type: 'string' }, description: 'Other names people search for, including the trainer\'s name if different' },
@@ -114,50 +114,57 @@ Be strict: small wording differences, brand names and "machine"/"exercise" suffi
   const got = (out.content ?? []).find((c: { type: string }) => c.type === 'tool_use')?.input ?? {};
   const reason = str(got.reason, 600) || 'Reviewed.';
   const decision = ['same', 'add', 'needs_detail', 'reject'].includes(got.decision) ? got.decision : 'needs_detail';
+  let sid: string | null = null;
   const save = async (outcome: string, match_ref: string | null, r = reason, proposal: Record<string, unknown> | null = null) => {
-    const { error } = await admin.from('coach_exercise_submissions').insert({ trainer_id: me.user!.id, exercise: ex, ai_decision: decision, outcome, match_ref, reason: r, proposal });
+    const { data, error } = await admin.from('coach_exercise_submissions').insert({ trainer_id: me.user!.id, exercise: ex, ai_decision: decision, outcome, match_ref, reason: r, proposal }).select('id').single();
     if (error) console.error('submission insert', error.message);
+    sid = (data?.id as string | undefined) ?? null;
     return !error;
   };
+  const answer = (b: Record<string, unknown>) => reply(200, { id: sid, ...b });
   const lower = (s: string) => s.toLowerCase();
 
   if (decision === 'same') {
     const c = cands.find((k) => k.ref === str(got.match_ref, 130));
-    if (!c) { await save('needs_detail', null, 'It looks like an exercise we already have, but the match was unclear. Add a little more detail and try again.'); return reply(200, { outcome: 'needs_detail', reason: 'It looks like an exercise we already have, but the match was unclear. Add a little more detail and try again.' }); }
+    if (!c) { const r = 'It looks like an exercise we already have, but the match was unclear. Add a little more detail and try again.'; await save('needs_detail', null, r); return answer({ outcome: 'needs_detail', reason: r }); }
     const names = new Set([c.name, ...c.aliases].map(lower));
     const { data: had } = await admin.from('coach_library_aliases').select('alias').eq('ref', c.ref);
     for (const h of had ?? []) names.add(lower(h.alias));
     const fresh = [ex.name, ...ex.aliases].filter((n, i, a) => !names.has(lower(n)) && a.findIndex((m) => lower(m) === lower(n)) === i).slice(0, 5);
-    if (!fresh.length) { await save('already_listed', c.ref); return reply(200, { outcome: 'already_listed', ref: c.ref, name: c.name, reason }); }
-    if (!(await save('pending', c.ref, reason, { kind: 'alias', ref: c.ref, names: fresh }))) return reply(502, { error: 'unavailable' });
-    return reply(200, { outcome: 'pending', kind: 'alias', ref: c.ref, name: c.name, reason });
+    if (!fresh.length) { await save('already_listed', c.ref); return answer({ outcome: 'already_listed', ref: c.ref, name: c.name, reason }); }
+    if (!(await save('alias', c.ref, reason, { kind: 'alias', ref: c.ref, names: fresh }))) return reply(502, { error: 'unavailable' });
+    // One at a time: a name someone else added a moment ago is simply skipped (unique per exercise, any case)
+    for (const alias of fresh) await admin.from('coach_library_aliases').insert({ ref: c.ref, alias, submission_id: sid });
+    return answer({ outcome: 'alias', ref: c.ref, name: c.name, reason });
   }
 
-  if (decision === 'add' && got.entry) {
+  if ((decision === 'add' || decision === 'needs_detail') && got.entry) {
     const e = got.entry;
     const name = str(e.name, 120) || ex.name;
     const pick = (v: unknown, from: string[], n: number) => { const ok = new Map(from.map((f) => [lower(f), f])); return strs(v, n).map((m) => ok.get(lower(m))).filter((m): m is string => !!m); };
     const main = pick(e.main, allow.muscles, 4), gear = pick(e.gear, allow.gear, 6);
     const setup = str(e.setup, 800), move = str(e.move, 800), cues = str(e.cues, 800);
-    if (!main.length || !gear.length || !setup || !move || !cues) {
+    if (decision === 'add' && (!main.length || !gear.length || !setup || !move || !cues)) {
       const r = 'It may be worth adding, but it needs clearer muscles, equipment and how-to before it can go in. Add more detail and try again.';
-      await save('needs_detail', null, r); return reply(200, { outcome: 'needs_detail', reason: r });
+      await save('needs_detail', null, r); return answer({ outcome: 'needs_detail', reason: r });
     }
     const id = `x-${slug(name)}`, ref = `lib:${id}`;
-    if (cands.some((c) => lower(c.name) === lower(name)) || (await admin.from('coach_library_extra').select('ref').eq('ref', ref).maybeSingle()).data) {
-      await save('already_listed', ref); return reply(200, { outcome: 'already_listed', ref, name, reason: 'An exercise with that name is already in the library.' });
+    if (decision === 'add' && (cands.some((c) => lower(c.name) === lower(name)) || (await admin.from('coach_library_extra').select('ref').eq('ref', ref).maybeSingle()).data)) {
+      await save('already_listed', ref, 'An exercise with that name is already in the library.'); return answer({ outcome: 'already_listed', ref, name, reason: 'An exercise with that name is already in the library.' });
     }
     const aliases = [...new Set([ex.name, ...ex.aliases, ...strs(e.aliases, 10)].filter((a) => lower(a) !== lower(name)))].slice(0, 12);
     const category = pick([e.category], allow.categories, 1)[0] ?? (ex.category || 'Bodyweight');
     const pattern = pick([e.pattern], allow.patterns, 1)[0] ?? '';
     const row = [id, name, aliases, category, str(e.kind, 30) || 'Strength', pattern, main, pick(e.other, allow.muscles, 6).filter((m) => !main.includes(m)), gear, setup, move, cues, '', 'Community additions'];
-    const { data: waiting } = await admin.from('coach_exercise_submissions').select('id').eq('outcome', 'pending').eq('proposal->>ref', ref).limit(1).maybeSingle();
-    if (waiting) { await save('already_listed', ref, 'The same exercise is already waiting for review.'); return reply(200, { outcome: 'already_listed', ref, name, reason: 'The same exercise is already waiting for review.' }); }
-    if (!(await save('pending', ref, reason, { kind: 'add', ref, row }))) return reply(502, { error: 'unavailable' });
-    return reply(200, { outcome: 'pending', kind: 'add', ref, name, reason });
+    // A draft for a thin suggestion is kept with the review, so a person can use it if the trainer escalates
+    if (decision === 'needs_detail') { await save('needs_detail', null, reason, { kind: 'add', ref, row }); return answer({ outcome: 'needs_detail', reason }); }
+    if (!(await save('added', ref, reason, { kind: 'add', ref, row }))) return reply(502, { error: 'unavailable' });
+    const { error } = await admin.from('coach_library_extra').insert({ ref, data: row, submission_id: sid });
+    if (error) { console.error('extra insert', error.message); return reply(502, { error: 'unavailable' }); }
+    return answer({ outcome: 'added', ref, name, reason });
   }
 
   const outcome = decision === 'reject' ? 'rejected' : 'needs_detail';
   await save(outcome, null);
-  return reply(200, { outcome, reason });
+  return answer({ outcome, reason });
 });

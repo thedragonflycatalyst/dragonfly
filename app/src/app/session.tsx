@@ -17,7 +17,7 @@ import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
 import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
-import { exKey, ghostSet, historyOf, notesOf, setLine, type PastLog } from '@/lib/history';
+import { exKey, ghostSet, historyOf, notesOf, pastSwaps, setLine, type PastLog } from '@/lib/history';
 import { clock, doneOnly, DRAFT_KEY, readDraft, type Draft } from '@/lib/session';
 import { weakSide } from '@/lib/sides';
 import { storage } from '@/lib/storage';
@@ -307,11 +307,11 @@ export default function Session() {
         <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done ? setFinishing(true) : toast('Tick off at least one set first', false))} />
       </View>
 
-      <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)}
+      <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)} past={past}
         workoutTitle={isTrainer && src.workoutId ? src.title : null}
         onSwap={(alt, forGood) => {
           const i = swapping!; const entry = log[i];
-          setLog((l) => l.map((x, n) => (n === i ? { ...x, ex: refOf(alt), swapped_from: x.swapped_from ?? x.ex?.name } : x)));
+          setLog((l) => l.map((x, n) => (n === i ? { ...x, ex: refOf(alt), swapped_from: x.swapped_from ?? x.ex?.name, swapped_from_ref: x.swapped_from_ref ?? (x.ex ? `${x.ex.src}:${x.ex.id}` : undefined) } : x)));
           setSwapping(null);
           if (forGood && entry?.ex) void swapForGood(entry.block_id, entry.ex, refOf(alt));
         }} />
@@ -349,30 +349,55 @@ function NumCell({ value, onChange, label, lazy, placeholder, warn, width }: { v
 
 /** Swap an exercise mid-workout: the trainer's chosen alternatives first, then similar moves from the library. A trainer can
  *  also make the swap permanent in the workout (and this client's upcoming sessions of it). */
-function SwapSheet({ entry, trainerId, workoutTitle, onClose, onSwap }: {
-  entry: LogEntry | null; trainerId?: string; workoutTitle: string | null; onClose: () => void; onSwap: (e: LibExercise, forGood: boolean) => void;
+function SwapSheet({ entry, trainerId, workoutTitle, past, onClose, onSwap }: {
+  entry: LogEntry | null; trainerId?: string; workoutTitle: string | null; past: PastLog[]; onClose: () => void; onSwap: (e: LibExercise, forGood: boolean) => void;
 }) {
   const p = usePalette();
   const { mine } = useMyExercises(entry ? trainerId : undefined);
   const [hidden] = useHidden();
   const [forGood, setForGood] = useState(false);
   useEffect(() => { setForGood(false); }, [entry]);
-  const current = entry?.ex ? byRef(`${entry.ex.src}:${entry.ex.id}`, mine) : undefined;
-  const options = current ? alternativesFor(current, mine, 12).filter((e) => !hidden.has(e.ref)).slice(0, 6) : [];
+  // What to swap from: the exercise as prescribed (even if it was already swapped once today)
+  const fromRef = entry?.swapped_from_ref ?? (entry?.ex ? `${entry.ex.src}:${entry.ex.id}` : '');
+  const fromName = entry?.swapped_from ?? entry?.ex?.name ?? '';
+  const current = fromRef ? byRef(fromRef, mine) : undefined;
+  const [popular, setPopular] = useState<{ ref: string; uses: number }[]>([]);
+  useEffect(() => {
+    setPopular([]);
+    if (!fromRef.startsWith('lib:')) return;
+    sb.rpc('coach_popular_swaps', { from_ref: fromRef, from_name: fromName, max_rows: 8 }).then(({ data }) => setPopular((data as { ref: string; uses: number }[] | null) ?? []));
+  }, [fromRef, fromName]);
+  // Sections, each without repeats: this person's usual swaps, what everyone swaps to, then similar moves (trainer's picks first)
+  const seen = new Set<string>([entry?.ex ? `${entry.ex.src}:${entry.ex.id}` : '', fromRef]);
+  const take = (list: { ref: string; uses?: number }[], n: number) => list.map((x) => ({ e: byRef(x.ref, mine), uses: x.uses }))
+    .filter((x): x is { e: LibExercise; uses: number | undefined } => !!x.e && !hidden.has(x.e.ref) && !seen.has(x.e.ref) && (seen.add(x.e.ref), true)).slice(0, n);
+  const yours = entry ? take(pastSwaps(past, fromRef, fromName), 4) : [];
+  const common = take(popular, 4);
+  const similar = current ? take(alternativesFor(current, mine, 14).map((e) => ({ ref: e.ref })), 6) : [];
+  const options = [...yours.map((x) => ({ ...x, why: `You’ve used it ${x.uses} time${x.uses === 1 ? '' : 's'}` })),
+    ...common.map((x) => ({ ...x, why: `A common swap · used ${x.uses} time${x.uses === 1 ? '' : 's'}` })),
+    ...similar.map((x) => ({ ...x, why: '' }))];
   const chosen = new Set(current?.alts ?? []);
   return (
     <Sheet visible={!!entry} onClose={onClose} title={`Swap ${entry?.ex?.name ?? 'exercise'}`}>
       {options.length === 0 && <Txt>No alternatives for this one.</Txt>}
-      {options.map((e) => (
-        <Pressable key={e.ref} accessibilityRole="button" accessibilityLabel={`Swap to ${e.name}`} onPress={() => onSwap(e, forGood)}
+      {options.map(({ e, why }, i) => (
+        <View key={e.ref}>
+          {(i === 0 || (i === yours.length && yours.length) || (i === yours.length + common.length && (yours.length || common.length))) ? (
+            <Txt v="kicker" color={p.muted} style={{ textTransform: 'uppercase', marginTop: i ? 14 : 0, marginBottom: 2 }}>
+              {i < yours.length ? 'Your usual swaps' : i < yours.length + common.length ? 'What people swap to' : 'Similar moves'}
+            </Txt>
+          ) : null}
+        <Pressable accessibilityRole="button" accessibilityLabel={`Swap to ${e.name}`} onPress={() => onSwap(e, forGood)}
           style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.line, opacity: pressed ? 0.6 : 1 })}>
           <ExerciseThumb img={e.images[0]} video={e.video} size={52} />
           <View style={{ flex: 1 }}>
             <Txt v="bold">{e.name}</Txt>
-            <Txt v="small">{[chosen.has(e.ref) ? 'Picked by your trainer' : null, titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>
+            <Txt v="small">{[chosen.has(e.ref) ? 'Picked by your trainer' : null, why || null, titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>
           </View>
           <Icon name="swap_horiz" color={p.focus} />
         </Pressable>
+        </View>
       ))}
       {workoutTitle && <View style={{ marginTop: 8 }}><Toggle label={`Change it in “${workoutTitle}” for good`} value={forGood} onChange={setForGood}
         sub="Leave off to swap just for today (equipment taken). On: the workout and this client's upcoming sessions of it use the new exercise from now on." /></View>}

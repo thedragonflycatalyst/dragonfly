@@ -11,12 +11,12 @@ import { Button, Chip, Field, Icon, Txt, useToast } from '@/components/ui';
 import { coverUrl } from '@/components/cover';
 import { useApp } from '@/lib/app-state';
 import { BODY_PARTS, builtIn, byRef, EQUIPMENT, groupFamilies, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise, type ListItem } from '@/lib/library';
-import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
+import { errText, type GalleryItem, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
 import { MACHINES } from '@/data/machines';
 import { findMachines, machineMatches, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
-import { REPORT_KINDS, reportExercise, reviewText, suggestExercise, useHidden, type ReportKind } from './library-extras';
+import { escalateSuggestion, REPORT_KINDS, reportExercise, reviewText, suggestExercise, useHidden, type ReportKind, type Review } from './library-extras';
 import { MachineScanner, scanMachinePhoto } from './machine-scan';
 
 const MEDIA = 'coach-media';
@@ -26,7 +26,8 @@ export function toLib(m: MyExercise): LibExercise {
   const thumb = youTubeThumb(m.video_url);
   return { ref: `my:${m.id}`, name: m.name, category: m.category ?? 'strength', equipment: m.equipment[0] ?? 'other',
     primary: m.muscles, secondary: m.secondary_muscles ?? [], level: '', mechanic: '', steps: m.instructions ? m.instructions.split('\n').filter(Boolean) : [],
-    images: m.image_path ? [`media:${m.image_path}`] : thumb ? [thumb] : [], video: m.video_url, mine: true, alts: m.alternatives ?? [], metric: m.default_metric };
+    images: m.image_path ? [`media:${m.image_path}`] : thumb ? [thumb] : [], video: m.video_url, mine: true, alts: m.alternatives ?? [], metric: m.default_metric,
+    gallery: m.gallery?.length ? m.gallery.map((g) => ({ src: g.path ? `media:${g.path}` : g.url ?? '', caption: g.caption })).filter((g) => g.src) : undefined };
 }
 export function useMyExercises(trainerId: string | undefined) {
   const [mine, setMine] = useState<LibExercise[]>([]);
@@ -95,6 +96,7 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
           ))}
         </View>
       )}
+      {full?.gallery?.length ? <Gallery items={full.gallery} name={ex?.name ?? ''} /> : null}
       {full?.aliases?.length ? <Txt v="small" style={{ marginBottom: 8 }}>Also called: {full.aliases.join(', ')}</Txt> : null}
       {full && (
         <Txt v="small" style={{ marginBottom: 8 }}>{[full.primary.map(titleCase).join(', '), titleCase(full.equipment), full.level && titleCase(full.level)].filter(Boolean).join(' · ')}</Txt>
@@ -122,7 +124,8 @@ function LibraryActions({ refId, name }: { refId: string; name: string }) {
   const [kind, setKind] = useState<ReportKind | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setReporting(false); setKind(null); setNote(''); }, [refId]);
+  const [justHid, setJustHid] = useState(false);
+  useEffect(() => { setReporting(false); setKind(null); setNote(''); setJustHid(false); }, [refId]);
   const isHidden = hidden.has(refId);
   const send = async () => {
     if (!kind) return toast('Choose what’s wrong', false);
@@ -134,9 +137,17 @@ function LibraryActions({ refId, name }: { refId: string; name: string }) {
     <View style={{ borderTopWidth: 1, borderTopColor: p.line, marginTop: 16, paddingTop: 12, gap: 10 }}>
       <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
         <Button small kind="ghost" icon="flag" title="Report a problem" onPress={() => setReporting((r) => !r)} />
-        <Button small kind="quiet" icon={isHidden ? 'visibility' : 'visibility_off'} title={isHidden ? 'Show in my lists again' : 'Hide from my lists'}
-          onPress={() => toggleHidden(refId, !isHidden).then(() => toast(isHidden ? 'It’s back in your lists' : 'Hidden. Find it under Hidden in the exercise search to bring it back.'), (e: unknown) => toast(errText(e), false))} />
+        {!isHidden && <Button small kind="quiet" icon="visibility_off" title="Hide from my lists"
+          onPress={() => toggleHidden(refId, true).then(() => setJustHid(true), (e: unknown) => toast(errText(e), false))} />}
       </View>
+      {isHidden && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.soft, borderRadius: R.md, padding: 10 }}>
+          <Icon name="visibility_off" size={20} color={p.muted} />
+          <Txt v="small" style={{ flex: 1 }}>{justHid ? 'Hidden from your search and swap lists.' : 'You’ve hidden this one.'} Manage hidden exercises in Settings.</Txt>
+          <Button small kind="ghost" icon={justHid ? 'undo' : 'visibility'} title={justHid ? 'Undo' : 'Show again'}
+            onPress={() => toggleHidden(refId, false).then(() => setJustHid(false), (e: unknown) => toast(errText(e), false))} />
+        </View>
+      )}
       {reporting && (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -147,6 +158,26 @@ function LibraryActions({ refId, name }: { refId: string; name: string }) {
           <Button small title="Send report" busy={busy} onPress={send} style={{ alignSelf: 'flex-start' }} />
         </View>
       )}
+    </View>
+  );
+}
+
+/** Small stills (hand positions, stances…): a row of thumbnails; tap one to see it large with its caption */
+function Gallery({ items, name }: { items: { src: string; caption: string }[]; name: string }) {
+  const p = usePalette();
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <View style={{ marginVertical: 8, gap: 6 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        {items.map((g, i) => (
+          <Pressable key={g.src + i} accessibilityRole="button" accessibilityLabel={g.caption || `${name} picture ${i + 1}`} onPress={() => setOpen(open === i ? null : i)}
+            style={{ width: 72, gap: 2, opacity: open === null || open === i ? 1 : 0.6 }}>
+            <View style={{ width: 72, height: 54, borderRadius: R.sm, overflow: 'hidden', borderWidth: open === i ? 2 : 0, borderColor: p.focus }}><AnyImage src={g.src} label={g.caption} /></View>
+            {g.caption ? <Txt v="small" numberOfLines={2} style={{ fontSize: 11, lineHeight: 14 }}>{g.caption}</Txt> : null}
+          </Pressable>
+        ))}
+      </ScrollView>
+      {open !== null && items[open] && <View style={{ gap: 4 }}><AnyImage src={items[open].src} label={items[open].caption} />{items[open].caption ? <Txt v="small" center>{items[open].caption}</Txt> : null}</View>}
     </View>
   );
 }
@@ -385,16 +416,20 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [suggest, setSuggest] = useState(false);
+  const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [review, setReview] = useState<Review | null>(null);
+  const [appeal, setAppeal] = useState('');
   useEffect(() => {
     if (!visible) return;
-    setSuggest(false);
+    setSuggest(false); setSavedId(null); setReview(null); setAppeal(''); setGallery(initial?.gallery ?? []);
     setName(initial?.name ?? ''); setCategory(initial?.category ?? 'Bodyweight'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
     setMain(initial?.muscles[0] ?? null); setOther(initial?.secondary_muscles ?? []); setEquipment(initial?.equipment ?? []);
     setVideo(initial?.video_url ?? ''); setImage(initial?.image_path ?? null); setAlts(initial?.alternatives ?? []);
   }, [visible, initial]);
   const tid = app.trainer?.user_id;
 
-  const uploadMedia = async (kind: 'video' | 'image') => {
+  const uploadMedia = async (kind: 'video' | 'image' | 'gallery') => {
     setBusy(kind);
     try {
       const res = await ImagePicker.launchImageLibraryAsync(kind === 'video' ? { mediaTypes: ['videos'], videoMaxDuration: 180, quality: 1 } : { mediaTypes: ['images'], quality: 0.85, allowsEditing: true, aspect: [4, 3] });
@@ -406,7 +441,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
       const bytes = Platform.OS === 'web' ? await (await fetch(a.uri)).arrayBuffer() : await new (await import('expo-file-system')).File(a.uri).arrayBuffer();
       const { error } = await sb.storage.from(MEDIA).upload(path, bytes, { contentType: a.mimeType ?? (kind === 'video' ? 'video/mp4' : 'image/jpeg') });
       if (error) throw error;
-      if (kind === 'video') setVideo(path); else setImage(path);
+      if (kind === 'video') setVideo(path); else if (kind === 'gallery') setGallery((g) => [...g, { path, caption: '' }].slice(0, 8)); else setImage(path);
       toast(kind === 'video' ? 'Video uploaded' : 'Image uploaded');
     } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
   };
@@ -415,17 +450,28 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
     if (video && isLink(video) && !/^https:\/\//i.test(video)) return toast('Use an https link for the video', false);
     setBusy('save');
     const row = { trainer_id: tid, name: name.trim(), category, default_metric: metric, instructions: steps.trim() || null,
-      muscles: main ? [main] : [], secondary_muscles: other.filter((m) => m !== main), equipment, video_url: video.trim() || null, image_path: image, alternatives: alts };
-    const { error } = initial ? await sb.from('coach_exercises').update(row).eq('id', initial.id) : await sb.from('coach_exercises').insert(row);
-    if (error) { setBusy(null); return toast(errText(error), false); }
+      muscles: main ? [main] : [], secondary_muscles: other.filter((m) => m !== main), equipment, video_url: video.trim() || null, image_path: image, alternatives: alts,
+      gallery: gallery.map((g) => ({ ...g, caption: g.caption.trim().slice(0, 80) })) };
+    // Saving again after the library feedback updates the same exercise
+    const id = initial?.id ?? savedId;
+    const res = id ? await sb.from('coach_exercises').update(row).eq('id', id).select('id').single() : await sb.from('coach_exercises').insert(row).select('id').single();
+    if (res.error) { setBusy(null); return toast(errText(res.error), false); }
+    setSavedId(res.data.id as string);
     if (!suggest) { setBusy(null); toast('Exercise saved'); onSaved(); return; }
-    // Also suggested for the shared library: reviewed against the existing exercises before anything is added
+    // Also suggested for the shared library: the AI review answers straight away
     try {
       const r = await suggestExercise({ name: row.name, category, gear: equipment, main: main ? [main] : [], other: row.secondary_muscles, description: steps.trim(),
         video: isLink(video) ? video.trim() : undefined });
-      toast(`Exercise saved. ${reviewText(r)}`, r.outcome === 'pending' || r.outcome === 'already_listed');
+      if (r.outcome === 'needs_detail' || r.outcome === 'rejected') { setReview(r); setBusy(null); toast('Saved for you. See the library feedback below', false); return; }
+      toast(`Exercise saved. ${reviewText(r)}`);
     } catch (e) { toast(`Exercise saved, but the suggestion couldn’t be sent: ${errText(e)}`, false); }
     setBusy(null); onSaved();
+  };
+  const escalate = async () => {
+    if (!review?.id) return;
+    setBusy('appeal');
+    try { await escalateSuggestion(review.id, appeal.trim()); toast('Sent to the Dragonfly team. Your exercise is yours to use meanwhile.'); setBusy(null); onSaved(); }
+    catch (e) { setBusy(null); const m = errText(e); toast(m.includes('explain_more') ? 'Say a little more about why it needs a person' : m.includes('escalation_limit') ? 'That’s 10 today. Try again tomorrow.' : m, false); }
   };
   const chips = (list: string[], on: (m: string) => boolean, tap: (m: string) => void) => (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>{list.map((m) => <Chip key={m} label={titleCase(m)} selected={on(m)} onPress={() => tap(m)} />)}</View>
@@ -460,6 +506,16 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
         {image && <Button small kind="quiet" title="Remove" onPress={() => setImage(null)} />}
       </View>
 
+      <Txt v="bold" style={{ fontSize: 15 }}>Picture gallery</Txt>
+      <Txt v="small" style={{ marginBottom: 8 }}>Optional stills for things the video can't show up close: hand positions, stances, setup. Up to 8.</Txt>
+      {gallery.map((g, i) => (
+        <View key={(g.path ?? g.url ?? '') + i} style={{ flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+          <ExerciseThumb img={g.path ? `media:${g.path}` : g.url ?? null} size={56} />
+          <View style={{ flex: 1 }}><Field label="Caption" value={g.caption} onChangeText={(t) => setGallery((x) => x.map((y, n) => (n === i ? { ...y, caption: t } : y)))} placeholder="Neutral grip, thumbs up" /></View>
+          <Button small kind="quiet" title="Remove" onPress={() => setGallery((x) => x.filter((_, n) => n !== i))} />
+        </View>
+      ))}
+      <Button small kind="ghost" icon="photo_library" title="Add a picture" disabled={gallery.length >= 8} busy={busy === 'gallery'} style={{ alignSelf: 'flex-start', marginBottom: 20 }} onPress={() => uploadMedia('gallery')} />
       <Txt v="bold" style={{ fontSize: 15 }}>Alternatives</Txt>
       <Txt v="small" style={{ marginBottom: 8 }}>Clients can swap to one of these during a workout (no equipment, a sore joint, a busy gym).</Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
@@ -469,6 +525,15 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
       <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingTop: 16 }}>
         <Toggle label="Suggest it for the Dragonfly library" value={suggest} onChange={setSuggest}
           sub="Your exercise is yours to use with clients either way. A suggestion is checked against the library, then reviewed by the Dragonfly team: an exercise we already have can get your name as a search name; a new, well-described variation can be added for everyone." />
+        {review && (
+          <View style={{ borderLeftWidth: 3, borderLeftColor: p.gold, paddingLeft: 12, marginVertical: 10, gap: 8 }}>
+            <Txt v="bold">{review.outcome === 'rejected' ? 'Not added to the library' : 'Almost: the library needs a bit more'}</Txt>
+            <Txt>{review.reason}</Txt>
+            <Txt v="small">Edit above and save again to resubmit. If the review is wrong and editing can't fix it, ask a person:</Txt>
+            <Field label="What should the Dragonfly team know?" value={appeal} onChangeText={setAppeal} multiline placeholder="Why it's different, or why the review got it wrong" />
+            <Button small kind="ghost" icon="support_agent" title="Ask a person to review" busy={busy === 'appeal'} disabled={appeal.trim().length < 10} onPress={escalate} style={{ alignSelf: 'flex-start' }} />
+          </View>
+        )}
         <Button title="Save exercise" busy={busy === 'save'} onPress={save} style={{ alignSelf: 'flex-start' }} />
       </View>
       <ExercisePicker visible={picking} title="Select alternatives" onClose={() => setPicking(false)}

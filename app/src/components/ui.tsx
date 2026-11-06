@@ -33,7 +33,7 @@ const SF: Partial<Record<AndroidSymbol, SFSymbol>> = {
   timeline: 'chart.xyaxis.line', settings: 'gearshape', payments: 'creditcard', event: 'calendar', groups: 'person.3', inbox: 'tray', link_off: 'personalhotspot.slash',
   push_pin: 'pin', lock: 'lock', warning: 'exclamationmark.triangle', task_alt: 'checkmark.circle', open_in_new: 'arrow.up.right.square',
   monitor_weight: 'scalemass', restaurant: 'fork.knife', watch: 'applewatch', school: 'graduationcap', visibility: 'eye', visibility_off: 'eye.slash',
-  unfold_more: 'chevron.up.chevron.down', rule: 'checklist.checked',
+  unfold_more: 'chevron.up.chevron.down', rule: 'checklist.checked', support_agent: 'person.wave.2', undo: 'arrow.uturn.backward',
   chat_bubble: 'bubble.right', send: 'paperplane.fill', reply: 'arrowshape.turn.up.left', more_horiz: 'ellipsis',
 };
 export function Icon({ name, size = 22, color }: { name: AndroidSymbol; size?: number; color?: string }) {

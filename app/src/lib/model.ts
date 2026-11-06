@@ -81,7 +81,10 @@ export type MyExercise = {
   id: string; trainer_id: string; name: string; instructions: string | null; video_url: string | null;
   equipment: string[]; muscles: string[]; tags: string[]; default_metric: SetMetric; archived: boolean;
   category: string; secondary_muscles: string[]; image_path: string | null; alternatives: string[];
+  gallery?: GalleryItem[];
 };
+/** A still on an exercise (hand position, stance…): a coach-media storage path or a web address, with a short caption */
+export type GalleryItem = { path?: string; url?: string; caption: string };
 
 export type Assignment = {
   id: string; trainer_id: string; client_id: string; workout_id: string | null; program_id: string | null;
@@ -96,7 +99,7 @@ export type SetLog = {
   reps_l?: number | null; reps_r?: number | null; time_l?: number | null; time_r?: number | null; rest?: number | null;
 };
 /** One exercise in a logged workout. sides: logged left/right. note: the trainer's or client's note for this exercise. */
-export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; sides?: boolean; note?: string };
+export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; swapped_from_ref?: string; sides?: boolean; note?: string };
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
   duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';

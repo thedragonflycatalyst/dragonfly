@@ -1,5 +1,5 @@
 // The shared library's online part: exercises added from trainers' suggestions and extra search names, plus sending a
-// suggestion for review (an AI pre-screens it, then a Dragonfly admin approves or declines it), reports and hidden exercises.
+// suggestion for review (the AI decides straight away; a person only sees escalations), reports and hidden exercises.
 import { useEffect, useState } from 'react';
 import { callFn } from '@/lib/fn';
 import { builtIn, CATEGORIES, EQUIPMENT, MUSCLES, setLibraryExtras, similarTo } from '@/lib/library';
@@ -16,7 +16,7 @@ export async function loadLibraryExtras() {
 }
 
 export type Suggested = { name: string; aliases?: string[]; category: string; gear: string[]; main: string[]; other: string[]; description: string; video?: string };
-export type Review = { outcome: 'pending' | 'already_listed' | 'needs_detail' | 'rejected'; kind?: 'alias' | 'add'; ref?: string; name?: string; reason: string };
+export type Review = { id: string | null; outcome: 'alias' | 'added' | 'already_listed' | 'needs_detail' | 'rejected'; ref?: string; name?: string; reason: string };
 
 /** Sends a suggestion for review, with the library exercises most like it to compare against */
 export async function suggestExercise(s: Suggested): Promise<Review> {
@@ -27,16 +27,22 @@ export async function suggestExercise(s: Suggested): Promise<Review> {
   }));
   const patterns = [...new Set(all.map((e) => e.pattern).filter((x): x is string => !!x))];
   const r = await callFn<Review>('coach-exercise-submit', { exercise: s, candidates, lists: { categories: CATEGORIES, gear: EQUIPMENT, muscles: MUSCLES, patterns } });
+  if (r.outcome === 'added' || r.outcome === 'alias') await loadLibraryExtras();
   return r;
+}
+
+/** Asks a person to look at a review the AI got wrong or that can't be fixed by editing */
+export async function escalateSuggestion(id: string, note: string) {
+  const { error } = await sb.rpc('coach_escalate_submission', { sid: id, note });
+  if (error) throw error;
 }
 
 /** What to tell the trainer */
 export function reviewText(r: Review): string {
   switch (r.outcome) {
-    case 'pending': return r.kind === 'alias'
-      ? `It matches “${r.name}” in the library. Your name for it has been sent for review as another search name.`
-      : `Sent for review to be added to the Dragonfly library as “${r.name}”.`;
-    case 'already_listed': return r.reason.startsWith('The same') ? r.reason : `Already in the library as “${r.name}”.`;
+    case 'alias': return `It's already in the library as “${r.name}”. Your name for it now finds it in search too.`;
+    case 'added': return `Added to the Dragonfly library as “${r.name}”.`;
+    case 'already_listed': return r.reason.startsWith('An exercise') ? r.reason : `Already in the library as “${r.name}”.`;
     case 'needs_detail': return `Not added yet: ${r.reason}`;
     default: return `Not added: ${r.reason}`;
   }
@@ -44,7 +50,8 @@ export function reviewText(r: Review): string {
 
 /** An admin's view of what waits for review */
 export type Pending = { id: string; created_at: string; exercise: Suggested; ai_decision: string; reason: string | null; match_ref: string | null;
-  proposal: { kind: 'alias'; ref: string; names: string[] } | { kind: 'add'; ref: string; row: unknown[] } };
+  outcome: string; escalated_from: string | null; escalation_note: string | null;
+  proposal: { kind: 'alias'; ref: string; names: string[] } | { kind: 'add'; ref: string; row: unknown[] } | null };
 export type Report = { id: string; created_at: string; ref: string; name: string; kind: ReportKind; note: string | null; status: string };
 export type ReportKind = 'redundant' | 'wrong_video' | 'unclear' | 'unsafe' | 'other';
 export const REPORT_KINDS: [ReportKind, string][] = [['redundant', 'Same as another exercise'], ['wrong_video', 'Wrong or bad video'], ['unclear', 'Unclear instructions'], ['unsafe', 'Unsafe or poor form'], ['other', 'Something else']];

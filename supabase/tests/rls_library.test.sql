@@ -60,3 +60,42 @@ select t.ok((select count(*) from public.coach_hidden_exercises) = 0, 'what you 
 select t.as_user('trainer');
 delete from public.coach_hidden_exercises where ref = 'lib:c-burpee';
 select t.ok((select count(*) from public.coach_hidden_exercises) = 0, 'you can show it again');
+
+-- AI decisions apply straight away; trainers can escalate; admins handle escalations and can take additions back
+set client_min_messages = warning;
+select t.as_admin();
+insert into public.coach_exercise_submissions (trainer_id, exercise, ai_decision, outcome, reason) select v, '{"name":"Wall Sit Pulse"}', 'needs_detail', 'needs_detail', 'Say how it differs' from t.ids where k = 'trainer';
+insert into public.coach_library_extra (ref, data) values ('lib:x-ai-added-move', '["x-ai-added-move","AI Added Move"]');
+insert into public.coach_library_aliases (ref, alias) values ('lib:x-ai-added-move', 'Added Move');
+set client_min_messages = notice;
+select t.as_user('trainer');
+select t.ok(t.refused($$select public.coach_escalate_submission((select id from public.coach_exercise_submissions where exercise->>'name' = 'Wall Sit Pulse'), 'help')$$), 'an escalation needs a real explanation');
+select public.coach_escalate_submission((select id from public.coach_exercise_submissions where exercise->>'name' = 'Wall Sit Pulse'), 'It is a distinct isometric-plus-pulse drill used in rehab.');
+select t.ok((select outcome = 'escalated' and escalated_from = 'needs_detail' from public.coach_exercise_submissions where exercise->>'name' = 'Wall Sit Pulse'), 'trainers can ask a person to look');
+select t.ok(t.refused($$select public.coach_escalate_submission((select id from public.coach_exercise_submissions where exercise->>'name' = 'Wall Sit Pulse'), 'Again please, still stuck here.')$$), 'once is enough');
+select t.as_user('trainer2');
+select t.ok(t.refused($$select public.coach_escalate_submission((select id from public.coach_exercise_submissions where exercise->>'name' = 'Wall Sit Pulse'), 'Not mine but escalate it anyway.')$$), 'you can only escalate your own');
+select t.ok(t.refused($$select public.coach_remove_library_item('lib:x-ai-added-move')$$), 'trainers can''t remove library items');
+select t.as_user('boss');
+select t.ok((select count(*) from public.coach_exercise_submissions where outcome = 'escalated') = 1, 'admins see escalations');
+select t.ok(public.coach_review_submission((select id from public.coach_exercise_submissions where outcome = 'escalated'), false, 'Same as Wall Sit') = 'declined', 'admins answer escalations');
+select public.coach_remove_library_item('lib:x-ai-added-move');
+select t.ok((select count(*) from public.coach_library_extra where ref = 'lib:x-ai-added-move') = 0 and (select count(*) from public.coach_library_aliases where ref = 'lib:x-ai-added-move') = 0, 'admins can take an addition back');
+
+-- Swap suggestions from real use: counts only, across everyone's logs
+select t.as_user('trainer');
+insert into public.coach_clients (trainer_id, first_name, email) select v, 'Ana', 'ana@example.com' from t.ids where k = 'trainer';
+select t.as_admin();
+insert into public.coach_logs (client_id, user_id, entries) select c.id, c.trainer_id, '[
+  {"block_id":"a","ex":{"src":"lib","id":"c-leg-press","name":"Leg Press"},"swapped_from_ref":"lib:c-back-squat","swapped_from":"Back Squat","sets":[]},
+  {"block_id":"b","ex":{"src":"lib","id":"c-goblet-squat","name":"Goblet Squat"},"swapped_from":"Back Squat","sets":[]}]' from public.coach_clients c;
+insert into public.coach_logs (client_id, user_id, entries) select c.id, c.trainer_id, '[
+  {"block_id":"a","ex":{"src":"lib","id":"c-leg-press","name":"Leg Press"},"swapped_from_ref":"lib:c-back-squat","sets":[]}]' from public.coach_clients c;
+select t.as_user('trainer2');
+select t.ok((select count(*) from public.coach_logs) = 0, 'other people''s logs stay private');
+select t.ok((select ref = 'lib:c-leg-press' and uses = 2 from public.coach_popular_swaps('lib:c-back-squat', 'Back Squat') limit 1), 'the most common swap comes first, counted across everyone');
+select t.ok((select count(*) from public.coach_popular_swaps('lib:c-back-squat', 'Back Squat')) = 2, 'older logs match by name');
+select t.ok(t.refused($$select public.coach_popular_swaps('lib:c-back-squat')$$) = false, 'anyone signed in can ask');
+select t.as_user('trainer');
+insert into public.coach_exercises (trainer_id, name, gallery) values (auth.uid(), 'Grip check', '[{"path":"x/1.jpg","caption":"Thumbs around"}]');
+select t.ok(t.refused($$insert into public.coach_exercises (trainer_id, name, gallery) values (auth.uid(), 'Too many', '[1,2,3,4,5,6,7,8,9]')$$), 'a gallery holds at most 8 pictures');

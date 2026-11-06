@@ -18,13 +18,15 @@ export type LibExercise = {
   pattern?: string;       // movement pattern (Squat, Hinge, Horizontal push...)
   group?: string;         // library section
   how?: { setup: string; move: string; cues: string };
+  gallery?: { src: string; caption: string }[]; // small stills: hand positions, stances… (src: web address or media:path)
 };
 
 type CoachRow = [id: string, name: string, aliases: string[], category: string, kind: string, pattern: string, main: string[], other: string[],
-  gear: string[], setup: string, move: string, cues: string, video: string, group: string];
+  gear: string[], setup: string, move: string, cues: string, video: string, group: string, gallery?: [src: string, caption: string][]];
 const fromCoach = (r: CoachRow): LibExercise => ({
   ref: `lib:${r[0]}`, name: r[1], aliases: r[2], category: r[3], kind: r[4], pattern: r[5], primary: r[6], secondary: r[7],
   gear: r[8], equipment: r[8].join(', '), how: { setup: r[9], move: r[10], cues: r[11] }, video: r[12] || null, group: r[13],
+  gallery: r[14]?.length ? r[14].map(([src, caption]) => ({ src, caption })) : undefined,
   level: '', mechanic: '', steps: [], images: [],
 });
 
