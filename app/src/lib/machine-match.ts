@@ -55,7 +55,7 @@ export function machineMatches(read: MachineRead, all: LibExercise[], n = 150): 
 }
 
 /** Machines whose name, brand or model matches what was typed (at least 3 letters), best first */
-export function findMachines(q: string, n = 8): GymMachine[] {
+export function findMachines(q: string, n = 12): GymMachine[] {
   const w = q.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   if (w.length < 3) return [];
   const hit = (x: string) => { const s = x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); return s === w ? 0 : s.startsWith(w) ? 1 : s.includes(w) ? 2 : w.includes(s) && s.length >= 4 ? 3 : 9; };

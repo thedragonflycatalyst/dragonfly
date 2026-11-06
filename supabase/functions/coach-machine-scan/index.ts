@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return reply(400, { error: 'bad_request' }); }
   const image = typeof body.image === 'string' ? body.image.replace(/^data:image\/\w+;base64,/, '') : '';
   if (!image || image.length > MAX_IMAGE || !/^[A-Za-z0-9+/=\s]+$/.test(image)) return reply(400, { error: 'bad_image' });
-  const catalog = Array.isArray(body.machines) ? body.machines.filter((g): g is string => typeof g === 'string').slice(0, 200).map((g) => g.slice(0, 300)) : [];
+  const catalog = Array.isArray(body.machines) ? body.machines.filter((g): g is string => typeof g === 'string').slice(0, 200).map((g) => g.slice(0, 800)) : [];
   const ids = new Set(catalog.map((c) => c.split(':')[0].trim()));
   const allowed = Array.isArray(body.gear) ? body.gear.filter((g): g is string => typeof g === 'string').slice(0, 120).map((g) => g.slice(0, 40)) : [];
 
