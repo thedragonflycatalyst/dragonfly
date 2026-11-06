@@ -12,17 +12,19 @@ import { sb } from '@/lib/supabase';
 /** The website endpoint that emails the refund / void notice (same format as the website's own receipts) */
 const NOTICE_URL = 'https://thedragonflycatalyst.org/api/account/coach-adjust';
 
-/** Asks the website to email the client a refund or void notice. Resolves to a short status line for the toast. */
+/** Asks the website to email the client a refund or void notice (Charlie's coach-adjust endpoint; no resend guard there, so the
+ *  app calls it once per adjustment and again only on an explicit "Email the receipt again"). Resolves to a short status line. */
 export async function sendAdjustmentNotice(paymentId: string): Promise<string> {
   try {
     const { data } = await sb.auth.getSession();
     const token = data.session?.access_token;
     if (!token) return 'Sign in again to email the receipt.';
     const r = await fetch(NOTICE_URL, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ payment_id: paymentId }) });
-    if (r.ok) return 'Receipt emailed to the client.';
-    if (r.status === 404) return 'The client’s receipt couldn’t be emailed yet (the email service isn’t set up for this).';
-    const j = (await r.json().catch(() => null)) as { error?: string } | null;
-    return `Receipt not emailed: ${j?.error ?? `error ${r.status}`}`;
+    const j = (await r.json().catch(() => null)) as { ok?: boolean; message?: string; error?: string } | null;
+    if (r.ok && j?.ok !== false) return j?.message ?? 'Receipt emailed to the client.';
+    // 409: no client email, or the payment isn't refunded/voided with a reason; 404: not this trainer's payment; 502: email service
+    if (r.status === 502) return 'Receipt not emailed: the email service didn’t answer. Try “Email the receipt again” later.';
+    return `Receipt not emailed: ${j?.message ?? j?.error ?? `error ${r.status}`}`;
   } catch { return 'Receipt not emailed: can’t reach the website.'; }
 }
 
