@@ -59,7 +59,7 @@ test('change over periods, monthly and yearly, and month groups', () => {
   assert.equal(changeOver(tr, 365), null);
   assert.deepEqual(monthlyChange(tr).map((m) => Math.round(m.kg)), [-2, -2, 1]);
   assert.deepEqual(yearlyChange(tr).map((y) => [y.year, Math.round(y.kg)]), [[2025, 0], [2026, -1]]);
-  const g = byMonth(list);
+  const g = byMonth(list, 1);
   assert.equal(g[0].month, '2026-03'); assert.equal(g[0].change, 1); assert.equal(g.length, 4);
   assert.equal(spanText(list), '3 months');
 });
