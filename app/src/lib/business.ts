@@ -10,7 +10,8 @@ export type Package = {
 export type Voucher = { id: string; trainer_id: string; code: string; description: string | null; percent_off: number | null; amount_off_cents: number | null; package_ids: string[]; max_uses: number | null; uses: number; expires_on: string | null; active: boolean };
 export type Payment = {
   id: string; trainer_id: string; client_id: string | null; package_id: string | null; event_id: string | null; description: string; amount_cents: number; currency: string;
-  status: 'paid' | 'pending' | 'refunded' | 'failed'; method: 'stripe' | 'cash' | 'card' | 'transfer' | 'other'; stripe_subscription_id: string | null; note: string | null; paid_at: string;
+  status: 'paid' | 'pending' | 'refunded' | 'failed' | 'void'; method: 'stripe' | 'cash' | 'card' | 'transfer' | 'other'; stripe_subscription_id: string | null; note: string | null; paid_at: string;
+  status_reason?: string | null; status_at?: string | null;
 };
 export type ClientPackage = { id: string; trainer_id: string; client_id: string; package_id: string | null; name: string; credits_total: number | null; credits_used: number; starts_on: string; expires_on: string | null; status: 'active' | 'cancelled'; billing: Billing; created_at: string };
 export type Booking = {
