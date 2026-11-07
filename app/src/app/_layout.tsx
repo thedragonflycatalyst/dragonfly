@@ -1,6 +1,6 @@
 import { Inter_400Regular, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { useFonts } from 'expo-font';
-import { SplashScreen, Stack } from 'expo-router';
+import { SplashScreen, Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
@@ -9,12 +9,15 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from '@/components/ui';
 import { SidebarDrawer, SidebarRail, useWide } from '@/components/shell';
 import { AutoSync } from '@/features/auto-sync';
+import { flushCrashes, installCrashReporter, noteRoute } from '@/features/crash-reporter';
 import { loadLibraryExtras } from '@/features/library-extras';
 import { ViewingBanner } from '@/features/team';
 import { AppProvider, useApp } from '@/lib/app-state';
 import { F, usePalette } from '@/lib/theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+// Release builds: scrubbed crash reports (no personal data); off switch in Settings › About
+installCrashReporter();
 
 function Shell() {
   const p = usePalette();
@@ -27,6 +30,10 @@ function Shell() {
   useEffect(() => { if (fontsLoaded && ready) SplashScreen.hideAsync().catch(() => {}); }, [fontsLoaded, ready]);
   // Trainers' approved library additions and extra search names (stored online)
   useEffect(() => { if (ready && user) loadLibraryExtras().catch(() => {}); }, [ready, user]);
+  const path = usePathname();
+  useEffect(() => { noteRoute(path); }, [path]);
+  // Crashes queued while signed out (or just before the app closed) go out once someone is signed in
+  useEffect(() => { if (user) void flushCrashes(); }, [user]);
 
   if (!fontsLoaded || !ready) return null;
   const header = {
