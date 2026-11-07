@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { dailyTotals, foodRows, mergeDaily, type Daily } from '@/lib/health';
 import { recall, sb, store } from '@/lib/supabase';
 import { readDevice } from './health-connect';
+import { checkHealthConsent } from './health-consent';
 
 const KEY = (uid: string) => `health.hc.${uid}`;
 export type DeviceSync = { on: boolean; food: boolean; last: string | null };
@@ -14,7 +15,7 @@ type Member = { id: string; trainer_id: string; status?: string } | null | undef
 
 /** Reads the phone since the last sync (or `from`) and saves it. Returns how many days, workouts and foods changed. */
 export async function syncDevice(uid: string, client: Member, from?: Date): Promise<{ days: number; workouts: number; food: number }> {
-  if (Platform.OS !== 'android') return { days: 0, workouts: 0, food: 0 };
+  if (Platform.OS !== 'android' || !checkHealthConsent(uid)) return { days: 0, workouts: 0, food: 0 };
   const st = deviceSync(uid);
   const since = from ?? (st.last ? new Date(new Date(st.last).getTime() - 2 * 86_400_000) : new Date(Date.now() - 30 * 86_400_000));
   const h = await readDevice(since);
