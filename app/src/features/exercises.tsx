@@ -19,6 +19,7 @@ import { findMachines, machineMatches, type MachineRead } from '@/lib/machine-ma
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
 import { escalateSuggestion, REPORT_KINDS, reportExercise, reviewText, suggestExercise, useHidden, type ReportKind, type Review } from './library-extras';
+import { useAiPhotoConsent } from './ai-photo-consent';
 import { MachineScanner, scanMachinePhoto } from './machine-scan';
 
 const MEDIA = 'coach-media';
@@ -298,7 +299,9 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   };
   const showFilterChips = !scanned && ((tab === 'part' && !part) || (tab === 'equipment' && !equip));
   /** Scan a machine: the live scanner on phones, a photo on the web */
+  const consent = useAiPhotoConsent();
   const scan = async () => {
+    if (!(await consent.ask())) return;
     if (Platform.OS !== 'web') { setScanning(true); return; }
     const r = await scanMachinePhoto(toast);
     if (r) setScanned(r);
@@ -398,6 +401,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
       <ExerciseInfo ex={info ? { name: info.name, ref: info.ref, img: info.images[0], video: info.video } : null} onClose={() => setInfo(null)} />
       <MyExerciseEditor visible={creating} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />
       <MachineScanner visible={scanning} onClose={() => setScanning(false)} onFound={setScanned} />
+      {consent.sheet}
     </Sheet>
   );
 }

@@ -11,6 +11,7 @@ import { errText, type Client } from '@/lib/model';
 import { defaultItem, describe, type MealItem, type Nutr, type NutritionPlan } from '@/lib/nutrition';
 import { sb } from '@/lib/supabase';
 import { R, usePalette } from '@/lib/theme';
+import { useAiPhotoConsent } from './ai-photo-consent';
 import { BarcodeScanner } from './barcode';
 import { AmountEditor, FoodPicker, kcalOf } from './food-picker';
 import { TotalsBars } from './nutrition-view';
@@ -290,7 +291,9 @@ function FromPhoto({ client, onAdd }: { client: Client; onAdd: (items: NewLogIte
     if (error) throw error;
     return path;
   };
+  const consent = useAiPhotoConsent();
   const estimate = async () => {
+    if (!(await consent.ask())) return;
     setBusy('ai');
     try {
       const { data, error } = await sb.functions.invoke('coach-food-photo', { body: { image: await toBase64(uri!), hint } });
@@ -357,6 +360,7 @@ function FromPhoto({ client, onAdd }: { client: Client; onAdd: (items: NewLogIte
           </View>
         </>
       )}
+      {consent.sheet}
     </View>
   );
 }
