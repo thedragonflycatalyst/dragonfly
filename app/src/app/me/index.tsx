@@ -87,6 +87,7 @@ export default function Me() {
             <Row icon="monitor_weight" title="Scale" sub="Weigh-ins, body fat, muscle and your trend" onPress={() => router.push('/me/scale')} />
             <Row icon="directions_walk" title="Activity & sleep" sub="Steps, sleep, heart rate and workouts" onPress={() => router.push('/me/activity')} />
             <Row icon="link" title="Connected apps" sub="Health Connect, your watch or ring, your food tracker" onPress={() => router.push('/connections')} />
+            <Row icon="notifications" title="Messages from your trainer" sub="Reminders, open spots and more, by text or in the app" onPress={() => router.push('/me/messages')} />
             <Row icon="timer" title="Rest timer · Lapis" sub="Voice, bell, countdown and music during workouts" onPress={() => router.push('/settings/rest-timer')} />
             <Row icon="school" title="Credentials and challenges" sub="Certificates you hold, and milestones to work toward" last onPress={() => router.push('/credentials')} />
           </Card>
