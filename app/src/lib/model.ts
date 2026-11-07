@@ -81,7 +81,10 @@ export type MyExercise = {
   id: string; trainer_id: string; name: string; instructions: string | null; video_url: string | null;
   equipment: string[]; muscles: string[]; tags: string[]; default_metric: SetMetric; archived: boolean;
   category: string; secondary_muscles: string[]; image_path: string | null; alternatives: string[];
+  gallery?: GalleryItem[];
 };
+/** A still on an exercise (hand position, stance…): a coach-media storage path or a web address, with a short caption */
+export type GalleryItem = { path?: string; url?: string; caption: string };
 
 export type Assignment = {
   id: string; trainer_id: string; client_id: string; workout_id: string | null; program_id: string | null;
@@ -96,7 +99,7 @@ export type SetLog = {
   reps_l?: number | null; reps_r?: number | null; time_l?: number | null; time_r?: number | null; rest?: number | null;
 };
 /** One exercise in a logged workout. sides: logged left/right. note: the trainer's or client's note for this exercise. */
-export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; sides?: boolean; note?: string };
+export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; swapped_from_ref?: string; sides?: boolean; note?: string };
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
   duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
@@ -137,6 +140,9 @@ export function errText(err: unknown): string {
   for (const k of Object.keys(FRIENDLY)) if (m.includes(k)) return FRIENDLY[k];
   if (/Invalid login credentials/i.test(m)) return FRIENDLY.invalid_credentials;
   if (/Email not confirmed/i.test(m)) return 'Confirm your email first. Check your inbox for the code.';
+  // Record-keeping rules (payments are kept 7 years; refunds and voids need a reason): their own wording is already plain
+  if (/Financial records are kept|paid payment's amount|Give a reason for marking/i.test(m)) return m.replace(/^.*?(Financial records|A paid payment|Give a reason)/, '$1');
+  if (/23514/.test(m)) return 'Give a reason first.';
   if (/row-level security|permission denied|42501/i.test(m)) return 'You don’t have access to that.';
   if (/duplicate key|already exists/i.test(m)) return 'That’s already done.';
   if (/Network request failed|Failed to fetch/i.test(m)) return 'Can’t reach the server. Check your connection and try again.';

@@ -65,3 +65,26 @@ export function artCover(cover: string | null | undefined, name: string, always 
   if (group) return groupArtFor(name) ?? artFor(name) ?? (always ? 'crew' : null);
   return artFor(name) ?? (always ? 'fullbody' : null);
 }
+
+/** Placeholder picture for an exercise that has no verified demo video yet: by its kind, then its main muscle, then its name */
+export function exerciseArt(e: { name: string; category?: string; pattern?: string; primary?: string[]; gear?: string[] }): ArtKey {
+  const c = (e.category ?? '').toLowerCase(), pat = (e.pattern ?? '').toLowerCase(), gear = (e.gear ?? []).join(' ').toLowerCase();
+  if (c.includes('suspension') || gear.includes('suspension')) return 'suspension';
+  if (c === 'kettlebell') return 'kettlebell';
+  if (c === 'aquatics' || gear.includes('pool')) return 'swimming';
+  if (['yoga', 'pilates', 'mobility', 'stretching', 'corrective'].includes(c)) return 'yoga';
+  if (/bike|cycl/.test(gear) || /bike|cycl/i.test(e.name)) return 'cycling';
+  if (/treadmill/.test(gear) || /\b(run|running|jog|sprint)/i.test(e.name)) return 'running';
+  if (/speed bag|heavy bag|punch|box/i.test(e.name)) return 'boxing';
+  if (['plyometrics', 'conditioning', 'cardio', 'speed and agility'].includes(c) || pat.includes('jump')) return 'hiit';
+  const m = (e.primary ?? []).map((x) => x.toLowerCase());
+  const has = (...xs: string[]) => m.some((x) => xs.includes(x));
+  if (m[0] === 'glutes' || m[0] === 'side glutes') return 'glutes';
+  if (has('quads', 'hamstrings', 'calves', 'inner thighs', 'shins')) return 'legs';
+  if (has('chest', 'upper chest')) return 'chest';
+  if (has('lats', 'upper back', 'lower back')) return 'back';
+  if (has('front delts', 'side delts', 'rear delts', 'traps', 'rotator cuff', 'neck')) return 'shoulders';
+  if (has('biceps', 'triceps', 'forearms', 'grip')) return 'arms';
+  if (has('abs', 'obliques', 'deep core', 'hip flexors')) return 'core';
+  return artFor(e.name) ?? 'fullbody';
+}
