@@ -32,7 +32,7 @@ export function LapisTimerPicker({
       setLoading(false);
       return;
     }
-    sb.from('lapis_sync').select('doc').eq('user_id', userId).maybeSingle()
+    Promise.resolve(sb.from('lapis_sync').select('doc').eq('user_id', userId).maybeSingle())
       .then(({ data, error: err }) => {
         if (!active) return;
         if (err) setError('Could not load Lapis timers. Check your connection and try again.');
