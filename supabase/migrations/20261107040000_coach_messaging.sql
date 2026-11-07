@@ -1,8 +1,9 @@
 -- Messaging foundation: one outbox for every automatic message (reminders, slot offers, surveys, testimonial and
 -- referral asks, group invites), consent per purpose and channel, quiet hours and caps per trainer, and an inbox
 -- for replies. The coach-outbox function (pg_cron, every 15 minutes) plans and delivers.
--- Channels: 'app' (Dragonfly chat, free), 'manual' (the trainer sends it from their phone; it waits in their
--- "To send" list), 'sms' (a texting service; off until the owner approves one and sets settings.sms_enabled).
+-- Channels: 'sms' (a texting service; off until the owner approves one and sets settings.sms_enabled), 'manual' (a
+-- text the trainer sends from their phone; it waits in their "To send" list), 'email' (when an email sender is
+-- configured), 'app' (Dragonfly chat). Each client picks their preferred channel; the default is text.
 
 -- Consent: append-only, newest row per (client, purpose, channel) wins. A client gives or withdraws their own;
 -- a trainer can only record a withdrawal (e.g. the client asked in person); STOP replies withdraw every SMS purpose.
@@ -28,18 +29,33 @@ end $$;
 create trigger coach_contact_consent_guard before insert on public.coach_contact_consents for each row execute function public.coach_contact_consent_guard();
 revoke execute on function public.coach_contact_consent_guard() from public, anon, authenticated;
 
--- Is this purpose allowed on this channel for this client right now? ('app' chat reminders are on by default:
--- the client chose to use the app; everything by SMS needs an explicit yes.)
+-- Is this purpose allowed on this channel for this client right now? Session reminders and open-slot offers are about
+-- sessions the client booked, so they're on by default on every channel (STOP or the client's settings turn them off);
+-- surveys and marketing (testimonials, referrals, group invites) always need an explicit yes.
 create function public.coach_contact_allowed(p_client uuid, p_purpose text, p_channel text) returns boolean
 language sql stable security definer set search_path = '' as $$
   select coalesce(
     (select c.granted from public.coach_contact_consents c
       where c.client_id = p_client and c.purpose = p_purpose and c.channel = p_channel
       order by c.created_at desc, c.id desc limit 1),
-    p_channel = 'app' and p_purpose in ('reminders', 'offers'))
+    p_purpose in ('reminders', 'offers'))
 $$;
 revoke execute on function public.coach_contact_allowed(uuid, text, text) from public, anon;
 grant execute on function public.coach_contact_allowed(uuid, text, text) to authenticated, service_role;
+
+-- How each client prefers to be reached. Default: text, the channel people are least likely to miss.
+create table public.coach_contact_prefs (
+  client_id uuid primary key references public.coach_clients(id) on delete cascade,
+  preferred_channel text not null default 'sms' check (preferred_channel in ('sms', 'email', 'app')),
+  updated_at timestamptz not null default now()
+);
+alter table public.coach_contact_prefs enable row level security;
+revoke all on public.coach_contact_prefs from anon;
+grant select, insert, update on public.coach_contact_prefs to authenticated;
+create policy coach_contact_prefs_client on public.coach_contact_prefs for all to authenticated
+  using (public.coach_is_client(client_id)) with check (public.coach_is_client(client_id));
+create policy coach_contact_prefs_trainer on public.coach_contact_prefs for select to authenticated
+  using (public.coach_owns_client(client_id));
 
 -- Per-trainer settings (one row; defaults are conservative)
 create table public.coach_message_settings (

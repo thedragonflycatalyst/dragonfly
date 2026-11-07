@@ -4,12 +4,13 @@
 //                                          testimonial and referral asks), then deliver queued messages that are due.
 // Delivery rules, checked again at send time: the client's consent for that purpose and channel, the trainer's quiet
 // hours (in the trainer's time zone), a weekly cap on non-essential messages, and no health details in the text.
-// Channels: 'app' (Dragonfly chat), 'manual' (waits in the trainer's "To send" list), 'sms' (texting service, only
-// when the owner has switched it on and the service is configured; see deliverSms).
+// Channels (the client picks; default text): 'sms' (texting service, only when the owner has switched it on and it's
+// configured), 'manual' (a text that waits in the trainer's "To send" list), 'email' (when configured), 'app' (chat).
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
 import { healthWord, nextSendable, occurrences, reminderText, type BookingRow } from '../_shared/messaging.ts';
 import { allowed, ESSENTIAL, pickChannel, skipCa, type ClientRow, type Settings } from './common.ts';
 import { planEngagement } from './engagement.ts';
+import { deliverEmail } from './email.ts';
 import { deliverSms, smsConfigured } from './sms.ts';
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -80,6 +81,10 @@ async function deliver(admin: SupabaseClient, now: Date): Promise<Record<string,
         if (!s.sms_enabled || !smsConfigured()) { await skip('sms_not_available'); continue; }
         const { data: c } = await admin.from('coach_clients').select('phone').eq('id', m.client_id).maybeSingle();
         provider = await deliverSms(c?.phone ?? null, m.body);
+        ok = !!provider;
+      } else if (m.channel === 'email') {
+        const { data: c } = await admin.from('coach_clients').select('email').eq('id', m.client_id).maybeSingle();
+        provider = await deliverEmail(c?.email ?? null, m.kind, m.body);
         ok = !!provider;
       } else { await skip('channel_not_available'); continue; }
       await admin.from('coach_outbox').update(ok ? { status: 'sent', sent_at: new Date().toISOString(), provider_id: provider, attempts: m.attempts + 1 }

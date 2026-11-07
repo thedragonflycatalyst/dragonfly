@@ -27,11 +27,18 @@ insert into public.coach_contact_consents (client_id, purpose, channel, granted)
 select t.ok(public.coach_contact_allowed((select v from t.ids where k = 'c_ana'), 'reminders', 'sms'), 'the client opts in to text reminders');
 select t.ok(not public.coach_contact_allowed((select v from t.ids where k = 'c_ana'), 'marketing', 'sms'), 'marketing by text stays off');
 select t.ok(public.coach_contact_allowed((select v from t.ids where k = 'c_ana'), 'reminders', 'app'), 'chat reminders are on by default');
+select t.ok(public.coach_contact_allowed((select v from t.ids where k = 'c_ana'), 'offers', 'email'), 'session messages are on by default on every channel');
+insert into public.coach_contact_prefs (client_id, preferred_channel) select v, 'email' from t.ids where k = 'c_ana';
+select t.ok((select preferred_channel from public.coach_contact_prefs) = 'email', 'the client picks how to be reached');
+insert into public.coach_contact_consents (client_id, purpose, channel, granted) select v, 'reminders', 'email', false from t.ids where k = 'c_ana';
+select t.ok(not public.coach_contact_allowed((select v from t.ids where k = 'c_ana'), 'reminders', 'email'), 'and can switch a channel off');
 select t.ok(not public.coach_contact_allowed((select v from t.ids where k = 'c_ana'), 'surveys', 'app'), 'surveys need a yes even in chat');
 select t.ok(t.refused($$update public.coach_contact_consents set granted = true$$), 'consent records can''t be edited');
 
 -- Settings
 select t.as_user('trainer');
+select t.ok((select preferred_channel from public.coach_contact_prefs) = 'email', 'the trainer sees the client''s choice');
+select t.ok(t.refused($$update public.coach_contact_prefs set preferred_channel = 'app'$$) or (select preferred_channel from public.coach_contact_prefs) = 'email', 'but can''t change it');
 insert into public.coach_message_settings (trainer_id) select v from t.ids where k = 'trainer';
 update public.coach_message_settings set surveys_on = true;
 select t.ok((select surveys_on from public.coach_message_settings), 'trainers set their own messaging');

@@ -46,7 +46,7 @@ export default function MessageSettings() {
       <View style={{ gap: 12 }}>
         <Card style={{ gap: 6 }}>
           <Txt v="bold">How messages are sent</Txt>
-          <Txt v="small">Clients who use the app get them in your Dragonfly chat. Others wait in your “To send” list so you can text them from your phone in one tap.</Txt>
+          <Txt v="small">Each client chooses text, email or the app; the default is text, the hardest to miss. Until automatic texting is on, texts wait in your “To send” list so you can send them from your phone in one tap.</Txt>
           <Txt v="small">{s.sms_enabled ? 'Automatic texting is on for clients who agreed to texts.' : 'Automatic texting is off. It needs a texting service, which the owner approves and sets up.'}</Txt>
           <Button small kind="ghost" title="Open “To send”" onPress={() => router.push('/outbox')} style={{ alignSelf: 'flex-start' }} />
         </Card>
