@@ -7,6 +7,7 @@ import { DateField } from '@/components/date-field';
 import { ClientPicker, Fab, matches, SearchBox, useClientList } from '@/components/pickers';
 import { Badge } from '@/components/shell';
 import { AdjustPayment, sendAdjustmentNotice, type AdjustKind } from '@/features/payment-adjust';
+import { voidable } from '@/lib/adjust';
 import { ActionMenu, Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui';
 import { confirm } from '@/lib/ask';
@@ -154,7 +155,7 @@ export default function Financials() {
       <RecordSheet visible={recording} onClose={() => setRecording(false)} trainerId={app.trainer?.user_id ?? ''} onSaved={() => { setRecording(false); load(); }} />
       <ActionMenu visible={!!menu} onClose={() => setMenu(null)} title={menu ? `${menu.description} · ${fmtMoney(menu.amount_cents, menu.currency)}` : ''} items={menu ? [
         { label: menu.method === 'stripe' ? 'Refund to their card' : 'Record a refund', icon: 'undo', onPress: () => setAdjust({ p: menu, kind: 'refund' }), hidden: menu.status !== 'paid' },
-        { label: 'Void (recorded by mistake)', icon: 'block', danger: true, onPress: () => setAdjust({ p: menu, kind: 'void' }), hidden: menu.status !== 'paid' && menu.status !== 'pending' },
+        { label: 'Void (recorded by mistake)', icon: 'block', danger: true, onPress: () => setAdjust({ p: menu, kind: 'void' }), hidden: !voidable(menu) },
         { label: 'Email the receipt again', icon: 'mail', onPress: () => { void sendAdjustmentNotice(menu.id).then((m) => toast(m)); }, hidden: menu.status !== 'refunded' && menu.status !== 'void' },
       ] : []} />
       <AdjustPayment payment={adjust?.p ?? null} kind={adjust?.kind ?? 'refund'} clientName={adjust ? name(adjust.p.client_id) : ''}
