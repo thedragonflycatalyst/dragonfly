@@ -51,7 +51,7 @@ async function planReminders(admin: SupabaseClient, s: Settings, tz: string, tra
 
 async function deliver(admin: SupabaseClient, now: Date, onlyTrainer?: string): Promise<Record<string, number>> {
   const out: Record<string, number> = { sent: 0, skipped: 0, failed: 0, deferred: 0 };
-  let q = admin.from('coach_outbox').select('*').eq('status', 'queued').neq('channel', 'manual').lte('send_after', now.toISOString());
+  let q = admin.from('coach_outbox').select('*').eq('status', 'queued').not('channel', 'in', '(manual,manual_email)').lte('send_after', now.toISOString());
   if (onlyTrainer) q = q.eq('trainer_id', onlyTrainer);
   const { data: due } = await q.order('send_after').limit(200);
   const settings = new Map<string, Settings & { tz: string }>();

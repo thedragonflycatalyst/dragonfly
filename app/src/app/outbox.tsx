@@ -9,7 +9,7 @@ import { errText } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { MAX_W, usePalette } from '@/lib/theme';
 
-type Msg = { id: string; client_id: string; kind: string; body: string; send_after: string; coach_clients: { name: string; phone: string | null } | null };
+type Msg = { id: string; client_id: string; kind: string; channel: string; body: string; send_after: string; coach_clients: { name: string; phone: string | null; email: string | null } | null };
 type Reply = { id: string; client_id: string | null; body: string; parsed: { kind?: string }; received_at: string; coach_clients: { name: string } | null };
 const KIND: Record<string, string> = { reminder: 'Reminder', slot_offer: 'Open slot', survey: 'Survey', testimonial_ask: 'Testimonial', referral_ask: 'Referral', group_invite: 'Group invite', note: 'Message' };
 
@@ -21,7 +21,7 @@ export default function Outbox() {
   const [replies, setReplies] = useState<Reply[]>([]);
   const load = useCallback(async () => {
     const [m, r] = await Promise.all([
-      sb.from('coach_outbox').select('id, client_id, kind, body, send_after, coach_clients(name, phone)').eq('status', 'queued').eq('channel', 'manual')
+      sb.from('coach_outbox').select('id, client_id, kind, channel, body, send_after, coach_clients(name, phone, email)').eq('status', 'queued').in('channel', ['manual', 'manual_email'])
         .lte('send_after', new Date(Date.now() + 3600_000).toISOString()).order('send_after').limit(100),
       sb.from('coach_inbox').select('id, client_id, body, parsed, received_at, coach_clients(name)').eq('handled', false).order('received_at', { ascending: false }).limit(50),
     ]);
@@ -30,8 +30,11 @@ export default function Outbox() {
   }, [toast]);
   useFocusEffect(useCallback(() => { if (app.trainer) void load(); }, [load, app.trainer]));
   const send = async (m: Msg) => {
-    const link = contactLink('sms', m.coach_clients?.phone, m.body, Platform.OS);
-    if (!link) return toast('No mobile number saved for this client', false);
+    const email = m.channel === 'manual_email';
+    const link = email
+      ? (m.coach_clients?.email ? `mailto:${m.coach_clients.email}?subject=${encodeURIComponent(KIND[m.kind] ?? 'A message from your trainer')}&body=${encodeURIComponent(m.body)}` : null)
+      : contactLink('sms', m.coach_clients?.phone, m.body, Platform.OS);
+    if (!link) return toast(email ? 'No email saved for this client' : 'No mobile number saved for this client', false);
     await Linking.openURL(link);
     const { error } = await sb.from('coach_outbox').update({ status: 'sent' }).eq('id', m.id);
     if (error) toast(errText(error), false); else void load();
@@ -57,13 +60,13 @@ export default function Outbox() {
             <Button small kind="ghost" title="Done" onPress={() => handled(r)} style={{ alignSelf: 'flex-start' }} />
           </Card>
         ))}
-        <Txt v="kicker" color={p.focus}>Texts to send from your phone</Txt>
+        <Txt v="kicker" color={p.focus}>To send from your phone or email</Txt>
         {msgs === null ? <Txt>Loading…</Txt> : msgs.length === 0 ? <Txt v="small">Nothing waiting. Reminders for clients without the app show up here when they’re due.</Txt> : msgs.map((m) => (
           <Card key={m.id} style={{ gap: 6 }}>
             <Txt v="bold">{KIND[m.kind] ?? 'Message'} · {m.coach_clients?.name ?? 'Client'}</Txt>
             <Txt>{m.body}</Txt>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Button small icon="sms" title="Text it" onPress={() => send(m)} />
+              <Button small icon={m.channel === 'manual_email' ? 'mail' : 'sms'} title={m.channel === 'manual_email' ? 'Email it' : 'Text it'} onPress={() => send(m)} />
               <Button small kind="ghost" title="Skip" onPress={() => skip(m)} />
             </View>
           </Card>

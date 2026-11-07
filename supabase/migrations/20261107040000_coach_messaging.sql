@@ -71,7 +71,7 @@ create table public.coach_message_settings (
   testimonials_on boolean not null default false,
   referrals_on boolean not null default false,
   referral_every_days int not null default 90 check (referral_every_days between 30 and 365),
-  include_ca_clients boolean not null default false,          -- Columbia Association clients (owner decision pending)
+  include_ca_clients boolean not null default true,           -- Columbia Association clients (owner, Nov 7: they all use the app; on)
   sms_enabled boolean not null default false,                 -- owner turns on once a texting service is approved
   updated_at timestamptz not null default now()
 );
@@ -82,7 +82,7 @@ create table public.coach_outbox (
   client_id uuid not null references public.coach_clients(id) on delete cascade,
   purpose text not null check (purpose in ('reminders', 'offers', 'surveys', 'marketing')),
   kind text not null check (kind in ('reminder', 'slot_offer', 'survey', 'testimonial_ask', 'referral_ask', 'group_invite', 'note')),
-  channel text not null check (channel in ('sms', 'app', 'manual', 'email')),
+  channel text not null check (channel in ('sms', 'app', 'manual', 'manual_email', 'email')),
   body text not null check (char_length(body) between 1 and 480),
   token uuid not null unique default gen_random_uuid(),       -- for link pages (survey, testimonial)
   send_after timestamptz not null default now(),
@@ -112,7 +112,7 @@ begin
     if new.body <> old.body or new.client_id <> old.client_id or new.channel <> old.channel or new.token <> old.token then
       raise exception 'outbox_locked' using errcode = '42501';
     end if;
-    if not ((old.status = 'queued' and new.status = 'cancelled') or (old.status = 'queued' and old.channel = 'manual' and new.status = 'sent')) then
+    if not ((old.status = 'queued' and new.status = 'cancelled') or (old.status = 'queued' and old.channel in ('manual', 'manual_email') and new.status = 'sent')) then
       raise exception 'outbox_locked' using errcode = '42501';
     end if;
     if new.status = 'sent' then new.sent_at := now(); end if;
