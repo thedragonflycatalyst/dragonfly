@@ -16,10 +16,14 @@ export function cleanReason(s: string | null | undefined): string | null {
 
 /** Card refunds go through Stripe (coach-pay); everything else is a status change on the row, never a delete */
 export function adjustRoute(p: Pick<Payment, 'method' | 'status'>, kind: AdjustKind): 'stripe' | 'record' | null {
-  // Same rules as the Financials menu: refund a paid payment; void a paid or pending one
-  if (kind === 'refund' ? p.status !== 'paid' : p.status !== 'paid' && p.status !== 'pending') return null;
+  // Refund a paid payment. Void a pending one, or a paid one that wasn't taken by card: voiding a captured Stripe charge would
+  // leave the money with the trainer while the client is told it's cancelled, so card payments are refunded instead (L-022).
+  if (kind === 'refund' ? p.status !== 'paid' : !voidable(p)) return null;
   return p.method === 'stripe' && kind === 'refund' ? 'stripe' : 'record';
 }
+
+/** Whether Void is offered: pending payments, or paid ones recorded by hand (cash, card machine, transfer…) */
+export const voidable = (p: Pick<Payment, 'method' | 'status'>) => p.status === 'pending' || (p.status === 'paid' && p.method !== 'stripe');
 
 export const statusFor = (kind: AdjustKind): 'refunded' | 'void' => (kind === 'refund' ? 'refunded' : 'void');
 

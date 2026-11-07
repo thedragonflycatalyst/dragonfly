@@ -26,7 +26,9 @@ test('reason is required and trimmed', () => {
 
 test('routes: card refunds via Stripe, everything else is a status change; already-adjusted rows are refused', () => {
   assert.equal(adjustRoute({ method: 'stripe', status: 'paid' }, 'refund'), 'stripe');
-  assert.equal(adjustRoute({ method: 'stripe', status: 'paid' }, 'void'), 'record');
+  assert.equal(adjustRoute({ method: 'stripe', status: 'paid' }, 'void'), null); // L-022: refund it instead
+  assert.equal(adjustRoute({ method: 'stripe', status: 'pending' }, 'void'), 'record');
+  assert.equal(adjustRoute({ method: 'card', status: 'paid' }, 'void'), 'record');
   assert.equal(adjustRoute({ method: 'cash', status: 'paid' }, 'refund'), 'record');
   assert.equal(adjustRoute({ method: 'cash', status: 'pending' }, 'void'), 'record');
   assert.equal(adjustRoute({ method: 'cash', status: 'pending' }, 'refund'), null);
@@ -78,4 +80,10 @@ test('notice errors become plain lines', async () => {
   assert.equal((await f(200, { ok: false, message: 'nope' })).sent, false);
   assert.match((await postNotice('p', null, () => reply(200, {}))).text, /Sign in again/);
   assert.match((await postNotice('p', 'tok', () => Promise.reject(new Error('offline')))).text, /can’t reach/);
+});
+
+test('L-022: a paid Stripe payment cannot be voided, so no row change and no notice', async () => {
+  const { calls, deps } = fakes();
+  assert.deepEqual(await runAdjustment({ id: 'p', method: 'stripe', status: 'paid' }, 'void', 'Entered twice', deps), { ok: false, problem: 'not_allowed' });
+  assert.equal(calls.length, 0);
 });

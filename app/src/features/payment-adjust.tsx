@@ -47,7 +47,7 @@ export function AdjustPayment({ payment, kind, clientName, onClose, onDone }: {
         fetchFn: fetch,
       });
       if (r.ok) { toast(`${kind === 'refund' ? 'Refunded' : 'Voided'}. ${r.notice.text}`); onDone(); }
-      else if (r.problem === 'not_allowed') toast(kind === 'refund' ? 'Only a paid payment can be refunded.' : 'Only a paid or pending payment can be voided.', false);
+      else if (r.problem === 'not_allowed') toast(kind === 'refund' ? 'Only a paid payment can be refunded.' : 'Card payments are refunded, not voided. Only a pending or hand-recorded payment can be voided.', false);
       else toast(card ? fnText(r.error) : errText(r.error), false);
     } finally { setBusy(false); }
   };
