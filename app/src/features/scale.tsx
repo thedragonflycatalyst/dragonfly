@@ -15,7 +15,7 @@ import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
-import { progressShareText, scaleProgress } from '@/lib/scale-report';
+import { canShareProgress, progressShareText, scaleProgress } from '@/lib/scale-report';
 import { errText } from '@/lib/model';
 import {
   bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
@@ -82,7 +82,7 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
           body={readOnly ? 'When they log weigh-ins in their Scale tab, you’ll see their trend here.' : 'Add your weight and any readings your scale gives (body fat, muscle…). You can also import a CSV from Libra or RENPHO in Settings.'}
           action={readOnly ? undefined : <Button title="Log weigh-in" icon="add" onPress={() => setEditing('new')} />} />
       ) : tab === 'chart' ? (
-        <ChartTab list={list} settings={settings} metrics={metrics} chosen={chosen} setChosen={setChosen} range={range} setRange={setRange} unit={unit} fmt={fmt} height={height} />
+        <ChartTab readOnly={readOnly} list={list} settings={settings} metrics={metrics} chosen={chosen} setChosen={setChosen} range={range} setRange={setRange} unit={unit} fmt={fmt} height={height} />
       ) : tab === 'history' ? (
         <History list={list} metrics={metrics} unit={unit} fmt={fmt} onOpen={readOnly ? undefined : setEditing} />
       ) : tab === 'stats' ? (
@@ -97,16 +97,18 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
 }
 
 /* ---------------- chart ---------------- */
-function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange, unit, fmt, height }: {
+function ChartTab({ readOnly, list, settings, metrics, chosen, setChosen, range, setRange, unit, fmt, height }: {
+  readOnly?: boolean;
   list: Weighin[]; settings: ScaleSettings; metrics: MetricKey[]; chosen: MetricKey[]; setChosen: (m: MetricKey[]) => void;
   range: number | null; setRange: (r: number | null) => void; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; height: number | null;
 }) {
   const p = usePalette();
   const toast = useToast();
   const report = useMemo(() => scaleProgress(list, range, settings.goal_kg == null ? null : Number(settings.goal_kg)), [list, range, settings.goal_kg]);
+  const [withGoal, setWithGoal] = useState(false);
   const shareProgress = async () => {
-    if (!report) return;
-    const message = progressShareText(report, unit, fmt);
+    if (!canShareProgress(readOnly, report)) return;
+    const message = progressShareText(report, unit, fmt, withGoal);
     try {
       if (Platform.OS === 'web') {
         await Clipboard.setStringAsync(message);
@@ -176,8 +178,11 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
             <View><Txt v="small">Latest</Txt><Txt v="bold">{fmtMass(report.endKg, unit, fmt)}</Txt></View>
             <View><Txt v="small">Change</Txt><Txt v="bold">{report.count < 2 ? '—' : `${signed(fromKg(report.changeKg, unit), 1, fmt)} ${unitLabel(unit)}`}</Txt></View>
           </View>
-          <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and optional goal information; review before sharing.</Txt>
-          <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+          {canShareProgress(readOnly, report) && <>
+            <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and, if you include it, your goal; review before sharing.</Txt>
+            {report.goalKg != null && <Toggle label="Include goal" sub="Add your goal weight and how far you are from it" value={withGoal} onChange={setWithGoal} />}
+            <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+          </>}
         </Card>
       )}
       {last && (
