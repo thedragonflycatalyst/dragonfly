@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams, type Href } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
@@ -77,6 +77,8 @@ export default function Feedback() {
       </>}
 
       {admin && <>
+        <Button kind="ghost" icon="rule" title="Review exercise library suggestions and reports" style={{ alignSelf: 'flex-start', marginBottom: 12 }}
+          onPress={() => router.push('/library-review' as Href)} />
         <SectionLabel>Everyone’s feedback (admin)</SectionLabel>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
           {(['new', 'planned', 'done', 'declined', 'all'] as const).map((s) => (
