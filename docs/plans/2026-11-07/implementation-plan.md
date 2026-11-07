@@ -118,21 +118,23 @@ See `../2026-11-06/credentials-and-challenges-directory.md`. Waiting for owner a
 
 | # | Question | Default used if no answer |
 | --- | --- | --- |
-| 1 | Does Columbia Association allow texting its clients from the owner's business and asking them for testimonials/referrals? Keep CA and private clients separate? | Add `coach_clients.source` (`ca` / `private`); messaging and testimonials/referrals off for `ca` clients |
-| 2 | Tiers right? Weeks until Lapsed? | Tiers as listed; 4 weeks |
-| 3 | Offer to several at once or one at a time? | Several at once, first wins |
-| 4 | Clients self-book open slots? | No |
-| 5 | Filled slots use package credits? | Yes, as normal bookings |
-| 6 | Summary includes body weight/measurements? | No |
-| 7 | Summary auto-sent or trainer reviews first? | Auto-shown in app; trainer note optional |
-| 8 | Approve texting service now or after beta? | After beta |
-| 9 | New business number or owner's own? | New business number (when approved) |
-| 10 | Reminder timing; reschedule by text? | 24 h; C confirms, R asks the trainer to reschedule |
-| 11 | Survey frequency and questions | Every 4th session, max 1 per 14 days; 1–5 + comment |
-| 12 | Website only or also Google reviews? | Website only |
-| 13 | Referral reward | None |
-| 14 | Group training types, size, pricing | Use existing events; capacity and price set per event |
-| 15 | Owner's own programs for templates? | Draft from standard principles for owner review |
+| 1 | Columbia Association clients | **Decided 2026-11-07:** CA clients use the app like everyone else; messages are included by default (`include_ca_clients` default true), sent from the trainer's own phone/email (To-send list) or the app's number/email |
+| 2 | Tiers right? Weeks until Lapsed? | *Open* — default: tiers as listed; 4 weeks |
+| 3 | Offer to several at once or one at a time? | *Open* — default: several at once, first wins |
+| 4 | Clients self-book open slots? | **Decided 2026-11-07:** waitlist; clients choose notify or auto-book (#45) |
+| 5 | Filled slots use package credits? | *Open* — default: yes, as normal bookings |
+| 6 | Summary includes body weight/measurements? | *Open* — default: no |
+| 7 | Summary auto-sent or trainer reviews first? | *Open* — default: auto-shown in app |
+| 8 | Texting service | **Decided 2026-11-07:** Twilio applied for; set up as soon as approved — see `twilio-setup.md` |
+| 9 | New business number or owner's own? | Both: app number (Twilio) or trainer's own phone (To-send list) |
+| 10 | Reminder timing; reschedule by text? | *Open* — default: 24 h; C confirms, R asks to reschedule |
+| 10a | Reminder channel | **Decided 2026-11-07:** client chooses text, email or app; default text (#47) |
+| 11 | Survey frequency and questions | *Open* — default: every 4th session, max 1 per 14 days; 1–5 + comment |
+| 12 | Website only or also review sites? | **Decided 2026-11-07:** every major review site. Trainer lists links (Google, Facebook, Yelp, Trustpilot, Thumbtack, Nextdoor, other); clients pick one after a testimonial or survey, their words are copied for pasting, and the site keeps its own copy (#48). Shown to everyone asked, no rewards (review-gating and incentive rules). |
+| 13 | Referral reward | **Decided 2026-11-07:** none |
+| 14 | Group training types, size, pricing | *Open* — default: existing events; capacity and price per event |
+| 15 | Program templates | **Decided 2026-11-07:** go ahead; owner reviews content once live (#46) |
+| 16 | Refund policy defaults | *Open* — default: prorated by sessions used, 30 days, $0 fee, expired packages not refundable (#51) |
 
 Record answers here (replace the default column with the decision and date) as soon as they arrive.
 
@@ -143,7 +145,7 @@ Record answers here (replace the default column with the decision and date) as s
 | Owner agent | Phyllis |
 | Status | ready-for-review — every step coded; Dave sets up testing and merging |
 | Updated | 2026-11-07 |
-| Merge order | #42, #43, #44, #45, #46, #47, then #48 (stacked on #44/#45/#47), #49. Conflicts are additive (route list in `app/src/app/_layout.tsx`, rows in `settings/index.tsx` and `me/index.tsx`): keep both sides. |
+| Merge order | #42, #43, #44, #45, #46, #47, then #48 (stacked on #44/#45/#47), #49, #51 (stacked on #42/#49). Conflicts are additive (route list in `app/src/app/_layout.tsx`, rows in `settings/index.tsx` and `me/index.tsx`): keep both sides. |
 | Owner approvals needed | Each new migration and function deploy to production; coach-pay redeploy; texting service (cost, account, A2P 10DLC, secrets, webhook, `sms_enabled`). New functions `coach-outbox` and `coach-sms-inbound` deploy with `--no-verify-jwt`. |
 | Content reviews | Owner: 8 program templates (#46). Felix: AI photo notice (#43), messaging consent text (#47), testimonial wording (#48). |
 | Cross-team | Charlie: scheduler reads client-booked sessions (#45); website page using `coach_public_testimonials` (#48); website sales write `coach_payments` + package `payment_id` (#49). |
@@ -163,3 +165,7 @@ Record answers here (replace the default column with the decision and date) as s
 - 2026-11-07 · 3 · #46 · 8 program templates + fix lazy template lists (Proxy lacked `has`) · data tests.
 - 2026-11-07 · 4–5 · #47 · Outbox, consent, settings, To send, reminders, Twilio adapter (off), inbound replies · `rls_messaging`, 9 deno tests.
 - 2026-11-07 · 6–7 · #48 · Surveys, testimonials (client-approved), referrals, group invites, `coach_public_testimonials` · `rls_engagement`, 11 deno tests; full RLS suite passes.
+- 2026-11-07 · 2 · #45 · Slot waitlist (one date or weekly; notify or auto-book), cancellations recorded in `coach_open_slots` · `rls_waitlist`.
+- 2026-11-07 · 4 · #47 · Client picks reminder channel (text/email/app, default text); email adapter (Resend, off); manual email via mailto.
+- 2026-11-07 · 6 · #48 · Waitlist worker in coach-outbox; review sites (`coach_review_links`, `coach_testimonial_shares`) · `rls_engagement`, 12 deno tests.
+- 2026-11-07 · 0.7 · #51 · Refund policy (prorated / unused only / none, window, fee, event cutoff), terms snapshotted per purchase, refund quote and over-policy reason · `rls_refund_policy`, unit tests.
