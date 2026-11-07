@@ -2,7 +2,7 @@
 -- Each client has a frequency tier, the times they're usually free, and an opt-in for short-notice offers.
 -- A slot offer goes to several clients at once; the first to accept (by link, signed in or not) gets the booking.
 -- coach_clients.client_of keeps Columbia Association clients apart from private ones (owner decision pending; outbound
--- marketing features skip 'ca' clients by default).
+-- messaging includes them by default, owner decision Nov 7).
 
 alter table public.coach_clients
   add column frequency_tier text not null default 'regular' check (frequency_tier in ('regular', 'occasional', 'on_call', 'lapsed', 'prospect')),
