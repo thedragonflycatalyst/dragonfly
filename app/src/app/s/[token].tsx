@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { Button, Chip, Field, Txt } from '@/components/ui';
 import { LinkPage } from '@/features/link-page';
+import { ReviewSites } from '@/features/review-sites';
 import { sb } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
 
@@ -34,7 +35,7 @@ export default function Survey() {
   return (
     <LinkPage title="Quick question">
       {v === undefined ? <ActivityIndicator color={p.ink} /> : v === null ? <Txt>This link isn’t valid any more.</Txt> : done ? (
-        <Txt>Thank you, {v.client_first}! {v.trainer_name} will see your answer.</Txt>
+        <><Txt>Thank you, {v.client_first}! {v.trainer_name} will see your answer.</Txt><ReviewSites token={token} text={comment} /></>
       ) : (
         <>
           <Txt v="h2">Hi {v.client_first}</Txt>

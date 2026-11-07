@@ -253,3 +253,55 @@ begin
 end $$;
 revoke execute on function public.coach_referral_code(uuid) from public, anon;
 grant execute on function public.coach_referral_code(uuid) to authenticated, service_role;
+
+-- ------------------------------------------------------------ review sites (a footprint everywhere clients look)
+-- The trainer lists where clients can review them (Google, Facebook, Yelp, …). After a client writes their testimonial
+-- here (our copy, for the website), they can post the same words on any of those sites in one tap; we record which.
+-- Review links are offered to everyone asked, not only happy clients (Google and others don't allow selective asking),
+-- and never with a reward.
+create table public.coach_review_links (
+  id uuid primary key default gen_random_uuid(),
+  trainer_id uuid not null default auth.uid() references public.coach_trainers(user_id) on delete cascade,
+  platform text not null check (platform in ('google', 'facebook', 'yelp', 'trustpilot', 'thumbtack', 'nextdoor', 'other')),
+  label text check (char_length(label) <= 60),
+  url text not null check (url ~ '^https://' and char_length(url) <= 500),
+  sort int not null default 100,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (trainer_id, platform, url)
+);
+create table public.coach_testimonial_shares (
+  testimonial_id uuid not null references public.coach_testimonials(id) on delete cascade,
+  platform text not null,
+  shared_at timestamptz not null default now(),
+  primary key (testimonial_id, platform)
+);
+alter table public.coach_review_links enable row level security;
+alter table public.coach_testimonial_shares enable row level security;
+revoke all on public.coach_review_links, public.coach_testimonial_shares from anon;
+grant select, insert, update, delete on public.coach_review_links to authenticated;
+grant select on public.coach_testimonial_shares to authenticated;
+create policy coach_review_links_own on public.coach_review_links for all to authenticated
+  using (trainer_id = (select auth.uid())) with check (trainer_id = (select auth.uid()));
+create policy coach_testimonial_shares_trainer on public.coach_testimonial_shares for select to authenticated
+  using (exists (select 1 from public.coach_testimonials t where t.id = testimonial_id and t.trainer_id = (select auth.uid())));
+
+-- Review sites for the trainer behind a link token (survey or testimonial), for the link pages
+create function public.coach_review_links_for(p_token uuid) returns table (platform text, label text, url text)
+language sql stable security definer set search_path = '' as $$
+  select l.platform, coalesce(l.label, initcap(l.platform)), l.url from public.coach_review_links l
+  where l.active and l.trainer_id = coalesce(
+    (select t.trainer_id from public.coach_testimonials t where t.token = p_token),
+    (select o.trainer_id from public.coach_outbox o where o.token = p_token and o.status = 'sent'))
+  order by l.sort, l.created_at
+$$;
+create function public.coach_testimonial_shared(p_token uuid, p_platform text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare id uuid;
+begin
+  select t.id into id from public.coach_testimonials t where t.token = p_token;
+  if id is null then raise exception 'bad_link' using errcode = 'P0002'; end if;
+  insert into public.coach_testimonial_shares (testimonial_id, platform) values (id, left(p_platform, 20)) on conflict do nothing;
+end $$;
+revoke execute on function public.coach_review_links_for(uuid), public.coach_testimonial_shared(uuid, text) from public;
+grant execute on function public.coach_review_links_for(uuid), public.coach_testimonial_shared(uuid, text) to anon, authenticated;

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { Button, Chip, Field, Txt } from '@/components/ui';
 import { LinkPage } from '@/features/link-page';
+import { ReviewSites } from '@/features/review-sites';
 import { sb } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
 
@@ -50,6 +51,7 @@ export default function Testimonial() {
       {v.status === 'published'
         ? <><Button title="Update" busy={busy} onPress={() => submit(true)} /><Button kind="ghost" title="Withdraw it" disabled={busy} onPress={() => submit(false)} /></>
         : <><Button title="Publish" busy={busy} onPress={() => submit(true)} /><Button kind="ghost" title="Save without publishing" disabled={busy} onPress={() => submit(false)} /></>}
+      {v.status === 'published' && <ReviewSites token={token} text={body} record />}
     </LinkPage>
   );
 }

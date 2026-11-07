@@ -70,7 +70,7 @@ export async function processOpenSlots(admin: SupabaseClient, settings: Settings
       if (!channel) continue;
       await admin.from('coach_outbox').insert({ trainer_id: o.trainer_id, client_id: c.id, purpose: 'offers', kind: 'slot_offer', channel,
         body: openText(c.first_name, trainer, when, `${WEB}o/${r.token}`), related: { offer_token: r.token, offer_id: offer.id }, dedupe_key: `waitoffer:${o.id}:${c.id}` });
-      await admin.from('coach_slot_offer_recipients').update({ sent_at: new Date().toISOString(), channel: channel === 'manual' ? 'sms' : channel }).eq('token', r.token);
+      await admin.from('coach_slot_offer_recipients').update({ sent_at: new Date().toISOString(), channel: channel === 'manual' ? 'sms' : channel === 'manual_email' ? 'email' : channel }).eq('token', r.token);
       n++;
     }
     await done(`offered:${people.length}`);

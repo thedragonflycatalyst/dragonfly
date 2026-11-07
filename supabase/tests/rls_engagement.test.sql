@@ -79,4 +79,17 @@ select t.ok((select count(*) from public.coach_clients where status = 'lead' and
 select t.ok((select count(*) from public.coach_referral_signups) = 1, 'and the trainer sees the referral');
 select t.as_user('trainer2');
 select t.ok((select count(*) from public.coach_referral_signups) = 0, 'other trainers don''t');
+-- Review sites
+select t.as_user('trainer');
+insert into public.coach_review_links (platform, url) values ('google', 'https://g.page/r/example/review'), ('facebook', 'https://facebook.com/example/reviews');
+select t.ok(t.refused($$insert into public.coach_review_links (platform, url) values ('google', 'http://insecure.example')$$), 'review links must be https');
+set role anon;
+select t.ok((select count(*) from public.coach_review_links_for((select v from t.ids where k = 'tst_tok'))) = 2, 'the testimonial page lists the trainer''s review sites');
+select t.ok((select count(*) from public.coach_review_links_for((select v from t.ids where k = 'survey_tok'))) = 2, 'so does the survey page, for every answer');
+select public.coach_testimonial_shared((select v from t.ids where k = 'tst_tok'), 'google');
+select t.ok(t.refused($$select count(*) from public.coach_review_links$$), 'the table itself is closed to visitors');
+select t.as_user('trainer');
+select t.ok((select count(*) from public.coach_testimonial_shares) = 1, 'the trainer sees where it was posted');
+select t.as_user('trainer2');
+select t.ok((select count(*) from public.coach_review_links) = 0 and (select count(*) from public.coach_testimonial_shares) = 0, 'other trainers see nothing');
 \echo ALL ENGAGEMENT TESTS PASSED
