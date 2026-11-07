@@ -1,4 +1,4 @@
-import type { ExerciseBlock, LogEntry, ProgramDay, WorkoutBlock } from './model';
+import type { ExerciseBlock, LapisTimerResult, LogEntry, ProgramDay, WorkoutBlock } from './model';
 
 const order = (a: ProgramDay, b: ProgramDay) => a.week - b.week || a.day - b.day;
 export const kindOf = (i: ProgramDay) => i.kind ?? 'workout';
@@ -37,7 +37,7 @@ export function clock(sec: number) {
 export const doneOnly = (log: LogEntry[]): LogEntry[] => log.map((e) => ({ ...e, sets: e.sets.filter((s) => s.done) })).filter((e) => e.sets.length);
 
 /** An unfinished workout kept on the device so closing the app doesn't lose it */
-export type Draft = { key: string; title: string; params: Record<string, string>; client_id: string | null; started: number; log: LogEntry[] };
+export type Draft = { key: string; title: string; params: Record<string, string>; client_id: string | null; started: number; log: LogEntry[]; timerResults?: LapisTimerResult[] };
 export const DRAFT_KEY = 'dragonfly.session';
 export function readDraft(get: (k: string) => string | null): Draft | null {
   try { const d = JSON.parse(get(DRAFT_KEY) ?? 'null'); return d && typeof d.key === 'string' && Array.isArray(d.log) ? d : null; } catch { return null; }

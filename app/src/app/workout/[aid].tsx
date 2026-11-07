@@ -14,6 +14,7 @@ import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
 import { setLine } from '@/lib/history';
 import { fmtSeconds, volume } from '@/lib/workouts';
+import { lapisTimerSeconds, parseLapisTimer } from '@/features/lapis/library';
 import { MAX_W, usePalette } from '@/lib/theme';
 import { byRef } from '@/lib/library';
 
@@ -87,6 +88,21 @@ export default function AssignmentScreen() {
             </Card>
           )}
 
+          {a.snapshot.filter((b) => b.kind === 'timed').map((b) => {
+            if (b.kind !== 'timed') return null;
+            const timer = b.timer.source?.app === 'lapis' ? parseLapisTimer(b.timer.source.snapshot) : null;
+            const completed = log?.timer_results?.find((r) => r.block_id === b.id);
+            return (
+              <Card key={b.id} style={{ gap: 6 }}>
+                <Txt v="kicker" color={p.focus}>Lapis timer</Txt>
+                <Txt v="h3">{b.name}</Txt>
+                <Txt v="small">{timer ? fmtSeconds(lapisTimerSeconds(timer)) : fmtSeconds(b.timer.work * b.timer.rounds)} planned</Txt>
+                <Txt v="smallBold" color={completed ? p.good : p.muted}>
+                  {completed ? `Completed · ${fmtSeconds(completed.actual_seconds)}` : log ? 'Not completed' : 'Not started'}
+                </Txt>
+              </Card>
+            );
+          })}
           {blocks.map((b) => {
             const done = log?.entries.find((e) => e.block_id === b.id);
             return (
