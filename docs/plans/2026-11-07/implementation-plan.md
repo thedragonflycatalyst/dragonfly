@@ -1,6 +1,6 @@
 # Coach app: implementation plan for remaining features (priority order)
 
-Owner: Phyllis (Coach app) · Written: 2026-11-07 · Status: **Approved order to start; owner questions open (see bottom). Step 0 may start now.**
+Owner: Phyllis (Coach app) · Written: 2026-11-07 · Status: **All planned features coded (2026-11-07) and in PRs #42–#49, waiting for testing/merge (Dave) and owner approvals. Owner questions still open (defaults applied).**
 Companion docs: `client-engagement.md` (concepts), `../2026-11-06/coach-roadmap-and-intake.md` (roadmap, costs, risks), `../2026-11-06/credentials-and-challenges-directory.md` (Step 8).
 
 This file is the single source of truth for what remains and how to build it. Any agent taking over: read this, `CLAUDE.md`, the checkpoint at the bottom, and the newest comments on PR #41 and on the Agent Hub messages to `phyllis` before touching code.
@@ -141,14 +141,25 @@ Record answers here (replace the default column with the decision and date) as s
 | Field | Value |
 | --- | --- |
 | Owner agent | Phyllis |
-| Status | active — plan written; Step 0 next |
-| Updated | 2026-11-07 21:55 UTC |
-| Branch / PR | `plan/client-engagement`, PR #41 (docs only) |
-| Done | Concepts doc, roadmap updated, this plan; hub messages to Charlie (scheduler + website), Felix (consent/testimonial rules), Ops (cost) |
-| Next exact steps | Step 0.1: fix TS2307 at PR #19, then merge main up the stack; Step 0.2: hardening PRs; record owner answers above |
-| Hazards | Production migrations/deploys need owner approval; CA client policy (Q1) unresolved — do not build outbound messaging to CA clients until answered |
-| Safe takeover | Anyone may continue from this file after posting `TAKEOVER CLAIMED` on PR #41 and checking hub messages to `phyllis` |
+| Status | ready-for-review — every step coded; Dave sets up testing and merging |
+| Updated | 2026-11-07 |
+| Merge order | #42, #43, #44, #45, #46, #47, then #48 (stacked on #44/#45/#47), #49. Conflicts are additive (route list in `app/src/app/_layout.tsx`, rows in `settings/index.tsx` and `me/index.tsx`): keep both sides. |
+| Owner approvals needed | Each new migration and function deploy to production; coach-pay redeploy; texting service (cost, account, A2P 10DLC, secrets, webhook, `sms_enabled`). New functions `coach-outbox` and `coach-sms-inbound` deploy with `--no-verify-jwt`. |
+| Content reviews | Owner: 8 program templates (#46). Felix: AI photo notice (#43), messaging consent text (#47), testimonial wording (#48). |
+| Cross-team | Charlie: scheduler reads client-booked sessions (#45); website page using `coach_public_testimonials` (#48); website sales write `coach_payments` + package `payment_id` (#49). |
+| Not built (waiting on owner) | Step 8 additions beyond the existing Credentials area (open questions in `../2026-11-06/credentials-and-challenges-directory.md`). |
+| Safe takeover | Anyone may continue after posting `TAKEOVER CLAIMED` on the PR they pick up. |
 
 ## Implementation record
 
 (Append one line per merged PR: date · step · PR · what shipped · tests.)
+
+- 2026-11-07 · 0.1 · — · TS2307 at #19 already fixed on its branch (`useIsFocused` from `expo-router`); `tsc` clean.
+- 2026-11-07 · 0.4 · #42 · Idempotent refunds; sync marks Stripe-dashboard refunds (Will's $11.11 case) · `deno check`.
+- 2026-11-07 · 0.5 · #49 · Sessions follow refunds (package cancelled, class place freed) · `rls_refunds_follow`.
+- 2026-11-07 · 0.6 · #43 · Photos-and-AI consent (scan, meal estimate), Settings page · `rls_consents`, tsc, npm test.
+- 2026-11-07 · 1 · #44 · Session achievement summary; `coach_milestones` (summaries computed on device, no summary table) · 8 unit + `rls_milestones`.
+- 2026-11-07 · 2 · #45 · Roster, Fill this slot, offer link page, When I'm free; `client_of` (not `source`, already used for leads) · 4 unit + `rls_client_pool` (race-safe acceptance).
+- 2026-11-07 · 3 · #46 · 8 program templates + fix lazy template lists (Proxy lacked `has`) · data tests.
+- 2026-11-07 · 4–5 · #47 · Outbox, consent, settings, To send, reminders, Twilio adapter (off), inbound replies · `rls_messaging`, 9 deno tests.
+- 2026-11-07 · 6–7 · #48 · Surveys, testimonials (client-approved), referrals, group invites, `coach_public_testimonials` · `rls_engagement`, 11 deno tests; full RLS suite passes.
