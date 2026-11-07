@@ -8,7 +8,7 @@ import { deviceSync } from './health-sync';
 const KEY = (uid: string) => `scale.hc.${uid}`;
 type State = { on: boolean; last: string | null };
 /** On when weigh-in sync was switched on here, or Health Connect was connected on the Connected apps screen */
-export const healthSync = (uid: string): State => { const s = recall<State>(KEY(uid), { on: false, last: null }); return s.on ? s : { ...s, on: deviceSync(uid).on }; };
+export const healthSync = (uid: string): State => recall<State | null>(KEY(uid), null) ?? { on: deviceSync(uid).on, last: null };
 export const setHealthSync = (uid: string, s: State) => store(KEY(uid), s);
 
 /** Reads Health Connect since the last sync (or `from`) and saves new weigh-ins. Returns how many were added. */

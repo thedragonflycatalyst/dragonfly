@@ -2,6 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Toggle } from '@/components/pickers';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import { ExerciseInfo, ExerciseThumb, useMyExercises } from '@/features/exercises';
@@ -13,18 +14,19 @@ import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { ExerciseHistory } from '@/features/exercise-history';
+import { useHidden } from '@/features/library-extras';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
 import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LapisTimerResult, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
-import { exKey, ghostSet, historyOf, notesOf, setLine, type PastLog } from '@/lib/history';
+import { exKey, ghostSet, historyOf, notesOf, pastSwaps, setLine, type PastLog } from '@/lib/history';
 import { clock, doneOnly, DRAFT_KEY, readDraft, type Draft } from '@/lib/session';
 import { weakSide } from '@/lib/sides';
 import { storage } from '@/lib/storage';
 import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
-import { fmtSeconds, parseSeconds, refOf, setsDone, setsTotal, startLog, volume } from '@/lib/workouts';
+import { fmtSeconds, parseSeconds, refOf, setsDone, setsTotal, startLog, swapBlock, volume } from '@/lib/workouts';
 import { F, MAX_W, R, usePalette } from '@/lib/theme';
 
 type Source = { title: string; blocks: WorkoutBlock[]; assignment: Assignment | null; workoutId: string | null };
@@ -126,6 +128,29 @@ export default function Session() {
   }
 
   const isTrainer = !!app.trainer && (src.assignment ? src.assignment.trainer_id === app.user?.id : true);
+  /** Makes a swap permanent: the workout, and this client's upcoming (not yet done) sessions of it */
+  const swapForGood = async (blockId: string, from: ExerciseRef, to: ExerciseRef) => {
+    const wid = src.workoutId;
+    if (!wid) return;
+    try {
+      const { data: w, error } = await sb.from('coach_workouts').select('blocks').eq('id', wid).single();
+      if (error) throw error;
+      const blocks = swapBlock(w.blocks as WorkoutBlock[], blockId, from, to);
+      if (!blocks) { toast(`${from.name} isn’t in the workout any more, so only today changed`, false); return; }
+      const up = await sb.from('coach_workouts').update({ blocks }).eq('id', wid);
+      if (up.error) throw up.error;
+      let later = 0;
+      if (clientId) {
+        const { data: next } = await sb.from('coach_assignments').select('id, snapshot').eq('workout_id', wid).eq('client_id', clientId)
+          .eq('status', 'scheduled').gte('scheduled_on', dayKey(new Date()));
+        for (const a of (next ?? []) as { id: string; snapshot: WorkoutBlock[] }[]) {
+          const snap = swapBlock(a.snapshot, blockId, from, to);
+          if (snap && !(await sb.from('coach_assignments').update({ snapshot: snap }).eq('id', a.id)).error) later++;
+        }
+      }
+      toast(`${to.name} replaces ${from.name} in “${src.title}”${later ? ` and ${later} upcoming session${later === 1 ? '' : 's'}` : ''}`);
+    } catch (e) { toast(`Swapped for today, but the workout couldn’t be changed: ${errText(e)}`, false); }
+  };
   const blocks = src.blocks.filter((b): b is ExerciseBlock => b.kind === 'exercise');
   const setSet = (bi: number, si: number, patch: Partial<SetLog>) =>
     setLog((l) => l.map((e, n) => (n === bi ? { ...e, sets: e.sets.map((s, m) => (m === si ? { ...s, ...patch } : s)) } : e)));
@@ -236,7 +261,7 @@ export default function Session() {
             return (
               <Card key={e.block_id} style={{ gap: 10 }}>
                 <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`${e.ex?.name ?? 'Exercise'} details`} onPress={() => e.ex && setInfo(e.ex)}><ExerciseThumb img={e.ex?.img} video={e.ex?.video} size={52} /></Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`${e.ex?.name ?? 'Exercise'} details`} onPress={() => e.ex && setInfo(e.ex)}><ExerciseThumb img={e.ex?.img} video={e.ex?.video} size={52} ex={e.ex ? byRef(`${e.ex.src}:${e.ex.id}`) ?? { name: e.ex.name } : null} /></Pressable>
                   <View style={{ flex: 1 }}>
                     <Txt v="h3">{e.ex?.name ?? 'Exercise'}</Txt>
                     {e.swapped_from ? <Txt v="small">Instead of {e.swapped_from}</Txt> : null}
@@ -344,8 +369,14 @@ export default function Session() {
         <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done || timerResults.length ? setFinishing(true) : toast('Complete an exercise set or Lapis timer first', false))} />
       </View>
 
-      <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)}
-        onSwap={(alt) => { const i = swapping!; setLog((l) => l.map((x, n) => (n === i ? { ...x, ex: refOf(alt), swapped_from: x.swapped_from ?? x.ex?.name } : x))); setSwapping(null); }} />
+      <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)} past={past}
+        workoutTitle={isTrainer && src.workoutId ? src.title : null}
+        onSwap={(alt, forGood) => {
+          const i = swapping!; const entry = log[i];
+          setLog((l) => l.map((x, n) => (n === i ? { ...x, ex: refOf(alt), swapped_from: x.swapped_from ?? x.ex?.name, swapped_from_ref: x.swapped_from_ref ?? (x.ex ? `${x.ex.src}:${x.ex.id}` : undefined) } : x)));
+          setSwapping(null);
+          if (forGood && entry?.ex) void swapForGood(entry.block_id, entry.ex, refOf(alt));
+        }} />
       <ExerciseHistory entry={historyFor !== null ? log[historyFor] : null} history={historyFor !== null ? historyOf(past, exKey(log[historyFor]?.ex)) : []} onClose={() => setHistoryFor(null)} />
       <ExerciseInfo ex={info ? { name: info.name, ref: `${info.src}:${info.id}`, img: info.img, video: info.video } : null} onClose={() => setInfo(null)} />
       <Sheet visible={finishing} onClose={() => setFinishing(false)} title="How did that feel?">
@@ -378,28 +409,61 @@ function NumCell({ value, onChange, label, lazy, placeholder, warn, width }: { v
   );
 }
 
-/** Swap an exercise mid-workout: the trainer's chosen alternatives first, then similar moves from the library */
-function SwapSheet({ entry, trainerId, onClose, onSwap }: { entry: LogEntry | null; trainerId?: string; onClose: () => void; onSwap: (e: LibExercise) => void }) {
+/** Swap an exercise mid-workout: the trainer's chosen alternatives first, then similar moves from the library. A trainer can
+ *  also make the swap permanent in the workout (and this client's upcoming sessions of it). */
+function SwapSheet({ entry, trainerId, workoutTitle, past, onClose, onSwap }: {
+  entry: LogEntry | null; trainerId?: string; workoutTitle: string | null; past: PastLog[]; onClose: () => void; onSwap: (e: LibExercise, forGood: boolean) => void;
+}) {
   const p = usePalette();
   const { mine } = useMyExercises(entry ? trainerId : undefined);
-  const current = entry?.ex ? byRef(`${entry.ex.src}:${entry.ex.id}`, mine) : undefined;
-  const options = current ? alternativesFor(current, mine) : [];
+  const [hidden] = useHidden();
+  const [forGood, setForGood] = useState(false);
+  useEffect(() => { setForGood(false); }, [entry]);
+  // What to swap from: the exercise as prescribed (even if it was already swapped once today)
+  const fromRef = entry?.swapped_from_ref ?? (entry?.ex ? `${entry.ex.src}:${entry.ex.id}` : '');
+  const fromName = entry?.swapped_from ?? entry?.ex?.name ?? '';
+  const current = fromRef ? byRef(fromRef, mine) : undefined;
+  const [popular, setPopular] = useState<{ ref: string; uses: number }[]>([]);
+  useEffect(() => {
+    setPopular([]);
+    if (!fromRef.startsWith('lib:')) return;
+    sb.rpc('coach_popular_swaps', { from_ref: fromRef, from_name: fromName, max_rows: 8 }).then(({ data }) => setPopular((data as { ref: string; uses: number }[] | null) ?? []));
+  }, [fromRef, fromName]);
+  // Sections, each without repeats: this person's usual swaps, what everyone swaps to, then similar moves (trainer's picks first)
+  const seen = new Set<string>([entry?.ex ? `${entry.ex.src}:${entry.ex.id}` : '', fromRef]);
+  const take = (list: { ref: string; uses?: number }[], n: number) => list.map((x) => ({ e: byRef(x.ref, mine), uses: x.uses }))
+    .filter((x): x is { e: LibExercise; uses: number | undefined } => !!x.e && !hidden.has(x.e.ref) && !seen.has(x.e.ref) && (seen.add(x.e.ref), true)).slice(0, n);
+  const yours = entry ? take(pastSwaps(past, fromRef, fromName), 4) : [];
+  const common = take(popular, 4);
+  const similar = current ? take(alternativesFor(current, mine, 14).map((e) => ({ ref: e.ref })), 6) : [];
+  const options = [...yours.map((x) => ({ ...x, why: `You’ve used it ${x.uses} time${x.uses === 1 ? '' : 's'}` })),
+    ...common.map((x) => ({ ...x, why: `A common swap · used ${x.uses} time${x.uses === 1 ? '' : 's'}` })),
+    ...similar.map((x) => ({ ...x, why: '' }))];
   const chosen = new Set(current?.alts ?? []);
   return (
     <Sheet visible={!!entry} onClose={onClose} title={`Swap ${entry?.ex?.name ?? 'exercise'}`}>
       {options.length === 0 && <Txt>No alternatives for this one.</Txt>}
-      {options.map((e) => (
-        <Pressable key={e.ref} accessibilityRole="button" accessibilityLabel={`Swap to ${e.name}`} onPress={() => onSwap(e)}
+      {options.map(({ e, why }, i) => (
+        <View key={e.ref}>
+          {(i === 0 || (i === yours.length && yours.length) || (i === yours.length + common.length && (yours.length || common.length))) ? (
+            <Txt v="kicker" color={p.muted} style={{ textTransform: 'uppercase', marginTop: i ? 14 : 0, marginBottom: 2 }}>
+              {i < yours.length ? 'Your usual swaps' : i < yours.length + common.length ? 'What people swap to' : 'Similar moves'}
+            </Txt>
+          ) : null}
+        <Pressable accessibilityRole="button" accessibilityLabel={`Swap to ${e.name}`} onPress={() => onSwap(e, forGood)}
           style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.line, opacity: pressed ? 0.6 : 1 })}>
-          <ExerciseThumb img={e.images[0]} video={e.video} size={52} />
+          <ExerciseThumb img={e.images[0]} video={e.video} size={52} ex={e} />
           <View style={{ flex: 1 }}>
             <Txt v="bold">{e.name}</Txt>
-            <Txt v="small">{[chosen.has(e.ref) ? 'Picked by your trainer' : null, titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>
+            <Txt v="small">{[chosen.has(e.ref) ? 'Picked by your trainer' : null, why || null, titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>
           </View>
           <Icon name="swap_horiz" color={p.focus} />
         </Pressable>
+        </View>
       ))}
-      <Txt v="small" style={{ marginTop: 10 }}>Your sets and numbers stay the same; your trainer sees what you swapped.</Txt>
+      {workoutTitle && <View style={{ marginTop: 8 }}><Toggle label={`Change it in “${workoutTitle}” for good`} value={forGood} onChange={setForGood}
+        sub="Leave off to swap just for today (equipment taken). On: the workout and this client's upcoming sessions of it use the new exercise from now on." /></View>}
+      <Txt v="small" style={{ marginTop: 10 }}>{workoutTitle ? 'Sets and numbers stay the same.' : 'Your sets and numbers stay the same; your trainer sees what you swapped.'}</Txt>
     </Sheet>
   );
 }
