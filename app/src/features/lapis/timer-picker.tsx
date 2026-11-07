@@ -32,14 +32,19 @@ export function LapisTimerPicker({
       setLoading(false);
       return;
     }
-    Promise.resolve(sb.from('lapis_sync').select('doc').eq('user_id', userId).maybeSingle())
-      .then(({ data, error: err }) => {
+    void (async () => {
+      try {
+        const { data, error: err } = await sb.from('lapis_sync')
+          .select('doc').eq('user_id', userId).maybeSingle();
         if (!active) return;
         if (err) setError('Could not load Lapis timers. Check your connection and try again.');
         else setTimers(timersFromSyncDoc(data?.doc));
-      })
-      .catch(() => { if (active) setError('Could not load Lapis timers. Check your connection and try again.'); })
-      .finally(() => { if (active) setLoading(false); });
+      } catch {
+        if (active) setError('Could not load Lapis timers. Check your connection and try again.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
     return () => { active = false; };
   }, [visible, userId, reload]);
 
