@@ -21,9 +21,14 @@ async function ready() {
 }
 
 const live = new Set<AudioPlayer>();
-function play(source: string | number, volume: number): Promise<void> {
+// Incremented when a workout leaves or resets its sound session. Async voice
+// clip downloads from an old session must not speak after hush().
+let audioGeneration = 0;
+export function currentAudioGeneration() { return audioGeneration; }
+function play(source: string | number, volume: number, generation: number): Promise<void> {
   return new Promise((done) => {
     try {
+      if (generation !== audioGeneration) { done(); return; }
       const pl = createAudioPlayer(source);
       pl.volume = volume;
       live.add(pl);
@@ -42,24 +47,28 @@ export const buzz = (strong = false) => {
 
 /** Say a line in the chosen Lapis voice (skipped when the voice is off or the line isn't available offline) */
 export async function say(text: string) {
+  const generation = audioGeneration;
   const p = getPrefs();
   if (!p.voiceOn || p.voiceLevel <= 0) return;
   await ready();
+  if (generation !== audioGeneration) return;
   const uri = await clip(text, p.voice, p.voiceSpeed);
-  if (uri) await play(uri, p.voiceLevel);
+  if (uri && generation === audioGeneration) await play(uri, p.voiceLevel, generation);
 }
 
 /** Ring the chosen bell */
 export async function bell() {
+  const generation = audioGeneration;
   const p = getPrefs();
   if (!p.bellOn) return;
   await ready();
+  if (generation !== audioGeneration) return;
   buzz(true);
-  await play(BELL_FILES[p.bell], Math.max(0.4, p.voiceLevel));
+  await play(BELL_FILES[p.bell], Math.max(0.4, p.voiceLevel), generation);
 }
 
 /** Stop anything still playing (leaving the workout) */
-export function hush() { for (const pl of live) { try { pl.pause(); pl.remove(); } catch { /* gone */ } } live.clear(); }
+export function hush() { audioGeneration++; for (const pl of live) { try { pl.pause(); pl.remove(); } catch { /* gone */ } } live.clear(); }
 
 /** Lines the rest timer and set timer use, fetched when a workout opens */
 export const CUE_LINES = ['Rest', '3', '2', '1', 'Go', 'Halfway', 'Switch sides', 'Time'];

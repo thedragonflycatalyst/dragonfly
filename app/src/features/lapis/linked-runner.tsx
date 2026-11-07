@@ -3,23 +3,25 @@ import { AppState, Pressable, View } from 'react-native';
 import { Button, Txt } from '@/components/ui';
 import { fmtSeconds } from '@/lib/workouts';
 import { F, R, usePalette } from '@/lib/theme';
-import { bell, buzz, say } from './audio';
+import { bell, buzz, hush, say } from './audio';
 import { type LapisTimer } from './library';
 import { compileLapisTimeline, phaseAt } from './timeline';
 import { elapsedAt, freshClock, pauseClock, skipClock, startClock, validClock, type RunnerClock } from './runner-clock';
-import { scheduleLapisCompletion, cancelLapisCompletion } from './background';
+import { reconcileLapisCompletion, clearLapisCompletion } from './background';
 import { compileSpokenCues, cuesCrossed } from './cue-plan';
 import { completedNaturally, phaseTransitionDue } from './runner-events';
 import { announcementForPhase } from './phase-announcement';
+import { reminderSeconds } from './reminder-policy';
 
 /** Foreground interval controls using absolute clock offsets.
  * If the app is suspended, the phase catches up to actual elapsed time when
  * React Native resumes. This does not promise continuous background audio.
  */
 export function LinkedLapisRunner({
-  timer, onComplete, onReset, onStart, onPause, blocked = false, initialClock, onClockChange,
+  timer, reminderKey, onComplete, onReset, onStart, onPause, blocked = false, initialClock, onClockChange,
 }: {
   timer: LapisTimer;
+  reminderKey: string;
   onComplete?: (actualSeconds: number) => void;
   onReset?: () => void;
   onStart?: () => void;
@@ -57,41 +59,29 @@ export function LinkedLapisRunner({
     }
   }, [blocked, clock.since, timeline.totalSeconds]);
 
-  // Native end-of-timer fallback while backgrounded. React timers and voice
-  // announcements aren't guaranteed to run after the OS suspends the app.
+  // Reconcile a single tagged native completion reminder. This effect runs
+  // on clock control changes, not on display ticks. A per-key serialized queue
+  // ensures an earlier schedule cannot outlive a later reset or pause.
   useEffect(() => {
-    let generation = 0;
-    let pending: string | null = null;
-    const change = async (state: string | null | undefined) => {
-      const token = ++generation;
-      const previous = pending;
-      pending = null;
-      await cancelLapisCompletion(previous);
-      if (state === 'active' || blocked || clock.since == null || clock.skipped) return;
-      const left = timeline.totalSeconds - elapsedAt(clock, Date.now(), timeline.totalSeconds);
-      if (left <= 0) return;
-      const id = await scheduleLapisCompletion(left, timer.name);
-      if (generation === token) pending = id;
-      else await cancelLapisCompletion(id);
+    const reconcile = (state: string | null | undefined) => {
+      const left = reminderSeconds(state, clock, timeline.totalSeconds, blocked, Date.now());
+      void reconcileLapisCompletion(reminderKey, left, timer.name);
     };
-    const sub = AppState.addEventListener('change', (state) => { void change(state); });
-    void change(AppState.currentState);
-    return () => {
-      generation++;
-      sub.remove();
-      void cancelLapisCompletion(pending);
-    };
-  }, [blocked, clock, timeline.totalSeconds, timer.name]);
+    const sub = AppState.addEventListener('change', reconcile);
+    reconcile(AppState.currentState);
+    return () => { sub.remove(); void clearLapisCompletion(reminderKey); };
+  }, [blocked, clock, timeline.totalSeconds, timer.name, reminderKey]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       foreground.current = state === 'active';
+      if (state !== 'active' && clock.since !== null && !blocked) hush();
       // On wake, reconcile elapsed time immediately; don't replay missed cues.
       lastCuePosition.current = null;
       setNow(Date.now());
     });
     return () => subscription.remove();
-  }, []);
+  }, [clock.since, blocked]);
 
   useEffect(() => {
     if (since == null) return;
@@ -146,6 +136,7 @@ export function LinkedLapisRunner({
   }, [done, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
 
   const pause = () => {
+    hush();
     setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
     onPause?.();
   };
@@ -159,6 +150,7 @@ export function LinkedLapisRunner({
     setClock((old) => startClock(old, tick, timeline.totalSeconds));
   };
   const reset = () => {
+    if (clock.since !== null) hush();
     setClock(freshClock()); setNow(Date.now());
     reported.current = false; lastPhase.current = null; lastCuePosition.current = null; explicitlyStarted.current = false;
     onPause?.();
@@ -166,6 +158,7 @@ export function LinkedLapisRunner({
   };
   const skip = () => {
     if (!state.phase) return;
+    hush();
     const tick = Date.now();
     setClock((old) => skipClock(old, tick, state.phase!.endAt));
     setNow(tick);
