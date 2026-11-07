@@ -47,4 +47,34 @@ test('calendarUrl only allows calendar services over https', () => {
   assert.equal(calendarUrl('http://calendar.google.com/x'), null);
   assert.equal(calendarUrl('https://calendar.google.com.evil.com/x'), null);
   assert.equal(calendarUrl('https://calendar.google.com:8443/x'), null);
+  assert.ok(calendarUrl('https://columbiaassn.clubautomation.com/api/schedule/staff/events/icalendar/abc123'));
+  assert.equal(calendarUrl('https://clubautomation.com.evil.com/x'), null);
+  assert.equal(calendarUrl('https://evil.com/.clubautomation.com/x'), null);
+});
+
+test('busyFromIcs reads a ClubAutomation staff feed (folded lines, TZID times, blocked time)', () => {
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'REFRESH-INTERVAL;VALUE=DURATION:PT5M',
+    'BEGIN:VEVENT', 'UID:a', 'DTSTAMP:20261106T060432Z', 'ATTENDEE;ROLE=CHAIR;CN=Trainer (staff):mailto:TheDragonflyCa', ' talyst@outlook.com',
+    'DESCRIPTION:Blocked Time', 'DTSTART;TZID=America/New_York:20261126T050000', 'DTEND;TZID=America/New_York:20261126T180000',
+    'LOCATION:Columbia Gym | Columbia Gym', 'SUMMARY:Blocked Time', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:b', 'DTSTART;TZID=America/New_York:20261110T110000', 'DTEND;TZID=America/New_York:20261110T120000', 'SUMMARY:MBP', 'END:VEVENT',
+    'END:VCALENDAR'].join('\r\n');
+  const b = busyFromIcs(ics, new Date('2026-11-01T00:00:00Z'), new Date('2026-12-31T00:00:00Z'), 'America/New_York');
+  assert.equal(b.length, 2);
+  const blocked = b.find((x) => x.title === 'Blocked Time')!;
+  assert.equal(blocked.starts_at, '2026-11-26T10:00:00.000Z'); // 5 AM EST
+  assert.equal(blocked.ends_at, '2026-11-26T23:00:00.000Z');
+  assert.equal(b.find((x) => x.title === 'MBP')!.starts_at, '2026-11-10T16:00:00.000Z');
+});
+
+test('busyFromIcs understands Outlook (Windows) time zone names', () => {
+  const ics = ['BEGIN:VCALENDAR', 'PRODID:Microsoft Exchange Server 2010', 'BEGIN:VEVENT', 'UID:o', 'SUMMARY:Staff meeting',
+    'DTSTART;TZID=Eastern Standard Time:20261112T090000', 'DTEND;TZID=Eastern Standard Time:20261112T100000', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:w', 'SUMMARY:Weekly', 'RRULE:FREQ=WEEKLY;COUNT=2', 'DTSTART;TZID=Eastern Standard Time:20261113T170000', 'DTEND;TZID=Eastern Standard Time:20261113T173000', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:x', 'SUMMARY:Odd zone', 'DTSTART;TZID=Made Up Zone:20261114T090000', 'DTEND;TZID=Made Up Zone:20261114T091500', 'END:VEVENT',
+    'END:VCALENDAR'].join('\r\n');
+  const b = busyFromIcs(ics, new Date('2026-11-01T00:00:00Z'), new Date('2026-12-31T00:00:00Z'), 'America/New_York');
+  assert.equal(b.find((x) => x.title === 'Staff meeting')!.starts_at, '2026-11-12T14:00:00.000Z');
+  assert.deepEqual(b.filter((x) => x.title === 'Weekly').map((x) => x.starts_at), ['2026-11-13T22:00:00.000Z', '2026-11-20T22:00:00.000Z']);
+  assert.equal(b.find((x) => x.title === 'Odd zone')!.starts_at, '2026-11-14T14:00:00.000Z'); // unknown zone → calendar's zone
 });
