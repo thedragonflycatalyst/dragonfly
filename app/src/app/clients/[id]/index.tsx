@@ -5,6 +5,7 @@ import { CONTACT_LABEL, contactLink } from '@/lib/contact';
 import { ComingWith, Initials, Row, SectionLabel, statusColor } from '@/components/bits';
 import { Badge } from '@/components/shell';
 import { Button, Card, Empty, Txt, useToast } from '@/components/ui';
+import { PoolCard } from '@/features/client-pool';
 import { SECTIONS, useClientRecord, type SectionKey } from '@/features/common';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
@@ -173,6 +174,9 @@ export default function ClientProfile() {
               : <Row icon="chat_bubble" title={`Message ${first}`} last onPress={() => router.push({ pathname: '/chat/new', params: { client: c.id } })} />;
           })()}
         </Card>
+
+        <SectionLabel>Scheduling</SectionLabel>
+        <PoolCard client={c} onChanged={reload} />
 
         <SectionLabel>Account</SectionLabel>
         <Card style={{ padding: 0 }}>
