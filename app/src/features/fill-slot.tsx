@@ -41,7 +41,7 @@ export function FillSlotSheet({ slot, onClose, busyClients }: { slot: OpenSlot |
   const [data, setData] = useState<Awaited<ReturnType<typeof loadPool>> | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [regulars, setRegulars] = useState(false);
-  const [ca, setCa] = useState(false);
+  const [ca, setCa] = useState(true);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState<Sent[] | null>(null);
   const [waiting, setWaiting] = useState<{ id: string; client_id: string; mode: string }[]>([]);
@@ -58,7 +58,7 @@ export function FillSlotSheet({ slot, onClose, busyClients }: { slot: OpenSlot |
   const ranked: Ranked[] = useMemo(() => {
     if (!data || !slot) return [];
     const list = rankPool({ ...data, start: slot.start, durationMin: slot.durationMin, now: new Date(), busy: busyClients, includeRegulars: regulars });
-    // Columbia Association clients are left out unless the trainer includes them (owner decision pending)
+    // Columbia Association clients are included by default (owner, Nov 7); the chip can leave them out
     return ca ? list : list.filter((r) => r.client.client_of !== 'ca');
   }, [data, slot, busyClients, regulars, ca]);
   // Pre-pick the top three who are free then
