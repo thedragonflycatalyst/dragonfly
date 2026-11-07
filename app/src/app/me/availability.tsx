@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Button, Card, Txt, useToast } from '@/components/ui';
-import { FreeTimes } from '@/features/client-pool';
+import { FreeTimes, Waitlist } from '@/features/client-pool';
 import { Page } from '@/features/settings-page';
 import { useApp } from '@/lib/app-state';
 import { errText } from '@/lib/model';
@@ -37,6 +37,10 @@ export default function MyAvailability() {
           <Card style={{ gap: 8 }}>
             <Txt v="bold">Times I’m usually free</Txt>
             <FreeTimes clientId={me.id} />
+          </Card>
+          <Card style={{ gap: 8 }}>
+            <Txt v="bold">Waitlist for times that are taken</Txt>
+            <Waitlist clientId={me.id} editable />
           </Card>
         </View>
       )}

@@ -390,6 +390,7 @@ function ClientCalendar() {
               ))}
             </Card>
           )}
+          <Button small kind="ghost" icon="schedule" title="Want a time that’s taken? Join the waitlist" onPress={() => router.push('/me/availability')} style={{ alignSelf: 'flex-start' }} />
           {app.perms.book_sessions && avail.length > 0 && <>
             <SectionLabel>Book a session</SectionLabel>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
