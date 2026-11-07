@@ -9,7 +9,7 @@ Code is ready and off until these are done (PR #47, #48). Agents cannot create a
 
 ## 2. Campaign text to paste
 - **Description:** Appointment reminders, session confirmations, open-slot offers and short check-in surveys for personal-training clients of Dragonfly Coach.
-- **How clients opt in:** A client creates an account in the Dragonfly Coach app and chooses how to receive reminders (text, email or in-app). Text is selected by default, with the notice shown: "Get training reminders and open-slot offers by text. Msg & data rates may apply. Reply STOP to opt out, HELP for help." Clients can change this at any time under Me → Messages.
+- **How clients opt in:** A client creates an account in the Dragonfly Coach app and chooses how to receive reminders (text, email or in-app). Text is selected by default, and the Messages screen shows: "Choose what you'd like and how. Texts go to <their number>… Reply STOP to any text to stop them all. Message and data rates may apply." Clients can change this at any time under Me → Messages.
 - **Sample 1:** Hi Sam, reminder: training with Alex tomorrow at 7:00 AM at Supreme Sports Club. Reply C to confirm or R to reschedule. Reply STOP to opt out.
 - **Sample 2:** Hi Sam, a spot opened with Alex: Tue Nov 10, 6:00 PM (60 min). Reply YES to take it. First to reply gets it. Reply STOP to opt out.
 - **Sample 3:** Hi Sam, how was training this week? Reply 1–5 (5 = great). Reply STOP to opt out.
