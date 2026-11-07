@@ -44,12 +44,15 @@ export function FillSlotSheet({ slot, onClose, busyClients }: { slot: OpenSlot |
   const [ca, setCa] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState<Sent[] | null>(null);
+  const [waiting, setWaiting] = useState<{ id: string; client_id: string; mode: string }[]>([]);
   const trainerId = app.trainer?.user_id;
 
   useEffect(() => {
     if (!slot || !trainerId) return;
     setData(null); setSent(null); setPicked(new Set());
     loadPool(trainerId).then(setData, (e: unknown) => toast(errText(e), false));
+    void sb.rpc('coach_waitlist_for', { p_trainer: trainerId, p_starts: slot.start.toISOString(), p_minutes: slot.durationMin })
+      .then(({ data: w }) => setWaiting((w as { id: string; client_id: string; mode: string }[] | null) ?? []));
   }, [slot, trainerId, toast]);
 
   const ranked: Ranked[] = useMemo(() => {
@@ -59,8 +62,22 @@ export function FillSlotSheet({ slot, onClose, busyClients }: { slot: OpenSlot |
     return ca ? list : list.filter((r) => r.client.client_of !== 'ca');
   }, [data, slot, busyClients, regulars, ca]);
   // Pre-pick the top three who are free then
-  useEffect(() => { if (ranked.length && !picked.size && !sent) setPicked(new Set(ranked.filter((r) => r.fits).slice(0, 3).map((r) => r.client.id))); }, [ranked]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ranked.length || picked.size || sent) return;
+    const w = waiting.map((x) => x.client_id).filter((id) => ranked.some((r) => r.client.id === id));
+    setPicked(new Set(w.length ? w.slice(0, 3) : ranked.filter((r) => r.fits).slice(0, 3).map((r) => r.client.id)));
+  }, [ranked, waiting]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Book someone from the waitlist straight in */
+  const bookWaiting = async (entry: string, name: string) => {
+    if (!slot) return;
+    setBusy(true);
+    const { error } = await sb.rpc('coach_waitlist_book', { p_entry: entry, p_starts: slot.start.toISOString() });
+    setBusy(false);
+    if (error) return toast(/slot_taken/.test(error.message) ? 'That time isn’t free any more.' : errText(error), false);
+    toast(`${name} is booked in`);
+    onClose();
+  };
   const toggle = (id: string) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const send = async () => {
     if (!slot || !trainerId || !picked.size) return;
@@ -121,6 +138,21 @@ export function FillSlotSheet({ slot, onClose, busyClients }: { slot: OpenSlot |
           </>
         ) : !data ? <Txt>Loading your clients…</Txt> : (
           <>
+            {waiting.length > 0 && (
+              <Card style={{ gap: 6, borderWidth: 1.5, borderColor: p.good }}>
+                <Txt v="bold">Waitlist for this time</Txt>
+                {waiting.map((w, i) => {
+                  const c = data.clients.find((x) => x.id === w.client_id);
+                  return (
+                    <View key={w.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Txt style={{ flex: 1 }}>{i + 1}. {c?.name ?? 'Client'} · {w.mode === 'auto_book' ? 'wants it booked' : 'wants to be told'}</Txt>
+                      <Button small title="Book now" busy={busy} onPress={() => bookWaiting(w.id, c?.name ?? 'They')} />
+                    </View>
+                  );
+                })}
+                <Txt v="small">Or pick them below to send an offer instead.</Txt>
+              </Card>
+            )}
             <Txt v="small">Best matches first: free at that time, wants short-notice offers, longest since their last session, credits left.</Txt>
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
               <Chip label="Include regulars" selected={regulars} onPress={() => setRegulars(!regulars)} />
