@@ -237,7 +237,9 @@ Deno.serve(async (req) => {
         const { data: p } = await admin.from('coach_payments').select('*').eq('id', body.payment_id).eq('trainer_id', t).maybeSingle();
         if (!p || p.method !== 'stripe' || p.status !== 'paid' || !p.stripe_payment_intent) return reply(409, { error: 'not_refundable' });
         await stripe('refunds', 'POST', { payment_intent: p.stripe_payment_intent });
-        await admin.from('coach_payments').update({ status: 'refunded' }).eq('id', p.id);
+        // The reason goes on the client's refund notice (records are kept; a refund always says why)
+        const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 500) : 'Refunded through Stripe';
+        await admin.from('coach_payments').update({ status: 'refunded', status_reason: reason }).eq('id', p.id);
         return reply(200, { ok: true });
       }
       default: return reply(400, { error: 'bad_request' });
