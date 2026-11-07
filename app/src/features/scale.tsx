@@ -1,6 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, Share, Text, View } from 'react-native';
 import { Segmented, SectionLabel } from '@/components/bits';
@@ -9,6 +9,7 @@ import { DateField } from '@/components/date-field';
 import { WeightRuler } from '@/components/weight-ruler';
 import { Fab, time12, TimeField, Toggle } from '@/components/pickers';
 import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from './health-connect';
+import { checkHealthConsent } from './health-consent';
 import { healthSync, setHealthSync, syncHealth } from './scale-sync';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui';
@@ -429,11 +430,13 @@ function HealthCard({ userId, list, reload }: { userId: string; list: Weighin[];
   const toast = useToast();
   const p = usePalette();
   const [status, setStatus] = useState<HealthStatus | null>(null);
-  const [on, setOn] = useState(() => healthSync(userId).on);
+  const [on, setOn] = useState(() => healthSync(userId).on && checkHealthConsent(userId));
   const [busy, setBusy] = useState<'connect' | 'history' | null>(null);
   useEffect(() => { healthStatus().then(setStatus); }, []);
   const last = healthSync(userId).last;
   const run = async (kind: 'connect' | 'history') => {
+    // Nothing is read until they've said yes on the consent screen
+    if (!checkHealthConsent(userId)) { router.push('/health-consent'); return; }
     setBusy(kind);
     try {
       if (kind === 'connect' && !(await connectHealth())) return toast('Allow Dragonfly to read your weight in Health Connect to sync', false);

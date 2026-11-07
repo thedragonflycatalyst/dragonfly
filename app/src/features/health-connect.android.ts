@@ -5,6 +5,10 @@ import { emptyHealth, mealName, type DeviceHealth } from '@/lib/health';
 import type { HealthReadings } from '@/lib/scale';
 
 export type HealthStatus = 'unsupported' | 'not_installed' | 'update_needed' | 'ready';
+
+// Off until the person consents (features/health-consent.ts). While off, nothing is requested or read.
+let allowed = false;
+export function allowReads(on: boolean) { allowed = on; }
 const TYPES = ['Weight', 'Height', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate',
   'Steps', 'ActiveCaloriesBurned', 'Distance', 'SleepSession', 'RestingHeartRate', 'HeartRateVariabilityRmssd', 'Hydration', 'ExerciseSession', 'Nutrition'] as const;
 
@@ -19,7 +23,7 @@ export async function healthStatus(): Promise<HealthStatus> {
 
 /** Asks for read access to everything Dragonfly uses (and older history). True if anything was allowed. */
 export async function connectHealth(): Promise<boolean> {
-  if (!(await initialize())) return false;
+  if (!allowed || !(await initialize())) return false;
   const granted = await requestPermission([
     ...TYPES.map((recordType) => ({ accessType: 'read' as const, recordType })),
     { accessType: 'read', recordType: 'ReadHealthDataHistory' } as never,
@@ -41,6 +45,7 @@ async function all<T>(type: (typeof TYPES)[number], since: Date): Promise<T[]> {
 
 /** Everything shared since a date. Types they didn't allow come back empty. */
 export async function readHealth(since: Date): Promise<HealthReadings> {
+  if (!allowed) return { weight: [], bodyFat: [], leanMass: [], boneMass: [], bodyWater: [], bmr: [] };
   await initialize();
   const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
   const get = <T>(t: (typeof TYPES)[number]) => (ok.has(t) ? all<T>(t, since).catch(() => [] as T[]) : Promise.resolve([] as T[]));
@@ -62,6 +67,7 @@ export const openHealthSettings = () => openHealthConnectSettings();
 
 /** Their most recent height in Health Connect (cm), if any app shared one */
 export async function readHeight(): Promise<number | null> {
+  if (!allowed) return null;
   try {
     await initialize();
     const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
@@ -77,6 +83,7 @@ const AWAKE = new Set<number>([SleepStageType.AWAKE, SleepStageType.OUT_OF_BED])
 
 /** Activity, sleep, heart, water, workouts and food shared since a date */
 export async function readDevice(since: Date): Promise<DeviceHealth> {
+  if (!allowed) return emptyHealth();
   await initialize();
   const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
   const get = <T>(t: (typeof TYPES)[number]) => (ok.has(t) ? all<T>(t, since).catch(() => [] as T[]) : Promise.resolve([] as T[]));

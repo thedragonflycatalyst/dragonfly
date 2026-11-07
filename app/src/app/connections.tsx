@@ -1,13 +1,14 @@
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as WebBrowser from 'expo-web-browser';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
 import { Toggle } from '@/components/pickers';
 import { Button, Card, Field, Txt, useToast } from '@/components/ui';
 import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from '@/features/health-connect';
+import { checkHealthConsent } from '@/features/health-consent';
 import { deviceSync, saveFood, setDeviceSync, syncDevice } from '@/features/health-sync';
 import { syncHealth } from '@/features/scale-sync';
 import type { Weighin } from '@/lib/scale';
@@ -58,13 +59,16 @@ function PhoneCard() {
   const uid = app.user!.id;
   const [status, setStatus] = useState<HealthStatus | null>(null);
   const [st, setSt] = useState(() => deviceSync(uid));
+  const consented = checkHealthConsent(uid);
   const [busy, setBusy] = useState<'sync' | 'history' | null>(null);
   useEffect(() => { healthStatus().then(setStatus); }, []);
   const save = (s: typeof st) => { setDeviceSync(uid, s); setSt(s); };
   const run = async (kind: 'sync' | 'history') => {
+    // Nothing is read until they've said yes on the consent screen
+    if (!checkHealthConsent(uid)) { router.push('/health-consent'); return; }
     setBusy(kind);
     try {
-      if (!st.on && !(await connectHealth())) return toast('Allow Dragonfly to read your data in Health Connect to sync', false);
+      if ((!st.on || !consented) && !(await connectHealth())) return toast('Allow Dragonfly to read your data in Health Connect to sync', false);
       const r = await syncDevice(uid, app.membership, kind === 'history' ? new Date(Date.now() - 365 * 864e5) : undefined);
       setSt(deviceSync(uid));
       // Weigh-ins (and height) too, so one Connect covers the Scale as well
@@ -88,7 +92,7 @@ function PhoneCard() {
           <Button kind="ghost" icon="open_in_new" title="Open Health Connect" onPress={openHealthSettings} style={{ alignSelf: 'flex-start' }} />
         </> : <>
           <Txt v="small">Steps, sleep, resting heart rate, HRV, water, workouts and food from {feeds}. In each app, switch on sharing to Health Connect.</Txt>
-          {st.on ? <>
+          {st.on && consented ? <>
             <Txt v="bold">✓ Syncing · last checked {when(st.last)}</Txt>
             {app.membership && <Toggle label="Bring in food" sub="Meals you log in another app appear in your Dragonfly food diary" value={st.food} onChange={(food) => save({ ...st, food })} />}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -100,6 +104,7 @@ function PhoneCard() {
           </> : <Button title="Connect Health Connect" icon="favorite" busy={busy === 'sync'} onPress={() => run('sync')} style={{ alignSelf: 'flex-start' }} />}
         </>}
         <Txt v="small">Weigh-ins from your smart scale sync in the Scale tab.</Txt>
+        <Button kind="quiet" icon="shield" title="Health data: consent and export" onPress={() => router.push('/health-consent')} style={{ alignSelf: 'flex-start' }} />
       </Card>
     </>
   );
