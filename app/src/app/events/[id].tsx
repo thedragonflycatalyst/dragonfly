@@ -9,6 +9,7 @@ import { ClientPicker, ColorPicker, TimeField, Toggle, useClientList } from '@/c
 import { Badge } from '@/components/shell';
 import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui';
 import { CoverPicker } from '@/features/cover-picker';
+import { RefundPolicyNote } from '@/features/refund-policy-note';
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { at, COLORS, eventCost, fmtDuration, fmtMoney, hhmm, spotsText, toCents, type CoachEvent, type Signup } from '@/lib/business';
@@ -232,6 +233,7 @@ function EventDetails() {
             {going && <Badge text={s!.status === 'booked' ? 'You’re going' : 'Waiting list'} color={s!.status === 'booked' ? p.good : p.gold} />}
           </View>
           {e.description ? <Txt>{e.description}</Txt> : null}
+          {!!e.price_cents && !e.cancelled && !past && <RefundPolicyNote trainerId={e.trainer_id} currency={e.currency} />}
           {!e.cancelled && !past && (going ? <Button kind="ghost" title="Cancel my place" onPress={leave} />
             : <Button title={e.price_cents && !e.credits ? `Sign up · ${fmtMoney(e.price_cents, e.currency)}` : e.spaces && e.booked >= e.spaces ? 'Join the waiting list' : 'Sign up'} icon="event_available" busy={busy} onPress={join} />)}
         </View>

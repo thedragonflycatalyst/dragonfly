@@ -6,7 +6,7 @@
 //   sync      {}                                    trainer → { recorded, refunded } records finished checkouts not yet saved and refunds made in the Stripe dashboard
 //   overview  {}                                    trainer → { balance, payouts, subscriptions } live from Stripe (owner only)
 //   cancel_subscription { subscription_id }         trainer → { ok }
-//   refund    { payment_id }                        trainer → { ok }
+//   refund    { payment_id, amount_cents?, reason? }  trainer → { ok, amount_cents } (policy amount by default; outside it needs a reason)
 // Payments go to the Dragonfly owner's Stripe account (STRIPE_SECRET_KEY), so online payments are only offered
 // to the owner and trainers on the owner's team. Everyone else records payments by hand in the app.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
@@ -259,12 +259,22 @@ Deno.serve(async (req) => {
         if (!t || !UUID.test(body.payment_id ?? '')) return reply(400, { error: 'bad_request' });
         const { data: p } = await admin.from('coach_payments').select('*').eq('id', body.payment_id).eq('trainer_id', t).maybeSingle();
         if (!p || p.method !== 'stripe' || p.status !== 'paid' || !p.stripe_payment_intent) return reply(409, { error: 'not_refundable' });
-        // One refund per payment, even if the request is retried
-        await stripe('refunds', 'POST', { payment_intent: p.stripe_payment_intent }, `refund-${p.id}`);
-        // The reason goes on the client's refund notice (records are kept; a refund always says why)
-        const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 500) : 'Refunded through Stripe';
-        await admin.from('coach_payments').update({ status: 'refunded', status_reason: reason }).eq('id', p.id);
-        return reply(200, { ok: true });
+        // The refund policy decides how much (prorated by sessions used); going outside it needs a reason
+        const { data: q } = await admin.rpc('coach_refund_quote', { p_payment: p.id });
+        const quote = (q ?? {}) as { refundable?: boolean; suggested_cents?: number; max_cents?: number; reason?: string };
+        const left = quote.max_cents ?? (p.amount_cents - (p.refunded_cents ?? 0));
+        const amount = Number.isInteger(body.amount_cents) ? body.amount_cents as number : (quote.refundable ? quote.suggested_cents ?? 0 : 0);
+        if (amount <= 0 || amount > left) return reply(400, { error: 'bad_amount', max_cents: left });
+        const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 500) : '';
+        const outside = !quote.refundable || amount > (quote.suggested_cents ?? 0);
+        if (outside && reason.length < 5) return reply(409, { error: 'outside_policy', message: quote.reason ?? 'This is more than the refund policy allows. Say why to continue.' });
+        // One refund per payment and amount, even if the request is retried
+        await stripe('refunds', 'POST', { payment_intent: p.stripe_payment_intent, amount: String(amount) }, `refund-${p.id}-${amount}`);
+        await admin.from('coach_payments').update({
+          status: 'refunded', refunded_cents: (p.refunded_cents ?? 0) + amount,
+          status_reason: reason || (amount < p.amount_cents ? 'Prorated refund under the refund policy' : 'Refunded under the refund policy'),
+        }).eq('id', p.id);
+        return reply(200, { ok: true, amount_cents: amount, outside_policy: outside });
       }
       default: return reply(400, { error: 'bad_request' });
     }
