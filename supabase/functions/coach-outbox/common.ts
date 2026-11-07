@@ -1,5 +1,6 @@
 // Shared by the outbox runner and the engagement planner.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
+import { emailConfigured } from './email.ts';
 import { smsConfigured } from './sms.ts';
 
 export type Settings = {
@@ -7,7 +8,7 @@ export type Settings = {
   surveys_on: boolean; survey_every: number; survey_min_days: number; testimonials_on: boolean; referrals_on: boolean;
   referral_every_days: number; include_ca_clients: boolean; sms_enabled: boolean;
 };
-export type ClientRow = { id: string; trainer_id: string; user_id: string | null; first_name: string; phone: string | null; status: string; client_of?: string | null };
+export type ClientRow = { id: string; trainer_id: string; user_id: string | null; first_name: string; email?: string | null; phone: string | null; status: string; client_of?: string | null };
 export type Purpose = 'reminders' | 'offers' | 'surveys' | 'marketing';
 export const ESSENTIAL: Purpose[] = ['reminders', 'offers'];
 
@@ -16,14 +17,20 @@ export async function allowed(admin: SupabaseClient, client: string, purpose: Pu
   return data === true;
 }
 
-/** Best channel for this client and purpose: text (if switched on and agreed), chat (if they use the app), else the trainer's phone */
-export async function pickChannel(admin: SupabaseClient, s: Settings, c: ClientRow, purpose: Purpose): Promise<'sms' | 'app' | 'manual' | null> {
-  if (s.sms_enabled && smsConfigured() && c.phone && await allowed(admin, c.id, purpose, 'sms')) return 'sms';
-  if (c.user_id && c.status === 'active' && await allowed(admin, c.id, purpose, 'app')) return 'app';
-  // The trainer texting from their own phone: fine for reminders and offers; anything else needs the client's yes
-  if (c.phone && (ESSENTIAL.includes(purpose) || await allowed(admin, c.id, purpose, 'sms'))) return 'manual';
+/**
+ * Best channel for this client and purpose. The client's preferred channel comes first (default: text, the one people
+ * are least likely to miss), then text, email, chat. Text goes by the texting service when it's on, otherwise it waits
+ * in the trainer's "To send" list so it's still a text. Each channel needs the client's consent for that purpose.
+ */
+export async function pickChannel(admin: SupabaseClient, s: Settings, c: ClientRow, purpose: Purpose): Promise<'sms' | 'email' | 'app' | 'manual' | null> {
+  const { data: pref } = await admin.from('coach_contact_prefs').select('preferred_channel').eq('client_id', c.id).maybeSingle();
+  const order = [...new Set([(pref?.preferred_channel as string | undefined) ?? 'sms', 'sms', 'email', 'app'])];
+  for (const ch of order) {
+    if (ch === 'sms' && c.phone && await allowed(admin, c.id, purpose, 'sms')) return s.sms_enabled && smsConfigured() ? 'sms' : 'manual';
+    if (ch === 'email' && c.email && emailConfigured() && await allowed(admin, c.id, purpose, 'email')) return 'email';
+    if (ch === 'app' && c.user_id && c.status === 'active' && await allowed(admin, c.id, purpose, 'app')) return 'app';
+  }
   return null;
 }
 
 export const skipCa = (s: Settings, c: ClientRow) => c.client_of === 'ca' && !s.include_ca_clients;
-
