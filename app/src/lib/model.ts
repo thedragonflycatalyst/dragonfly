@@ -52,7 +52,7 @@ export type Exercise = {
 };
 
 /** Timer spec a timed block hands to Lapis: rounds of work/rest in seconds. */
-export type TimerSpec = { rounds: number; work: number; rest: number; label?: string };
+export type TimerSpec = { rounds: number; work: number; rest: number; label?: string; source?: { app: 'lapis'; id: string; snapshot: Record<string, unknown> } };
 
 /** What a block points at: a built-in library exercise or one of the trainer's own (copied in so it still shows if edited later) */
 export type ExerciseRef = { src: 'lib' | 'my'; id: string; name: string; img?: string | null; video?: string | null };
