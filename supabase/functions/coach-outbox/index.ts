@@ -1,5 +1,6 @@
 // coach-outbox: plans and delivers automatic messages.
 //
+// POST { action: 'send_now' } + trainer session  delivers that trainer's due messages right away
 // POST { action: 'run' } + x-cron-secret   pg_cron every 15 minutes: plan reminders (and, when switched on, surveys,
 //                                          testimonial and referral asks), then deliver queued messages that are due.
 // Delivery rules, checked again at send time: the client's consent for that purpose and channel, the trainer's quiet
@@ -46,9 +47,11 @@ async function planReminders(admin: SupabaseClient, s: Settings, tz: string, tra
   return n;
 }
 
-async function deliver(admin: SupabaseClient, now: Date): Promise<Record<string, number>> {
+async function deliver(admin: SupabaseClient, now: Date, onlyTrainer?: string): Promise<Record<string, number>> {
   const out: Record<string, number> = { sent: 0, skipped: 0, failed: 0, deferred: 0 };
-  const { data: due } = await admin.from('coach_outbox').select('*').eq('status', 'queued').neq('channel', 'manual').lte('send_after', now.toISOString()).order('send_after').limit(200);
+  let q = admin.from('coach_outbox').select('*').eq('status', 'queued').neq('channel', 'manual').lte('send_after', now.toISOString());
+  if (onlyTrainer) q = q.eq('trainer_id', onlyTrainer);
+  const { data: due } = await q.order('send_after').limit(200);
   const settings = new Map<string, Settings & { tz: string }>();
   for (const m of due ?? []) {
     if (!settings.has(m.trainer_id)) {
@@ -101,6 +104,14 @@ Deno.serve(async (req) => {
   const admin = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json(400, { error: 'bad_request' }); }
+  // A trainer who just queued something urgent (an open-slot offer, a group invite) delivers their own queue now
+  if (body.action === 'send_now') {
+    const { data: me } = await admin.auth.getUser((req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, ''));
+    if (!me?.user) return json(401, { error: 'sign_in_required' });
+    const { data: tr } = await admin.from('coach_trainers').select('user_id').eq('user_id', me.user.id).maybeSingle();
+    if (!tr) return json(403, { error: 'trainers_only' });
+    return json(200, { delivered: await deliver(admin, new Date(), me.user.id) });
+  }
   if (body.action !== 'run') return json(400, { error: 'bad_request' });
   const { data: ok } = await admin.rpc('coach_cron_ok', { p: req.headers.get('x-cron-secret') ?? '' });
   if (ok !== true) return json(401, { error: 'unauthorized' });

@@ -4,6 +4,7 @@
 //   C / R                 confirm or ask to reschedule the session in the latest reminder (goes to the trainer)
 //   YES / NO              take or pass on the latest slot offer
 //   1–5                   answer the latest survey
+//   IN                    join the group session in the latest invite
 //   anything else         lands in the trainer's replies for them to answer
 // Webhook URL (owner sets it in Twilio): https://<project>.supabase.co/functions/v1/coach-sms-inbound
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
@@ -75,6 +76,17 @@ Deno.serve(async (req) => {
       await log({ kind: reply.kind, offer_state: state ?? null, error: error?.message ?? null, handled: !error }, c, m.id);
       if (error) return twiml('Sorry, something went wrong. Your trainer will follow up.');
       return twiml(state === 'yours' ? 'It’s yours! The session is on your calendar.' : state === 'declined' ? 'No problem, maybe next time.' : 'Sorry, that spot has already been filled.');
+    }
+  }
+  if (reply.kind === 'in') {
+    const m = await latest(admin, ids, ['group_invite']);
+    const eventId = m?.related?.event_id as string | undefined;
+    if (m && eventId) {
+      const { data: state, error } = await admin.rpc('coach_event_join_for', { p_event: eventId, p_client: m.client_id });
+      await log({ kind: 'in', event_state: state ?? null, error: error?.message ?? null, handled: !error }, clients.find((x) => x.id === m.client_id) ?? null, m.id);
+      const words: Record<string, string> = { booked: 'You’re in! See you there.', already: 'You’re already signed up.', waitlist: 'It’s full, so you’re on the waiting list. We’ll tell you if a spot opens.',
+        pay: 'Almost there: open the Dragonfly app to pay and confirm your spot.', no_credits: 'You’re out of session credits; your trainer will be in touch.', full: 'Sorry, it’s full.', closed: 'Sorry, that session isn’t open any more.' };
+      return twiml(error ? 'Sorry, something went wrong. Your trainer will follow up.' : words[state as string] ?? 'Thanks!');
     }
   }
   if (reply.kind === 'rating') {

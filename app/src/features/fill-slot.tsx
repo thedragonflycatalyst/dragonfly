@@ -7,17 +7,18 @@ import { Button, Card, Chip, Txt, useToast } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
 import { offerExpiry, offerText, rankPool, tierLabel, type PoolClient, type Ranked, type Window } from '@/lib/client-pool';
 import { contactLink } from '@/lib/contact';
+import { callFn } from '@/lib/fn';
 import { errText } from '@/lib/model';
 import { sb, WEB_URL } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
 
 export type OpenSlot = { start: Date; durationMin: number; title: string; location: string | null; bookingId: string | null };
-type Sent = { client: PoolClient; token: string; texted: boolean };
+type Sent = { client: PoolClient & { user_id?: string | null; first_name?: string }; token: string; texted: boolean; inApp?: boolean };
 
 /** Load everything the ranking needs for this trainer */
 export async function loadPool(trainerId: string) {
   const [c, w, seen, pk] = await Promise.all([
-    sb.from('coach_clients').select('id, name, first_name, status, frequency_tier, short_notice_ok, client_of, phone').eq('trainer_id', trainerId),
+    sb.from('coach_clients').select('id, name, first_name, user_id, status, frequency_tier, short_notice_ok, client_of, phone').eq('trainer_id', trainerId),
     sb.from('coach_client_availability').select('client_id, weekday, start_time, end_time'),
     sb.rpc('coach_client_last_seen'),
     sb.from('coach_client_packages').select('client_id, credits_total, credits_used, status').eq('trainer_id', trainerId).eq('status', 'active'),
@@ -72,8 +73,23 @@ export function FillSlotSheet({ slot, onClose, busyClients }: { slot: OpenSlot |
       if (error) throw error;
       const { data: rows, error: e2 } = await sb.from('coach_slot_offer_recipients').insert([...picked].map((client_id) => ({ offer_id: offer.id, client_id }))).select('client_id, token');
       if (e2) throw e2;
-      const byId = new Map((data?.clients ?? []).map((c) => [c.id, c]));
-      setSent(((rows as { client_id: string; token: string }[]) ?? []).flatMap((r) => { const c = byId.get(r.client_id); return c ? [{ client: c, token: r.token, texted: false }] : []; }));
+      const byId = new Map((data?.clients ?? []).map((c) => [c.id, c as Sent['client']]));
+      const list: Sent[] = ((rows as { client_id: string; token: string }[]) ?? []).flatMap((r) => { const c = byId.get(r.client_id); return c ? [{ client: c, token: r.token, texted: false }] : []; });
+      // Clients who use the app get the offer in their Dragonfly chat right away; the rest are texted from the trainer's phone
+      const inApp = list.filter((x) => x.client.user_id);
+      if (inApp.length) {
+        const { error: e3 } = await sb.from('coach_outbox').insert(inApp.map((x) => ({
+          trainer_id: trainerId, client_id: x.client.id, purpose: 'offers', kind: 'slot_offer', channel: 'app',
+          body: offerText(x.client.first_name ?? x.client.name.split(' ')[0], app.trainer?.display_name ?? 'your trainer', slot.start, `${WEB_URL}o/${x.token}`),
+          related: { offer_token: x.token, offer_id: offer.id },
+        })));
+        if (!e3) {
+          await callFn('coach-outbox', { action: 'send_now' }).catch(() => null);
+          await sb.from('coach_slot_offer_recipients').update({ sent_at: new Date().toISOString(), channel: 'app' }).in('token', inApp.map((x) => x.token));
+          for (const x of inApp) { x.inApp = true; x.texted = true; }
+        }
+      }
+      setSent(list);
     } catch (e) { toast(errText(e), false); } finally { setBusy(false); }
   };
   const textOne = async (s: Sent) => {
@@ -93,11 +109,12 @@ export function FillSlotSheet({ slot, onClose, busyClients }: { slot: OpenSlot |
       <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 24 }}>
         {sent ? (
           <>
-            <Txt>Offer ready. Text each person; the first to tap the link gets the session and it goes on your calendar.</Txt>
+            <Txt>Offer sent to app users. Text the others from your phone; the first to tap the link gets the session and it goes on your calendar.</Txt>
             {sent.map((s) => (
               <Card key={s.token} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <Txt v="bold" style={{ flex: 1 }}>{s.client.name}</Txt>
-                <Button small kind={s.texted ? 'ghost' : 'solid'} icon="sms" title={s.texted ? 'Texted' : 'Text offer'} onPress={() => textOne(s)} />
+                {s.inApp ? <Txt v="small">Sent in the app</Txt>
+                  : <Button small kind={s.texted ? 'ghost' : 'solid'} icon="sms" title={s.texted ? 'Texted' : 'Text offer'} onPress={() => textOne(s)} />}
               </Card>
             ))}
             <Button kind="ghost" title="Done" onPress={onClose} />
