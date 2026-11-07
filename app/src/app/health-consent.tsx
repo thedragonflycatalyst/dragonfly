@@ -2,7 +2,7 @@
 // Also where people withdraw consent and download their own health data (JSON or CSV).
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Platform, Share, View } from 'react-native';
+import { Linking, Platform, Share, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
 import { Button, Card, Txt, useToast } from '@/components/ui';
 import { healthConsent, setHealthConsent } from '@/features/health-consent';
@@ -13,17 +13,29 @@ import { useApp } from '@/lib/app-state';
 import { confirm } from '@/lib/ask';
 import { exportCsv, exportJson, grantConsent, hasConsent, HEALTH_READS, withdrawConsent, type HealthExport } from '@/lib/health-consent';
 import { errText } from '@/lib/model';
-import { sb } from '@/lib/supabase';
+import { sb, WEB_URL } from '@/lib/supabase';
 
 const when = (s: string | null) => (s ? new Date(s).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
 
+// Pages of 1,000 rows (the API's cap per request) until a short page: every row, not just the first page (L-027)
+async function every(table: string, col: 'user_id' | 'client_id', id: string, order: string, tiebreak: string | null = 'id') {
+  const out: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += 1000) {
+    let q = sb.from(table).select('*').eq(col, id).order(order);
+    if (tiebreak) q = q.order(tiebreak);
+    const { data, error } = await q.range(from, from + 999);
+    if (error) throw error;
+    out.push(...((data ?? []) as Record<string, unknown>[]));
+    if (!data || data.length < 1000) return out;
+  }
+}
+
 async function loadExport(uid: string, clientId: string | undefined): Promise<HealthExport> {
-  const all = async (q: PromiseLike<{ data: unknown; error: unknown }>) => { const { data, error } = await q; if (error) throw error; return (data ?? []) as Record<string, unknown>[]; };
   const [daily, activities, weighins, food] = await Promise.all([
-    all(sb.from('coach_health_daily').select('*').eq('user_id', uid).order('day').limit(20000)),
-    all(sb.from('coach_activities').select('*').eq('user_id', uid).order('started_at').limit(20000)),
-    all(sb.from('coach_weighins').select('*').eq('user_id', uid).order('measured_at').limit(20000)),
-    clientId ? all(sb.from('coach_food_logs').select('*').eq('client_id', clientId).limit(20000)) : Promise.resolve([]),
+    every('coach_health_daily', 'user_id', uid, 'day', null), // one row per day
+    every('coach_activities', 'user_id', uid, 'started_at'),
+    every('coach_weighins', 'user_id', uid, 'measured_at'),
+    clientId ? every('coach_food_logs', 'client_id', clientId, 'created_at') : Promise.resolve([]),
   ]);
   return { daily, activities, weighins, food };
 }
@@ -82,6 +94,8 @@ export default function HealthConsentScreen() {
         <Txt v="small">With your permission, Dragonfly reads these from Health Connect on this phone and saves them to your account so you{app.membership ? ' and your trainer' : ''} can track progress:</Txt>
         {HEALTH_READS.map(([k, v]) => <Txt key={k} v="small"><Txt v="bold">{k}: </Txt>{v}</Txt>)}
         <Txt v="small">Dragonfly only reads; it never writes to Health Connect, and never sells or shares this data for ads. You pick exactly which types to allow in the next step, and you can withdraw at any time.</Txt>
+        <Txt v="small">If you withdraw, nothing more is read, but what was already synced stays in your account. You can download it below, delete entries in the Scale, Activity and Food screens, or delete your whole account in Account.</Txt>
+        <Button small kind="ghost" title="Privacy policy" onPress={() => Linking.openURL(`${WEB_URL}privacy`)} style={{ alignSelf: 'flex-start' }} />
         {on ? <>
           <Txt v="small">Allowed {when(c.granted_at)}.</Txt>
           <Button kind="ghost" icon="block" title="Withdraw consent" onPress={withdraw} style={{ alignSelf: 'flex-start' }} />
