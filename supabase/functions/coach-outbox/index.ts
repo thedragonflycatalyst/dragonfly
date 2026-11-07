@@ -49,7 +49,7 @@ async function planReminders(admin: SupabaseClient, s: Settings, tz: string, tra
 
 async function deliver(admin: SupabaseClient, now: Date): Promise<Record<string, number>> {
   const out: Record<string, number> = { sent: 0, skipped: 0, failed: 0, deferred: 0 };
-  const { data: due } = await admin.from('coach_outbox').select('*').eq('status', 'queued').neq('channel', 'manual').lte('send_after', now.toISOString()).order('send_after').limit(200);
+  const { data: due } = await admin.from('coach_outbox').select('*').eq('status', 'queued').not('channel', 'in', '(manual,manual_email)').lte('send_after', now.toISOString()).order('send_after').limit(200);
   const settings = new Map<string, Settings & { tz: string }>();
   for (const m of due ?? []) {
     if (!settings.has(m.trainer_id)) {

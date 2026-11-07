@@ -19,15 +19,15 @@ export async function allowed(admin: SupabaseClient, client: string, purpose: Pu
 
 /**
  * Best channel for this client and purpose. The client's preferred channel comes first (default: text, the one people
- * are least likely to miss), then text, email, chat. Text goes by the texting service when it's on, otherwise it waits
- * in the trainer's "To send" list so it's still a text. Each channel needs the client's consent for that purpose.
+ * are least likely to miss), then text, email, chat. Text and email go out automatically when those services are on;
+ * otherwise they wait in the trainer's "To send" list and go from the trainer's own phone or email. Each channel needs the client's consent for that purpose.
  */
-export async function pickChannel(admin: SupabaseClient, s: Settings, c: ClientRow, purpose: Purpose): Promise<'sms' | 'email' | 'app' | 'manual' | null> {
+export async function pickChannel(admin: SupabaseClient, s: Settings, c: ClientRow, purpose: Purpose): Promise<'sms' | 'email' | 'app' | 'manual' | 'manual_email' | null> {
   const { data: pref } = await admin.from('coach_contact_prefs').select('preferred_channel').eq('client_id', c.id).maybeSingle();
   const order = [...new Set([(pref?.preferred_channel as string | undefined) ?? 'sms', 'sms', 'email', 'app'])];
   for (const ch of order) {
     if (ch === 'sms' && c.phone && await allowed(admin, c.id, purpose, 'sms')) return s.sms_enabled && smsConfigured() ? 'sms' : 'manual';
-    if (ch === 'email' && c.email && emailConfigured() && await allowed(admin, c.id, purpose, 'email')) return 'email';
+    if (ch === 'email' && c.email && await allowed(admin, c.id, purpose, 'email')) return emailConfigured() ? 'email' : 'manual_email';
     if (ch === 'app' && c.user_id && c.status === 'active' && await allowed(admin, c.id, purpose, 'app')) return 'app';
   }
   return null;
