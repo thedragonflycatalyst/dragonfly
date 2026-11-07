@@ -1,6 +1,6 @@
 # Client engagement: client pool, scheduled texts, reviews and session summaries
 
-Owner: Phyllis · Source: owner's notes from a PT meeting at work (Nov 7, 2026) · Status: **Proposed — concepts accepted, implementation to discuss with the owner**
+Owner: Phyllis · Source: owner's notes from a PT meeting at work (Nov 7, 2026) · Status: **Concepts accepted. Build order and technical design: `implementation-plan.md` (same folder).**
 
 The owner asked for five concepts to be in the Coach app. This plan records them, proposes how each works, and lists the decisions only the owner can make. Nothing here is built yet.
 
