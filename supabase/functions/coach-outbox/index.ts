@@ -11,6 +11,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.5
 import { healthWord, nextSendable, occurrences, reminderText, type BookingRow } from '../_shared/messaging.ts';
 import { allowed, ESSENTIAL, pickChannel, skipCa, type ClientRow, type Settings } from './common.ts';
 import { planEngagement } from './engagement.ts';
+import { processOpenSlots } from './waitlist.ts';
 import { deliverEmail } from './email.ts';
 import { deliverSms, smsConfigured } from './sms.ts';
 
@@ -133,6 +134,7 @@ Deno.serve(async (req) => {
       planned[s.trainer_id] = await planReminders(admin, s, tz, name, now) + await planEngagement(admin, s, tz, name, now);
     } catch (e) { console.error('plan', s.trainer_id, e instanceof Error ? e.message : e); }
   }
+  try { planned.waitlist = await processOpenSlots(admin, (all ?? []) as Settings[], now); } catch (e) { console.error('waitlist', e instanceof Error ? e.message : e); }
   const delivered = await deliver(admin, now);
   return json(200, { planned, delivered });
 });
