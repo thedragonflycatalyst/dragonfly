@@ -1,6 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import * as Crypto from 'expo-crypto';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Toggle } from '@/components/pickers';
 import { Sheet } from '@/components/sheet';
@@ -13,6 +14,7 @@ import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
+import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { useHidden } from '@/features/library-extras';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
@@ -54,6 +56,7 @@ export default function Session() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [timerResults, setTimerResults] = useState<LapisTimerResult[]>([]);
   const [runnerClocks, setRunnerClocks] = useState<Record<string, RunnerClock>>({});
+  const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
   const [started, setStarted] = useState(Date.now());
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -91,8 +94,17 @@ export default function Session() {
       }
       if (s?.assignment?.status === 'done') { setSrc(s); return; }
       const d = readDraft((k) => storage.getItem(k));
-      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
-      else if (s) setLog(startLog(s.blocks, unit));
+      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {});
+        setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
+        setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
+      else if (s) {
+        setLog(startLog(s.blocks, unit));
+        setTimerResults([]);
+        setRunnerClocks({});
+        setActiveTimerId(null);
+        setPendingAssignmentId(null);
+        setStarted(Date.now());
+      }
       setSrc(s);
     })();
   }, [aid, workout, key, unit]);
@@ -176,22 +188,42 @@ export default function Session() {
     try {
       let assignmentId = src.assignment?.id ?? pendingAssignmentId;
       if (!assignmentId) {
-        // Create at most one assignment for this local session. If logging fails,
-        // persist its ID so retry/restart doesn't make duplicate calendar entries.
-        const { data, error } = await sb.from('coach_assignments').insert({
-          trainer_id: app.user.id, client_id: clientId,
-          workout_id: src.workoutId, scheduled_on: dayKey(new Date()),
-          title: src.title, snapshot: src.blocks,
-        }).select('id').single();
-        if (error) throw error;
-        assignmentId = data.id as string;
-        setPendingAssignmentId(assignmentId);
+        // Persist the exact intended primary key before contacting Supabase.
+        // A lost HTTP response can never create a second assignment on retry.
+        assignmentId = Crypto.randomUUID();
         const draft: Draft = {
           key, title: src.title, params: aid ? { aid } : { workout: workout! },
           client_id: clientId, started, log, timerResults, runnerClocks,
           pendingAssignmentId: assignmentId,
         };
-        try { storage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* stay usable in-memory */ }
+        // Fail closed: without a persisted ID we cannot safely retry after
+        // an unknown network outcome.
+        storage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        setPendingAssignmentId(assignmentId);
+      }
+      if (!src.assignment) {
+        const expectedId = assignmentId;
+        const getExisting = async () => {
+          const existing = await sb.from('coach_assignments')
+            .select('id, client_id, trainer_id, workout_id')
+            .eq('id', expectedId).maybeSingle();
+          if (existing.error) throw existing.error;
+          if (!existing.data) return false;
+          if (!matchesPendingAssignment(existing.data, expectedId, app.user!.id, clientId!, src.workoutId))
+            throw new Error('Assignment ID belongs to a different workout or client');
+          return true;
+        };
+        if (!(await getExisting())) {
+          const { error: createError } = await sb.from('coach_assignments').insert({
+            id: expectedId, trainer_id: app.user.id, client_id: clientId,
+            workout_id: src.workoutId, scheduled_on: dayKey(new Date()),
+            title: src.title, snapshot: src.blocks,
+          });
+          if (createError && createError.code !== '23505') throw createError;
+          // Also handles duplicate PK and the case where the server inserted
+          // the assignment but its response was lost.
+          if (!(await getExisting())) throw new Error('Assignment creation not confirmed');
+        }
       }
       const { error } = await sb.from('coach_logs').insert({
         assignment_id: assignmentId, client_id: clientId, user_id: app.user.id,
@@ -240,7 +272,18 @@ export default function Session() {
             if (b.kind !== 'timed') return null;
             const savedTimer = linkedTimers[b.id] ?? null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer} initialClock={runnerClocks[b.id]} onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))} onStart={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer}
+                  initialClock={runnerClocks[b.id]}
+                  blocked={activeTimerId !== null && activeTimerId !== b.id}
+                  onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))}
+                  onStart={() => {
+                    setActiveTimerId(b.id);
+                    setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id));
+                  }}
+                  onPause={() => setActiveTimerId((current) => current === b.id ? null : current)}
+                  onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))}
+                  onComplete={(actualSeconds) => {
+                  setActiveTimerId((current) => current === b.id ? null : current);
                   const result: LapisTimerResult = {
                     block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
                     planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
