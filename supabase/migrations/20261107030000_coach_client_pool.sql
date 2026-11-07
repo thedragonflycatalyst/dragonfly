@@ -1,7 +1,7 @@
 -- Client pool: who to offer an open slot to when someone cancels.
 -- Each client has a frequency tier, the times they're usually free, and an opt-in for short-notice offers.
 -- A slot offer goes to several clients at once; the first to accept (by link, signed in or not) gets the booking.
--- coach_clients.client_of keeps Columbia Association clients apart from private ones (owner decision pending; outbound
+-- coach_clients.client_of keeps Columbia Association clients apart from private ones (for reporting; outbound
 -- messaging includes them by default, owner decision Nov 7).
 
 alter table public.coach_clients
