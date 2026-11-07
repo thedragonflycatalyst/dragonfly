@@ -110,7 +110,7 @@ export function Diary({ client, imperial, asClient }: { client: Client; imperial
                 {ls.map((l) => (
                   <Pressable key={l.id} accessibilityRole="button" accessibilityLabel={`Edit ${l.name}`} onPress={() => setEditing(l)}
                     style={({ pressed }) => ({ flexDirection: 'row', gap: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: p.line, paddingTop: 10, opacity: pressed ? 0.6 : 1 })}>
-                    {l.photo_path ? <Image source={photos[l.photo_path] ? { uri: photos[l.photo_path] } : null} style={{ width: 44, height: 44, borderRadius: R.sm, backgroundColor: p.line }} contentFit="cover" /> : null}
+                    {l.photo_path ? <Image source={photos[l.photo_path] ? { uri: photos[l.photo_path] } : null} style={{ width: 44, height: 44, borderRadius: R.sm, backgroundColor: p.line }} contentFit="cover" accessibilityLabel="" accessible={false} /> : null}
                     <View style={{ flex: 1 }}>
                       <Txt numberOfLines={2}>{l.name}</Txt>
                       <Txt v="small">{[l.qty && l.portion ? describe({ id: '', food: l.food!, qty: Number(l.qty), portion: l.portion }) : null, SOURCE[l.source]].filter(Boolean).join(' · ')}</Txt>

@@ -87,7 +87,7 @@ export default function ChatInfo() {
                 return (
                   <Pressable key={m.id} onPress={() => src && Linking.openURL(src)} accessibilityRole="imagebutton" accessibilityLabel={m.kind}
                     style={{ width: '32.5%', aspectRatio: 1, borderRadius: 6, overflow: 'hidden', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-                    {m.kind === 'video' ? <Icon name="play_arrow" size={36} /> : src ? <Image source={{ uri: src }} style={{ width: '100%', height: '100%' }} contentFit="cover" /> : null}
+                    {m.kind === 'video' ? <Icon name="play_arrow" size={36} /> : src ? <Image source={{ uri: src }} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityLabel="" accessible={false} /> : null}
                   </Pressable>
                 );
               })}
