@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
 import { F, usePalette } from '@/lib/theme';
 import { Txt } from './ui';
@@ -14,13 +14,82 @@ const niceStep = (span: number, n = 5) => {
 const pathOf = (pts: { x: number; y: number }[]) => pts.map((q, i) => `${i ? 'L' : 'M'}${q.x.toFixed(1)},${q.y.toFixed(1)}`).join('');
 
 /** Line chart over time: smoothed lines, faint raw points, optional goal line and projection, labels at the end of each line */
-export function LineChart({ series, height = 300, from, to, goal, projection, fmtY, label }: {
+export function LineChart({ series, height = 300, from, to, goal, projection, fmtY, fmtPoint, label }: {
   series: Series[]; height?: number; from: number; to: number; goal?: number | null; projection?: { a: Pt; b: Pt } | null;
-  fmtY: (v: number) => string; label: string;
+  fmtY: (v: number) => string; fmtPoint?: (v: number) => string; label: string;
 }) {
   const p = usePalette();
   const [w, setW] = useState(0);
-  const all = series.flatMap((s) => [...s.points, ...(s.raw ?? [])]).filter((q) => q.t >= from && q.t <= to).map((q) => q.v);
+  const [viewport, setViewport] = useState<{ from: number; to: number } | null>(null);
+  const [inspected, setInspected] = useState<number | null>(null);
+  const gesture = useRef<{ x: number; from: number; to: number; moved: boolean; pinch: number | null; anchor: number } | null>(null);
+  const day = 86_400_000;
+  useEffect(() => { setViewport(null); setInspected(null); }, [from, to]);
+  const viewFrom = viewport?.from ?? from, viewTo = viewport?.to ?? to;
+  const allPoints = series.flatMap((s) => s.raw?.length ? s.raw : s.points);
+  const firstReading = Math.min(...allPoints.map((q) => q.t), from);
+  const lastReading = Math.max(...allPoints.map((q) => q.t), to);
+  const minT = firstReading - 7 * day, maxT = Math.max(lastReading, Date.now()) + 30 * day;
+  const minSpan = day * 2, maxSpan = Math.max(minSpan, maxT - minT);
+  const clampView = (a: number, b: number) => {
+    const width = Math.max(minSpan, Math.min(maxSpan, b - a));
+    const start = Math.max(minT, Math.min(maxT - width, a));
+    return { from: start, to: start + width };
+  };
+  const zoom = (factor: number, at = (viewFrom + viewTo) / 2) => {
+    const span = (viewTo - viewFrom) * factor;
+    const ratio = (at - viewFrom) / (viewTo - viewFrom);
+    setViewport(clampView(at - span * ratio, at + span * (1 - ratio)));
+  };
+  const shift = (direction: number) => {
+    const span = viewTo - viewFrom;
+    setViewport(clampView(viewFrom + span * direction * 0.75, viewTo + span * direction * 0.75));
+  };
+  const plotWidth = Math.max(1, w - 46 - 92);
+  const atX = (x: number, a = viewFrom, b = viewTo) => a + Math.max(0, Math.min(1, (x - 46) / plotWidth)) * (b - a);
+  const inspect = (x: number) => {
+    const at = atX(x);
+    const candidates = series.flatMap((ss) => (ss.raw?.length ? ss.raw : ss.points).map((point) => ({ ...point, color: ss.color, series: ss.label })));
+    const nearest = candidates.reduce<(typeof candidates)[number] | null>((best, point) => !best || Math.abs(point.t - at) < Math.abs(best.t - at) ? point : best, null);
+    setInspected(nearest?.t ?? null);
+  };
+  const onTouchStart = (e: any) => {
+    const touches = (e.nativeEvent.touches ?? []) as { pageX: number }[];
+    const x = e.nativeEvent.locationX as number;
+    if (!gesture.current) gesture.current = { x, from: viewFrom, to: viewTo, moved: false, pinch: null, anchor: 0 };
+    if (touches.length >= 2) {
+      gesture.current = { x, from: viewFrom, to: viewTo, moved: true,
+        pinch: Math.abs(touches[1].pageX - touches[0].pageX), anchor: (viewFrom + viewTo) / 2 };
+    }
+  };
+  const onTouchMove = (e: any) => {
+    const g = gesture.current;
+    if (!g) return;
+    const touches = (e.nativeEvent.touches ?? []) as { pageX: number }[];
+    if (touches.length >= 2) {
+      const distance = Math.max(8, Math.abs(touches[1].pageX - touches[0].pageX));
+      if (g.pinch == null) { gesture.current = { ...g, moved: true, pinch: distance, from: viewFrom, to: viewTo, anchor: (viewFrom + viewTo) / 2 }; return; }
+      const span = (g.to - g.from) * (g.pinch / distance);
+      setViewport(clampView(g.anchor - span / 2, g.anchor + span / 2));
+      g.moved = true;
+      setInspected(null);
+    } else if (g.pinch == null) {
+      const x = e.nativeEvent.locationX as number;
+      const dx = x - g.x;
+      if (Math.abs(dx) > 5) g.moved = true;
+      if (g.moved) {
+        const delta = -dx / plotWidth * (g.to - g.from);
+        setViewport(clampView(g.from + delta, g.to + delta));
+        setInspected(null);
+      }
+    }
+  };
+  const onTouchEnd = (e: any) => {
+    const g = gesture.current;
+    if (g && !g.moved) inspect(e.nativeEvent.locationX as number);
+    gesture.current = null;
+  };
+  const all = series.flatMap((s) => [...s.points, ...(s.raw ?? [])]).filter((q) => q.t >= viewFrom && q.t <= viewTo).map((q) => q.v);
   if (goal != null) all.push(goal);
   const padL = 46, padR = 92, padT = 24, padB = 26;
   let lo = Math.min(...all), hi = Math.max(...all);
@@ -28,25 +97,38 @@ export function LineChart({ series, height = 300, from, to, goal, projection, fm
   if (hi - lo < 1) { lo -= 1; hi += 1; }
   const step = niceStep(hi - lo);
   lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
-  const X = (t: number) => padL + ((t - from) / Math.max(to - from, 1)) * (w - padL - padR);
+  const X = (t: number) => padL + ((t - viewFrom) / Math.max(viewTo - viewFrom, 1)) * (w - padL - padR);
   const Y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * (height - padT - padB);
   const ticks: number[] = []; for (let v = lo; v <= hi + 1e-9; v += step) ticks.push(v);
   // Month (or year) marks along the bottom
   const marks: { t: number; text: string }[] = [];
-  const spanDays = (to - from) / 86_400_000;
-  const d0 = new Date(from); d0.setDate(1); d0.setHours(0, 0, 0, 0);
+  const spanDays = (viewTo - viewFrom) / 86_400_000;
+  const d0 = new Date(viewFrom); d0.setDate(1); d0.setHours(0, 0, 0, 0);
   const monthsStep = spanDays > 900 ? 12 : spanDays > 400 ? 3 : spanDays > 200 ? 2 : 1;
-  for (let d = new Date(d0); d.getTime() <= to; d.setMonth(d.getMonth() + monthsStep)) {
-    if (d.getTime() < from) continue;
+  for (let d = new Date(d0); d.getTime() <= viewTo; d.setMonth(d.getMonth() + monthsStep)) {
+    if (d.getTime() < viewFrom) continue;
     marks.push({ t: d.getTime(), text: monthsStep === 12 || d.getMonth() === 0 ? String(d.getFullYear()) : d.toLocaleDateString(undefined, { month: 'short' }) });
   }
-  if (spanDays <= 45) { marks.length = 0; for (let t = from; t <= to; t += 7 * 86_400_000) marks.push({ t, text: new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }); }
-  const ends = series.map((s) => { const last = [...s.points].reverse().find((q) => q.t <= to); return last ? { s, y: Y(last.v), x: X(last.t) } : null; }).filter(Boolean) as { s: Series; y: number; x: number }[];
+  if (spanDays <= 45) { marks.length = 0; for (let t = viewFrom; t <= viewTo; t += 7 * 86_400_000) marks.push({ t, text: new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }); }
+  const ends = series.map((s) => { const last = [...s.points].reverse().find((q) => q.t >= viewFrom && q.t <= viewTo); return last ? { s, y: Y(last.v), x: X(last.t) } : null; }).filter(Boolean) as { s: Series; y: number; x: number }[];
   // Keep end labels from overlapping
   ends.sort((a, b) => a.y - b.y);
   for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 34) ends[i].y = ends[i - 1].y + 34;
+  const chosen = inspected == null ? null : series.flatMap((ss) => (ss.raw?.length ? ss.raw : ss.points).map((point) => ({ ...point, color: ss.color, series: ss.label })))
+    .filter((point) => point.t === inspected);
+  const selected = chosen?.[0];
   return (
-    <View accessible accessibilityLabel={label} onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ height }}>
+    <View accessible accessibilityLabel={label} style={{ gap: 6 }}>
+      <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end', alignItems: 'center', paddingHorizontal: 8 }}>
+        {([['‹', () => shift(-1), 'Earlier'], ['−', () => zoom(1.8), 'Zoom out'], ['Reset', () => { setViewport(null); setInspected(null); }, 'Reset chart'], ['+', () => zoom(0.55), 'Zoom in'], ['›', () => shift(1), 'Later']] as const).map(([title, onPress, hint]) =>
+          <Pressable key={hint} onPress={onPress} accessibilityRole="button" accessibilityLabel={hint} style={{ minWidth: title === 'Reset' ? 54 : 34, minHeight: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 7, backgroundColor: p.soft }}>
+            <Text style={{ color: p.ink, fontSize: title === 'Reset' ? 12 : 19, fontFamily: F.bodyBold }}>{title}</Text>
+          </Pressable>)}
+      </View>
+      <View onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ height }}
+        onStartShouldSetResponder={() => true} onMoveShouldSetResponder={() => true}
+        onResponderGrant={onTouchStart} onResponderMove={onTouchMove}
+        onResponderRelease={onTouchEnd} onResponderTerminate={() => { gesture.current = null; }}>
       {w > 0 && (
         <Svg width={w} height={height}>
           <Defs>
@@ -68,28 +150,34 @@ export function LineChart({ series, height = 300, from, to, goal, projection, fm
               <SvgText x={X(m.t) + 3} y={height - 8} fontSize={11} fill={p.muted} fontFamily={F.body}>{m.text}</SvgText>
             </G>
           ))}
-          {Date.now() >= from && Date.now() <= to && <Line x1={X(Date.now())} x2={X(Date.now())} y1={padT - 10} y2={height - padB} stroke={p.gold} strokeWidth={1.5} />}
+          {Date.now() >= viewFrom && Date.now() <= viewTo && <Line x1={X(Date.now())} x2={X(Date.now())} y1={padT - 10} y2={height - padB} stroke={p.gold} strokeWidth={1.5} />}
           {goal != null && goal >= lo && goal <= hi && (
             <G>
               <Line x1={padL} x2={w - padR + 10} y1={Y(goal)} y2={Y(goal)} stroke={p.good} strokeWidth={1.5} />
               <SvgText x={w - padR + 14} y={Y(goal) + 4} fontSize={13} fill={p.good} fontFamily={F.bodyBold}>Goal</SvgText>
             </G>
           )}
-          {projection && <Line x1={X(projection.a.t)} y1={Y(projection.a.v)} x2={X(Math.min(projection.b.t, to))}
-            y2={Y(projection.a.v + (projection.b.v - projection.a.v) * ((Math.min(projection.b.t, to) - projection.a.t) / Math.max(projection.b.t - projection.a.t, 1)))}
+          {projection && projection.a.t <= viewTo && projection.b.t >= viewFrom && <Line x1={X(Math.max(projection.a.t, viewFrom))} y1={Y(projection.a.v + (projection.b.v - projection.a.v) * ((Math.max(projection.a.t, viewFrom) - projection.a.t) / Math.max(projection.b.t - projection.a.t, 1)))} x2={X(Math.min(projection.b.t, viewTo))}
+            y2={Y(projection.a.v + (projection.b.v - projection.a.v) * ((Math.min(projection.b.t, viewTo) - projection.a.t) / Math.max(projection.b.t - projection.a.t, 1)))}
             stroke={p.muted} strokeWidth={2} strokeDasharray="6,5" />}
           {series.map((s) => {
-            const pts = s.points.filter((q) => q.t >= from && q.t <= to).map((q) => ({ x: X(q.t), y: Y(q.v) }));
+            const pts = s.points.filter((q) => q.t >= viewFrom && q.t <= viewTo).map((q) => ({ x: X(q.t), y: Y(q.v) }));
             if (!pts.length) return null;
             const area = `${pathOf(pts)}L${pts[pts.length - 1].x},${height - padB}L${pts[0].x},${height - padB}Z`;
             return (
               <G key={s.key}>
                 <Path d={area} fill={`url(#g-${s.key})`} />
-                {(s.raw ?? []).filter((q) => q.t >= from && q.t <= to).map((q) => <Circle key={q.t} cx={X(q.t)} cy={Y(q.v)} r={2.2} fill={s.color} opacity={0.45} />)}
+                {(s.raw ?? []).filter((q) => q.t >= viewFrom && q.t <= viewTo).map((q) => <Circle key={q.t} cx={X(q.t)} cy={Y(q.v)} r={2.2} fill={s.color} opacity={0.45} />)}
                 <Path d={pathOf(pts)} stroke={s.color} strokeWidth={2.6} fill="none" strokeLinejoin="round" strokeLinecap="round" />
               </G>
             );
           })}
+          {selected && selected.t >= viewFrom && selected.t <= viewTo && (
+            <G>
+              <Line x1={X(selected.t)} x2={X(selected.t)} y1={padT} y2={height - padB} stroke={p.ink} strokeWidth={1.5} strokeDasharray="4,3" />
+              {chosen?.map((point, i) => <Circle key={point.series + i} cx={X(point.t)} cy={Y(point.v)} r={5} fill={point.color} stroke={p.surface} strokeWidth={2} />)}
+            </G>
+          )}
           {ends.map(({ s, y }) => (
             <G key={s.key}>
               <SvgText x={w - padR + 6} y={y - 2} fontSize={12} fill={s.color} fontFamily={F.bodyBold}>{s.label}</SvgText>
@@ -98,6 +186,13 @@ export function LineChart({ series, height = 300, from, to, goal, projection, fm
           ))}
         </Svg>
       )}
+      </View>
+      {selected ? (
+        <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: p.soft }}>
+          <Text style={{ color: p.ink, fontFamily: F.bodyBold, fontSize: 12 }}>{new Date(selected.t).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</Text>
+          <Text style={{ color: p.muted, fontFamily: F.body, fontSize: 12 }}>{chosen?.map((point) => `${point.series}: ${(fmtPoint ?? fmtY)(point.v)}`).join(' · ')}</Text>
+        </View>
+      ) : <Text style={{ color: p.muted, fontSize: 11, textAlign: 'center', fontFamily: F.body }}>Tap for a reading · drag to explore · pinch or use +/− to zoom</Text>}
     </View>
   );
 }

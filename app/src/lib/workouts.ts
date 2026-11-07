@@ -12,11 +12,19 @@ export function refOf(e: LibExercise): ExerciseRef {
   return { src, id, name: e.name, img: e.images[0] ?? null, video: e.video ?? null };
 }
 
-/** Sensible starting sets for an exercise: 3 × 10 with 60 s rest, or 3 × 30 s holds for stretches/planks */
-export function defaultMetric(e: Pick<LibExercise, 'category' | 'name' | 'metric'>): SetMetric {
+const STATIC = /\b(plank|hold|hang|wall sit|l-sit|v-sit|hollow body|isometric|front lever|back lever|planche|human flag|handstand|crow|support)\b/i;
+const MOVING = /up-down|jack|walk|tap|row|reach|drag|pass|climber|rotation|to |push-up|pull|raise|kick|dip|saw|knee|reverse|crunch|curl|press|negative|ride|swing|thrust|jump|roll|step|march|drive|thread|snatch|clean|lift|twist|spider|abduction|rock|drop|scissors/i;
+/** Sensible starting sets for an exercise: 3 × 10 with 60 s rest, 3 × 30 s for holds, stretches and cardio machines,
+ *  or distance for carries */
+export function defaultMetric(e: Pick<LibExercise, 'category' | 'name' | 'metric' | 'pattern'>): SetMetric {
   if (e.metric) return e.metric;
-  if (e.category === 'cardio') return 'time';
-  if (e.category === 'stretching' || /plank|hold|bridge|wall sit|hang\b/i.test(e.name)) return 'time';
+  const c = e.category.toLowerCase();
+  if (e.pattern) {  // library exercises: go by the movement pattern, and planks and holds by name
+    if (e.pattern === 'Carry') return 'distance';
+    if (['Isometric hold', 'Stretch', 'Cardio machine'].includes(e.pattern) || c === 'cardio' || c === 'stretching') return 'time';
+    return STATIC.test(e.name) && !MOVING.test(e.name) ? 'time' : 'reps';
+  }
+  if (c === 'cardio' || c === 'stretching' || /plank|hold|bridge|wall sit|hang\b/i.test(e.name)) return 'time';
   return 'reps';
 }
 export function newBlock(e: LibExercise, metric = defaultMetric(e)): ExerciseBlock {
@@ -134,4 +142,14 @@ export function coverColors(cover: string | null | undefined, name: string): [st
   if (m) return COVERS[Number(m[1]) % COVERS.length];
   let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return COVERS[h % COVERS.length];
+}
+
+/** A workout's blocks with one exercise swapped for good: the block with this id, or (if the workout was edited since) the
+ *  first block that still uses the old exercise. Sets, notes and grouping stay the same. Returns null when nothing matched. */
+export function swapBlock(blocks: WorkoutBlock[], blockId: string, from: ExerciseRef, to: ExerciseRef): WorkoutBlock[] | null {
+  const sameEx = (b: WorkoutBlock) => b.kind === 'exercise' && b.ex.src === from.src && b.ex.id === from.id;
+  let i = blocks.findIndex((b) => b.id === blockId && b.kind === 'exercise');
+  if (i < 0 || !sameEx(blocks[i])) i = blocks.findIndex(sameEx);
+  if (i < 0) return null;
+  return blocks.map((b, n) => (n === i && b.kind === 'exercise' ? { ...b, ex: to } : b));
 }
