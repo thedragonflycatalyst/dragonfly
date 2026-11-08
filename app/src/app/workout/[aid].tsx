@@ -4,6 +4,7 @@ import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { Badge } from '@/components/shell';
 import { Button, Card, Empty, Txt, useToast } from '@/components/ui';
 import { ExerciseThumb } from '@/features/exercises';
+import { SessionSummary } from '@/features/session-summary';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { fmtShort, fmtTime, fromKey, relDay } from '@/lib/dates';
@@ -86,6 +87,8 @@ export default function AssignmentScreen() {
               }} />
             </Card>
           )}
+
+          {log && <SessionSummary log={log} unit={weightUnit(app.units)} title={a.title} />}
 
           {blocks.map((b) => {
             const done = log?.entries.find((e) => e.block_id === b.id);

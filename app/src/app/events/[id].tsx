@@ -43,6 +43,29 @@ function EventEditor() {
   const [signups, setSignups] = useState<Signup[]>([]);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  /** Invite clients: app users get it in their chat now (they join in the app); others are queued in "To send" */
+  const invite = async (ids: string[]) => {
+    setInviting(false);
+    const ev = e;
+    if (!ids.length || !ev?.id || !app.trainer) return;
+    const { data: cs } = await sb.from('coach_clients').select('id, first_name, user_id, status').in('id', ids);
+    const when = new Date(ev.starts_at).toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const spots = ev.spaces != null ? ` ${Math.max(0, ev.spaces - (ev.booked ?? 0))} spots left.` : '';
+    const rows = ((cs ?? []) as { id: string; first_name: string; user_id: string | null; status: string }[]).map((c) => {
+      const app2 = !!c.user_id && c.status === 'active';
+      return {
+        trainer_id: app.trainer!.user_id, client_id: c.id, purpose: 'marketing', kind: 'group_invite', channel: app2 ? 'app' : 'manual',
+        body: `Hi ${c.first_name}, join ${ev.title} on ${when}.${spots} ${app2 ? 'Open Events in the app to join.' : 'Reply to let me know if you’d like a spot.'}`.slice(0, 480),
+        related: { event_id: ev.id },
+      };
+    });
+    const { error } = await sb.from('coach_outbox').insert(rows);
+    if (error) return toast(errText(error), false);
+    await callFn('coach-outbox', { action: 'send_now' }).catch(() => null);
+    const manual = rows.filter((r) => r.channel === 'manual').length;
+    toast(manual ? `Invited. ${manual} to text from your phone in “To send”.` : 'Invited in the app.');
+  };
   const { clients } = useClientList();
 
   const load = useCallback(async () => {
@@ -161,6 +184,7 @@ function EventEditor() {
                 </View>))}</Card>
             </>}
             <Button kind="ghost" icon="person_add" title="Add clients" onPress={() => setAdding(true)} />
+            {!e.cancelled && <Button kind="ghost" icon="sms" title="Invite clients" onPress={() => setInviting(true)} />}
             <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
               <Button kind="ghost" icon="close" title={e.cancelled ? 'Reopen event' : 'Cancel event'} onPress={cancelEvent} />
               <Button kind="danger" icon="delete" title="Delete" onPress={remove} />
@@ -170,6 +194,7 @@ function EventEditor() {
         </View>
       </ScrollView>
       <ClientPicker visible={adding} onClose={() => setAdding(false)} title="Add to this event" value={[]} onDone={addPeople} />
+      <ClientPicker visible={inviting} onClose={() => setInviting(false)} title="Invite to this event" value={[]} onDone={invite} />
     </View>
   );
 }
