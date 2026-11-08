@@ -27,12 +27,12 @@ export function MessageBody({ m, url, mine }: { m: Message; url?: string; mine: 
       return (
         <View>
           {src ? <Pressable onPress={() => setZoom(true)} accessibilityRole="imagebutton" accessibilityLabel={m.kind === 'gif' ? 'GIF' : 'Photo'}>
-            <Image source={{ uri: src }} style={{ width: 230, aspectRatio: ratio, borderRadius: R.sm }} contentFit="cover" autoplay />
+            <Image source={{ uri: src }} style={{ width: 230, aspectRatio: ratio, borderRadius: R.sm }} contentFit="cover" autoplay accessibilityLabel="" accessible={false} />
           </Pressable> : <View style={{ width: 230, aspectRatio: ratio, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator /></View>}
           {caption}
           <Modal visible={zoom} transparent onRequestClose={() => setZoom(false)}>
             <Pressable onPress={() => setZoom(false)} style={{ flex: 1, backgroundColor: '#000e', alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="Close">
-              {src ? <Image source={{ uri: src }} style={{ width: '100%', height: '85%' }} contentFit="contain" autoplay /> : null}
+              {src ? <Image source={{ uri: src }} style={{ width: '100%', height: '85%' }} contentFit="contain" autoplay accessibilityLabel={m.kind === 'gif' ? 'GIF' : 'Photo'} /> : null}
             </Pressable>
           </Modal>
         </View>
@@ -155,7 +155,7 @@ export function GifSheet({ visible, onClose, onPick, onUpload }: { visible: bool
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {list.map((g) => (
               <Pressable key={g.id} onPress={() => onPick(g)} accessibilityRole="button" accessibilityLabel={g.title || 'GIF'} style={{ width: '31.5%', aspectRatio: 1, borderRadius: 8, overflow: 'hidden', backgroundColor: p.soft }}>
-                <Image source={{ uri: g.still }} style={{ width: '100%', height: '100%' }} contentFit="cover" autoplay />
+                <Image source={{ uri: g.still }} style={{ width: '100%', height: '100%' }} contentFit="cover" autoplay accessibilityLabel="" accessible={false} />
               </Pressable>
             ))}
           </View>
