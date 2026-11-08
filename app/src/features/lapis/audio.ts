@@ -21,9 +21,14 @@ async function ready(over?: MusicMode) {
 }
 
 const live = new Set<AudioPlayer>();
-function play(source: string | number, volume: number, maxMs = 6000): Promise<void> {
+// Incremented when a workout leaves or resets its sound session. Async voice
+// clip downloads from an old session must not speak after hush().
+let audioGeneration = 0;
+export function currentAudioGeneration() { return audioGeneration; }
+function play(source: string | number, volume: number, generation: number, maxMs = 6000): Promise<void> {
   return new Promise((done) => {
     try {
+      if (generation !== audioGeneration) { done(); return; }
       const pl = createAudioPlayer(source);
       pl.volume = volume;
       live.add(pl);
@@ -42,24 +47,28 @@ export const buzz = (strong = false) => {
 
 /** Say a line in the chosen Lapis voice (skipped when the voice is off or the line isn't available offline) */
 export async function say(text: string) {
+  const generation = audioGeneration;
   const p = getPrefs();
   if (!p.voiceOn || p.voiceLevel <= 0) return;
   await ready();
+  if (generation !== audioGeneration) return;
   const uri = await clip(text, p.voice, p.voiceSpeed);
-  if (uri) await play(uri, p.voiceLevel);
+  if (uri && generation === audioGeneration) await play(uri, p.voiceLevel, generation);
 }
 
 /** Ring the chosen bell */
 export async function bell() {
+  const generation = audioGeneration;
   const p = getPrefs();
   if (!p.bellOn) return;
   await ready();
+  if (generation !== audioGeneration) return;
   buzz(true);
-  await play(BELL_FILES[p.bell], Math.max(0.4, p.voiceLevel));
+  await play(BELL_FILES[p.bell], Math.max(0.4, p.voiceLevel), generation);
 }
 
 /** Stop anything still playing (leaving the workout) */
-export function hush() { reading++; for (const pl of live) { try { pl.pause(); pl.remove(); } catch { /* gone */ } } live.clear(); }
+export function hush() { audioGeneration++; reading++; for (const pl of live) { try { pl.pause(); pl.remove(); } catch { /* gone */ } } live.clear(); }
 
 let reading = 0;
 /**
@@ -69,6 +78,7 @@ let reading = 0;
 export async function readAloud(pieces: string[]): Promise<boolean> {
   hush();
   const me = reading;
+  const generation = audioGeneration;
   const p = getPrefs();
   await ready(p.music === 'pause' ? 'duck' : p.music);
   const next = (i: number) => (i < pieces.length ? clip(pieces[i], p.voice, p.voiceSpeed) : Promise.resolve(null));
@@ -79,7 +89,7 @@ export async function readAloud(pieces: string[]): Promise<boolean> {
     if (me !== reading) return played;
     ahead = next(i + 1); // fetch the next piece while this one plays
     if (!uri) return played;
-    await play(uri, p.voiceLevel > 0 ? p.voiceLevel : 1, 45_000);
+    await play(uri, p.voiceLevel > 0 ? p.voiceLevel : 1, generation, 45_000);
     played = true;
     if (me !== reading) return played;
   }
