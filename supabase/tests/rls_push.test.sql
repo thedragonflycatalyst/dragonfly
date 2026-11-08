@@ -1,0 +1,56 @@
+-- Push tokens: each user registers and sees only their own; a reschedule request with a registered trainer fires the push call.
+\set ON_ERROR_STOP on
+set client_min_messages = warning;
+insert into t.ids values ('trainer', gen_random_uuid()), ('other', gen_random_uuid()), ('ana', gen_random_uuid());
+insert into auth.users (id, email, email_confirmed_at) select v, k || '@example.com', now() from t.ids;
+insert into public.dragonfly_profiles select v, k from t.ids;
+set client_min_messages = notice;
+select t.as_user('trainer');
+insert into public.coach_trainers (user_id, display_name, timezone) select v, 'Emmet', 'America/New_York' from t.ids where k = 'trainer';
+insert into public.coach_availability (trainer_id, weekday, start_time, end_time) select v, d, '06:00', '20:00' from t.ids, generate_series(0, 6) d where k = 'trainer';
+insert into public.coach_clients (trainer_id, first_name, email) select v, 'Ana', 'ana@example.com' from t.ids where k = 'trainer';
+select public.dragonfly_push_register('fcm-token-for-the-trainer-phone-0001', 'android');
+select public.dragonfly_push_register('fcm-token-for-the-trainer-phone-0001', 'android');
+select t.ok((select count(*) from public.dragonfly_push_tokens) = 1, 'registering twice keeps one token');
+select t.ok(t.refused($$insert into public.dragonfly_push_tokens (token, user_id, platform) values ('fcm-token-someone-else-000000001', (select v from t.ids where k = 'other'), 'android')$$), 'can''t register a token for someone else');
+select t.as_user('other');
+select t.ok((select count(*) from public.dragonfly_push_tokens) = 0, 'others don''t see it');
+select public.dragonfly_push_register('fcm-token-for-the-trainer-phone-0001', 'android');
+select t.as_user('trainer');
+select t.ok((select count(*) from public.dragonfly_push_tokens) = 0, 'a phone that signs in to another account moves to it');
+select public.dragonfly_push_register('fcm-token-for-the-trainer-phone-0001', 'ios');
+select t.as_admin();
+insert into t.ids select 'c_ana', id from public.coach_clients where first_name = 'Ana';
+select t.as_user('ana'); select public.coach_link_me();
+select t.as_user('trainer');
+insert into public.coach_bookings (trainer_id, client_id, title, starts_at, duration_min) select (select v from t.ids where k = 'trainer'), v, 'S', ((current_date + 3) + time '08:00') at time zone 'America/New_York', 60 from t.ids where k = 'c_ana';
+select t.as_user('ana');
+select t.ok(public.coach_reschedule_session((select id from public.coach_bookings where title = 'S'), current_date + 3, ((current_date + 3) + time '10:00') at time zone 'America/New_York') is not null, 'a request with the trainer''s phone registered goes through (push call made)');
+select t.ok(t.refused($$select public.coach_reschedule_push()$$), 'the push trigger function isn''t callable directly');
+-- Follow-ups: only for trainers with a ClubAutomation calendar; stay until marked done
+select t.as_user('trainer');
+select t.ok((select count(*) from public.coach_followups) = 0, 'only the app (no outside calendar): no follow-up');
+select t.as_admin();
+insert into public.coach_calendar_feeds (trainer_id, label, source, url) select v, 'ClubAutomation', 'clubautomation', 'https://example.clubautomation.com/cal.ics' from t.ids where k = 'trainer';
+select t.as_user('trainer');
+select public.coach_reschedule_decide((select id from public.coach_reschedule_requests where status = 'pending'), true);
+select t.ok((select count(*) from public.coach_followups where status = 'open') = 1, 'an approved move makes a follow-up to update the outside calendar');
+select t.ok((select title from public.coach_followups) ~ '^Reschedule Ana.* in ClubAutomation from .* to ', 'it says who, from and to');
+select t.as_user('other');
+select t.ok((select count(*) from public.coach_followups) = 0, 'nobody else sees it');
+select t.ok(t.refused($$select public.coach_followup_done((select id from public.coach_followups limit 1))$$), 'or can close it');
+select t.as_user('trainer');
+select t.ok(t.refused($$update public.coach_followups set status = 'done'$$) or (select status from public.coach_followups) = 'open', 'it can''t be closed by editing the row');
+select public.coach_followup_done((select id from public.coach_followups limit 1));
+select t.ok((select status from public.coach_followups) = 'done', 'the trainer marks it done');
+-- Cancelling a client's upcoming session also needs removing from the outside calendar
+insert into public.coach_bookings (trainer_id, client_id, title, starts_at, duration_min, repeat) select (select v from t.ids where k = 'trainer'), v, 'Weekly', ((current_date + 2) + time '07:00') at time zone 'America/New_York', 60, 'weekly' from t.ids where k = 'c_ana';
+update public.coach_bookings set skipped = array[current_date + 9] where title = 'Weekly';
+select t.ok((select count(*) from public.coach_followups where kind = 'calendar_cancel' and status = 'open') = 1, 'a cancelled date becomes a follow-up');
+-- Moving one date of a weekly session: one move follow-up, no extra cancel
+select public.coach_reschedule_session((select id from public.coach_bookings where title = 'Weekly' and repeat = 'weekly'), current_date + 2, ((current_date + 2) + time '11:00') at time zone 'America/New_York');
+select t.ok((select count(*) from public.coach_followups where kind = 'calendar_move' and status = 'open') = 1 and (select count(*) from public.coach_followups where kind = 'calendar_cancel') = 1, 'moving a weekly date: one move to-do, no extra cancel');
+-- The trainer dragging a one-off in their calendar
+update public.coach_bookings set starts_at = starts_at + interval '1 hour' where title = 'S';
+select t.ok((select count(*) from public.coach_followups where kind = 'calendar_move' and status = 'open') = 2, 'moving a session in the calendar makes one too');
+select 'ALL PUSH TESTS PASSED';

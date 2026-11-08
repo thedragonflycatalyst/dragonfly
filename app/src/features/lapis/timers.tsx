@@ -212,7 +212,7 @@ export function RestBar({ t, blocked = false }: { t: ReturnType<typeof useRest>;
         <Pressable accessibilityRole="button" accessibilityLabel="15 seconds less" disabled={blocked} onPress={() => t.add(-15)} style={[btn, blocked && { opacity: 0.45 }]}><Txt v="smallBold" color={p.ink}>−15</Txt></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="15 seconds more" disabled={blocked} onPress={() => t.add(15)} style={[btn, blocked && { opacity: 0.45 }]}><Txt v="smallBold" color={p.ink}>+15</Txt></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={resumeBlocked ? 'Pause Lapis to resume rest' : paused ? 'Resume rest' : 'Pause rest'} disabled={resumeBlocked} onPress={paused ? t.resume : t.pause} style={[btn, resumeBlocked && { opacity: 0.4 }]}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" disabled={blocked} onPress={t.skip} style={[btn, { backgroundColor: p.focus }, blocked && { opacity: 0.45 }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" disabled={blocked} onPress={t.skip} style={[btn, { backgroundColor: p.fill }, blocked && { opacity: 0.45 }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
       </View>
     </View>
   );

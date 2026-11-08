@@ -45,6 +45,14 @@ export default function Me() {
       .catch((e) => toast(fnText(e), false));
   }, [paid, toast]);
 
+  // Reviews are always open (owner rule 2026-11-07), not only when asked
+  const review = async () => {
+    if (!c) return;
+    const { data, error } = await sb.rpc('coach_my_testimonial', { p_trainer: c.trainer_id });
+    if (error || !data) return toast(errText(error), false);
+    router.push({ pathname: '/t/[token]', params: { token: data as string } });
+  };
+
   if (!app.user) return <Redirect href="/sign-in" />;
   if (!c) return <Redirect href="/" />;
   const coach = app.myTrainer?.display_name;
@@ -87,13 +95,19 @@ export default function Me() {
             <Row icon="monitor_weight" title="Scale" sub="Weigh-ins, body fat, muscle and your trend" onPress={() => router.push('/me/scale')} />
             <Row icon="directions_walk" title="Activity & sleep" sub="Steps, sleep, heart rate and workouts" onPress={() => router.push('/me/activity')} />
             <Row icon="link" title="Connected apps" sub="Health Connect, your watch or ring, your food tracker" onPress={() => router.push('/connections')} />
+            <Row icon="notifications" title="Messages from your trainer" sub="Reminders, open spots and more, by text or in the app" onPress={() => router.push('/me/messages')} />
+            <Row icon="event" title="When I’m free" sub="Get offered open spots when someone cancels" onPress={() => router.push('/me/availability')} />
+            <Row icon="group_add" title="Refer a friend" sub="Share your link with someone who’d enjoy training" onPress={() => router.push('/me/refer')} />
             <Row icon="timer" title="Rest timer · Lapis" sub="Voice, bell, countdown and music during workouts" onPress={() => router.push('/settings/rest-timer')} />
+            <Row icon="photo_camera" title="Photos and AI" sub="Machine scans and meal estimates" onPress={() => router.push('/settings/privacy')} />
             <Row icon="school" title="Credentials and challenges" sub="Certificates you hold, and milestones to work toward" last onPress={() => router.push('/credentials')} />
           </Card>
           <Card style={{ padding: 0 }}>
             <Row icon="chat_bubble" title="Messages" sub={`Chat with ${coach ?? 'your trainer'}`} onPress={() => router.push('/chat')} />
             <Row icon="event" title="Sessions" sub="Your bookings, and booking a session" onPress={() => router.push('/calendar')} />
             <Row icon="redeem" title="Packages and credits" sub="Session packs, memberships and payments" onPress={() => router.push('/me/packages')} />
+            <Row icon="credit_card" title="Session payments" sub="Card on file, what you owe, what pays for each session" onPress={() => router.push('/me/billing')} />
+            <Row icon="star" title="Leave a review" sub={`Say how training with ${coach ?? 'your trainer'} is going`} onPress={review} />
             <Row icon="groups" title="Social" sub="Workout groups, posts and challenges" last onPress={() => router.push('/communities')} />
           </Card>
           <SectionLabel>My progress</SectionLabel>

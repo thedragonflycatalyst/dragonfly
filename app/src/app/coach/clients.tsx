@@ -5,15 +5,20 @@ import { Initials, Row, Segmented, statusColor } from '@/components/bits';
 import { Badge, Screen } from '@/components/shell';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
+import { awayLine, dayKey, lastSessionLine, SECTIONS, sectionOf, type ClientSection } from '@/lib/client-away';
 import { errText, STATUS_LABEL, type Client, type Group } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
 
 type Tab = 'clients' | 'groups' | 'pool';
-type Sort = 'az' | 'za' | 'newest' | 'oldest';
-type Show = 'current' | 'active' | 'invited' | 'frozen' | 'archived';
-const SORTS: [Sort, string][] = [['az', 'A to Z'], ['za', 'Z to A'], ['newest', 'Newest'], ['oldest', 'Oldest']];
-const SHOWS: [Show, string][] = [['current', 'All current'], ['active', 'Active'], ['invited', 'Invited'], ['frozen', 'Frozen'], ['archived', 'Archived']];
+type Sort = 'az' | 'za' | 'quiet' | 'newest' | 'oldest';
+type Show = Exclude<ClientSection, 'pool'>;
+const SORTS: [Sort, string][] = [['az', 'A to Z'], ['za', 'Z to A'], ['quiet', 'Longest since a session'], ['newest', 'Newest'], ['oldest', 'Oldest']];
+
+const EMPTY: Record<Show, string> = {
+  active: 'No active clients.', away: 'Nobody is away. Set an away note on a client when they’re traveling, injured or taking a break.',
+  inactive: 'No inactive clients. Frozen clients show here.', archived: 'No archived clients.',
+};
 
 /** Trainer's Clients tab: client list, groups and the client pool (leads not invited yet). */
 export default function Clients() {
@@ -26,7 +31,7 @@ export default function Clients() {
   const [members, setMembers] = useState<{ group_id: string; client_id: string }[]>([]);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('az');
-  const [show, setShow] = useState<Show>('current');
+  const [show, setShow] = useState<Show>('active');
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [newGroup, setNewGroup] = useState('');
@@ -46,23 +51,30 @@ export default function Clients() {
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const inGroup = groupFilter ? new Set(members.filter((m) => m.group_id === groupFilter).map((m) => m.client_id)) : null;
+    const today = dayKey(new Date());
     const rows = (clients ?? []).filter((c) => {
-      if (tab === 'pool' ? c.status !== 'lead' : c.status === 'lead') return false;
+      const sec = sectionOf(c, today);
+      if (tab === 'pool' ? sec !== 'pool' : sec === 'pool') return false;
       if (tab === 'clients') {
-        if (show === 'current' ? c.status === 'archived' : c.status !== show) return false;
+        if (sec !== show) return false;
         if (inGroup && !inGroup.has(c.id)) return false;
       }
       return !needle || c.name.toLowerCase().includes(needle) || c.email.toLowerCase().includes(needle) || (c.phone ?? '').includes(needle);
     });
     const byName = (a: Client, b: Client) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name);
+    const quiet = (c: Client) => c.last_session_at ?? '';
     rows.sort((a, b) => sort === 'az' ? byName(a, b) : sort === 'za' ? byName(b, a)
+      : sort === 'quiet' ? quiet(a).localeCompare(quiet(b)) || byName(a, b)
       : sort === 'newest' ? b.created_at.localeCompare(a.created_at) : a.created_at.localeCompare(b.created_at));
     return rows;
   }, [clients, members, tab, q, sort, show, groupFilter]);
 
   const counts = useMemo(() => {
     const all = clients ?? [];
-    return { current: all.filter((c) => c.status !== 'lead' && c.status !== 'archived').length, pool: all.filter((c) => c.status === 'lead').length };
+    const today = dayKey(new Date());
+    const n: Record<ClientSection, number> = { active: 0, away: 0, inactive: 0, archived: 0, pool: 0 };
+    for (const c of all) n[sectionOf(c, today)]++;
+    return { ...n, current: n.active + n.away + n.inactive };
   }, [clients]);
 
   const addGroup = async () => {
@@ -71,17 +83,24 @@ export default function Clients() {
     if (error) return toast(errText(error), false);
     setNewGroup(''); toast('Group created'); load();
   };
-  const activeFilters = (show !== 'current' ? 1 : 0) + (groupFilter ? 1 : 0);
+  const now = new Date();
+  const activeFilters = (sort !== 'az' ? 1 : 0) + (groupFilter ? 1 : 0);
 
   return (
     <Screen kicker={app.trainer?.business_name ?? 'Coaching'} title="Clients"
       onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} refreshing={refreshing}
       right={tab !== 'groups' && <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        {tab === 'clients' && <Button kind="ghost" title="Roster" icon="event" onPress={() => router.push('/roster')} />}
         {tab !== 'pool' && <Button kind="ghost" title="QR sign-up" icon="qr_code_2" onPress={() => router.push('/join-qr')} />}
         <Button title={tab === 'pool' ? 'Add to pool' : 'Add client'} icon="person_add"
           onPress={() => router.push({ pathname: '/clients/new', params: tab === 'pool' ? { pool: '1' } : {} })} />
       </View>}>
       <Segmented value={tab} onChange={setTab} options={[['clients', `Clients (${counts.current})`], ['groups', 'Groups'], ['pool', `Client pool (${counts.pool})`]]} />
+      {tab === 'clients' && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+          {SECTIONS.map(([k, l]) => <Chip key={k} label={`${l} (${counts[k]})`} selected={show === k} onPress={() => setShow(k)} />)}
+        </View>
+      )}
 
       {tab !== 'groups' && (
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 16, alignItems: 'center' }}>
@@ -104,8 +123,6 @@ export default function Clients() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{SORTS.map(([k, l]) => <Chip key={k} label={l} selected={sort === k} onPress={() => setSort(k)} />)}</View>
           {tab === 'clients' && (
             <>
-              <Txt v="smallBold" style={{ marginTop: 4 }}>Show</Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{SHOWS.map(([k, l]) => <Chip key={k} label={l} selected={show === k} onPress={() => setShow(k)} />)}</View>
               {groups.length > 0 && (
                 <>
                   <Txt v="smallBold" style={{ marginTop: 4 }}>Group</Txt>
@@ -142,7 +159,7 @@ export default function Clients() {
                 action={<Button title="Add client" icon="person_add" onPress={() => router.push('/clients/new')} />} />
             : tab === 'pool' && !q
               ? <Empty emoji="🌱" title="Your client pool is empty" body="Keep prospective clients here, like people who asked about training. When they’re ready, send them an invite in one tap." />
-              : <Txt v="small" center style={{ marginTop: 24 }}>No clients match.</Txt>
+              : <Txt v="small" center style={{ marginTop: 24 }}>{q || groupFilter ? 'No clients match.' : EMPTY[show]}</Txt>
         ) : (
           <Card style={{ padding: 0 }}>
             {list.map((c, i) => (
@@ -152,7 +169,12 @@ export default function Clients() {
                 <Initials name={c.name} size={42} />
                 <View style={{ flex: 1, gap: 2 }}>
                   <Txt v="bold" numberOfLines={1}>{c.name}</Txt>
-                  <Txt v="small" numberOfLines={1}>{tab === 'pool' ? [c.source, c.email].filter(Boolean).join(' · ') : c.email}</Txt>
+                  {(() => {
+                    const away = tab === 'clients' ? awayLine(c, dayKey(now)) : null;
+                    return away
+                      ? <Txt v="small" numberOfLines={1} color={p.gold}>{away}</Txt>
+                      : <Txt v="small" numberOfLines={1}>{tab === 'pool' ? [c.source, c.email].filter(Boolean).join(' · ') : [show === 'active' ? lastSessionLine(c.last_session_at, now) : null, c.email].filter(Boolean).join(' · ')}</Txt>;
+                  })()}
                 </View>
                 {c.status !== 'active' && tab !== 'pool' && <Badge text={STATUS_LABEL[c.status]} color={statusColor(c.status, p)} />}
                 <Icon name="chevron_right" size={20} color={p.muted} />
