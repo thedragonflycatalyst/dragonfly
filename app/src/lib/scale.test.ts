@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, getSmoothing, goalEta, goalSchedule, kcalPerDay, monthlyChange, parseCsv, planCsvImport, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
+import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, getSmoothing, goalEta, goalSchedule, kcalPerDay, monthlyChange, mergeHealth, parseCsv, planCsvImport, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
 import { occurrences, openSlots, priceLabel, toCents, voucherPrice, voucherState, weekOf, spotsText, eventCost, byMonth as moneyByMonth, type Booking } from './business';
 import { bigEmoji, layout, linkify, seenBy, tally, chatName, type Message, type ChatMember } from './chat';
 import { unitPrefs, notifyPrefs } from './prefs';
@@ -257,4 +257,31 @@ test('Health Connect: readings pair with their weigh-in, duplicates are skipped'
   assert.equal(rows.length, 2);
   assert.deepEqual(rows[0].metrics, { body_fat_pct: 30.2, bone_mass_kg: 4.1, body_water_pct: 50.2, bmr_kcal: 2010 });
   assert.equal(rows[1].metrics.body_fat_pct, 29.8);  // worked out from lean mass
+});
+
+test('Health Connect import ignores repeat weight events and recent existing entries', () => {
+  const t1 = '2026-10-30T09:00:00.000Z', t2 = '2026-11-01T09:00:00.000Z';
+  const health = {
+    weight: [
+      { time: t1, kg: 90, origin: 'com.renpho' },
+      { time: '2026-10-30T09:01:00.000Z', kg: 90, origin: 'com.renpho' },
+      { time: t2, kg: 89, origin: 'com.libra' },
+    ],
+    bodyFat: [{ time: t1, pct: 27 }],
+    leanMass: [], boneMass: [], bodyWater: [], bmr: [],
+  };
+  const inserted = mergeHealth(health);
+  assert.equal(inserted.length, 2);
+  assert.equal(inserted[0].metrics.body_fat_pct, 27);
+  assert.deepEqual(mergeHealth(health, [{ measured_at: '2026-10-30T09:03:00.000Z' }]).map((x) => x.measured_at), [t2]);
+  assert.equal(health.weight.length, 3, 'the source data remains unchanged');
+});
+
+test('Health Connect drops invalid scale weights and allows distinct later readings', () => {
+  const base = '2026-11-02T12:00:00.000Z';
+  const readings = { weight: [
+    { time: 'not a date', kg: 90 }, { time: base, kg: 0 },
+    { time: base, kg: 92 }, { time: '2026-11-02T12:06:00.000Z', kg: 91 },
+  ], bodyFat: [], leanMass: [], boneMass: [], bodyWater: [], bmr: [] };
+  assert.equal(mergeHealth(readings).length, 2);
 });
