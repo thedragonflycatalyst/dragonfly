@@ -341,8 +341,11 @@ function ClientCalendar() {
   const [mins, setMins] = useState(60);
   const [picked, setPicked] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
+  const [moving, setMoving] = useState<Occurrence | null>(null);
+  const [owed, setOwed] = useState(0);
   const load = useCallback(async () => {
     if (!c) return;
+    void sb.from('coach_session_charges').select('id', { count: 'exact', head: true }).eq('client_id', c.id).eq('status', 'due').then(({ count }) => setOwed(count ?? 0));
     const [b, a, busy] = await Promise.all([
       sb.from('coach_bookings').select('*').order('starts_at'),
       sb.from('coach_availability').select('*').eq('trainer_id', c.trainer_id),
@@ -355,15 +358,23 @@ function ClientCalendar() {
   if (!c) return null;
   const today = dayKey(new Date());
   const upcoming = occurrences(mine ?? [], today, dayKey(addDays(new Date(), 60))).filter((o) => o.end.getTime() > Date.now());
-  const days = Array.from({ length: 14 }, (_, i) => dayKey(addDays(new Date(), i + (new Date().getHours() >= 20 ? 1 : 0))));
-  const slots = openSlots(day, mins, avail, busyTimes);
+  // Moving a session within 24 hours of it: same day only (owner rule 2026-11-07)
+  const sameDayOnly = !!moving && moving.start.getTime() - Date.now() < 24 * 3600_000;
+  const days = sameDayOnly ? [moving.day] : Array.from({ length: 14 }, (_, i) => dayKey(addDays(new Date(), i + (new Date().getHours() >= 20 ? 1 : 0))));
+  const slotMins = moving ? moving.booking.duration_min : mins;
+  const slots = openSlots(day, slotMins, avail, moving ? busyTimes.filter((b) => b.start.getTime() !== moving.start.getTime()) : busyTimes)
+    .filter((t) => t.getTime() > Date.now() + 3600_000);
+  const startMove = (o: Occurrence) => { setMoving(o); setDay(o.day); setPicked(null); };
   const bookIt = async () => {
     if (!picked) return;
     setSaving(true);
-    const { error } = await sb.rpc('coach_book_session', { p_trainer: c.trainer_id, p_starts: picked.toISOString(), p_minutes: mins });
+    const { error } = moving
+      ? await sb.rpc('coach_reschedule_session', { p_booking: moving.booking.id, p_on: moving.day, p_new: picked.toISOString() })
+      : await sb.rpc('coach_book_session', { p_trainer: c.trainer_id, p_starts: picked.toISOString(), p_minutes: mins });
     setSaving(false);
-    if (error) return toast(/slot_taken/.test(error.message) ? 'That time was just taken. Pick another.' : /booking_closed/.test(error.message) ? 'Your trainer books sessions for you. Send them a message.' : errText(error), false);
-    toast(`Booked for ${picked.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })}`); setPicked(null); load();
+    if (error) return toast(/slot_taken/.test(error.message) ? 'That time was just taken. Pick another.' : /booking_closed/.test(error.message) ? 'Your trainer books sessions for you. Send them a message.'
+      : /payment_due/.test(error.message) ? 'Pay for your last session first (Me → Payments).' : /same_day_only/.test(error.message) ? 'Within 24 hours of a session it can only move to another time that day.' : errText(error), false);
+    toast(`${moving ? 'Moved to' : 'Booked for'} ${picked.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })}`); setPicked(null); setMoving(null); load();
   };
   const cancel = async (o: Occurrence) => {
     if (!(await confirm('Cancel this session?', `${o.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`, 'Cancel session', true))) return;
@@ -385,14 +396,29 @@ function ClientCalendar() {
                     <Txt v="bold">{o.start.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</Txt>
                     <Txt v="small">{t12(o.start)} · {fmtDuration(o.booking.duration_min)}{o.booking.location ? ` · ${o.booking.location}` : ''}</Txt>
                   </View>
+                  {app.perms.book_sessions && o.booking.client_id && avail.length > 0 && <Button small kind="ghost" title="Change time" onPress={() => startMove(o)} />}
                   {app.perms.cancel_sessions && o.booking.client_id && <Button small kind="ghost" title="Cancel" onPress={() => cancel(o)} />}
                 </View>
               ))}
             </Card>
           )}
           <Button small kind="ghost" icon="schedule" title="Want a time that’s taken? Join the waitlist" onPress={() => router.push('/me/availability')} style={{ alignSelf: 'flex-start' }} />
+          {owed > 0 && (
+            <Card style={{ gap: 6 }}>
+              <Txt v="bold">{owed === 1 ? 'One session isn’t paid yet' : `${owed} sessions aren’t paid yet`}</Txt>
+              <Txt v="small">Pay for it to book more sessions.</Txt>
+              <Button small title="Pay now" onPress={() => router.push('/me/billing')} style={{ alignSelf: 'flex-start' }} />
+            </Card>
+          )}
           {app.perms.book_sessions && avail.length > 0 && <>
-            <SectionLabel>Book a session</SectionLabel>
+            <SectionLabel>{moving ? 'Move your session' : 'Book a session'}</SectionLabel>
+            {moving && (
+              <View style={{ gap: 6 }}>
+                <Txt v="small">{`Moving ${moving.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. `}
+                  {sameDayOnly ? 'It’s less than 24 hours away, so it can only move to another time the same day.' : 'Pick any open time.'}</Txt>
+                <Button small kind="ghost" title="Keep the current time" onPress={() => { setMoving(null); setPicked(null); }} style={{ alignSelf: 'flex-start' }} />
+              </View>
+            )}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
               {days.map((d) => (
                 <Pressable key={d} onPress={() => { setDay(d); setPicked(null); }} accessibilityRole="button" accessibilityState={{ selected: d === day }}
@@ -402,13 +428,13 @@ function ClientCalendar() {
                 </Pressable>
               ))}
             </ScrollView>
-            <View style={{ flexDirection: 'row', gap: 8 }}>{[30, 45, 60, 90].map((m) => <Chip key={m} label={fmtDuration(m)} selected={mins === m} onPress={() => { setMins(m); setPicked(null); }} />)}</View>
+            {!moving && <View style={{ flexDirection: 'row', gap: 8 }}>{[30, 45, 60, 90].map((m) => <Chip key={m} label={fmtDuration(m)} selected={mins === m} onPress={() => { setMins(m); setPicked(null); }} />)}</View>}
             {slots.length === 0 ? <Txt v="small">No open times that day. Try another.</Txt> : (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {slots.map((s) => <Chip key={s.toISOString()} label={t12(s)} selected={picked?.getTime() === s.getTime()} onPress={() => setPicked(s)} />)}
               </View>
             )}
-            {picked && <Button title={`Book ${t12(picked)}`} icon="check" busy={saving} onPress={bookIt} />}
+            {picked && <Button title={`${moving ? 'Move to' : 'Book'} ${t12(picked)}`} icon="check" busy={saving} onPress={bookIt} />}
           </>}
           {app.perms.book_sessions && avail.length === 0 && mine !== null && <Txt v="small">Your trainer hasn’t opened booking times yet. Message them to set up a session.</Txt>}
         </View>

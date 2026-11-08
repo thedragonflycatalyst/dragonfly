@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { findPrs, milestoneText, prText, sessionVolumeKg, streakWeeks, summarize, volumeIn } from './achievements';
+import { changes, findPrs, milestoneText, prText, sessionVolumeKg, streakWeeks, summarize, volumeIn } from './achievements';
 import type { PastLog } from './history';
 import type { LogEntry } from './model';
 
@@ -76,4 +76,20 @@ test('first ever session', () => {
   assert.equal(s.prevVolumeKg, null);
   assert.equal(s.prs.length, 0);
   assert.equal(volumeIn(s.volumeKg, 'lb'), 760);
+});
+
+test('changes: heavier with fewer reps is progress, never framed as a drop', () => {
+  const ex = { src: 'lib', id: 'bench', name: 'Bench press' } as never;
+  const prev = { performed_at: '2026-11-01T10:00:00Z', entries: [{ block_id: 'a', ex, unit: 'lb' as const, sets: [{ weight: 125, reps: 10, done: true }] }] };
+  const cur = { performed_at: '2026-11-08T10:00:00Z', entries: [{ block_id: 'a', ex, unit: 'lb' as const, sets: [{ weight: 135, reps: 8, done: true }, { weight: 125, reps: 10, done: true }] }] };
+  const [c] = changes(cur, [prev]);
+  assert.equal(c.tone, 'up');
+  assert.equal(c.text, 'Up 10 lb: 135 lb × 8 (last time 125 lb × 10)');
+  const same = { performed_at: '2026-11-09T10:00:00Z', entries: [{ block_id: 'a', ex, unit: 'lb' as const, sets: [{ weight: 135, reps: 10, done: true }] }] };
+  assert.equal(changes(same, [prev, cur])[0].text, '2 more reps: 135 lb × 10 (last time 135 lb × 8)');
+  const lighter = { performed_at: '2026-11-10T10:00:00Z', entries: [{ block_id: 'a', ex, unit: 'lb' as const, sets: [{ weight: 115, reps: 12, done: true }] }] };
+  const l = changes(lighter, [prev, cur, same])[0];
+  assert.equal(l.tone, 'plain');
+  assert.ok(!/down|less|fewer|-/i.test(l.text));
+  assert.equal(changes(prev, [])[0].tone, 'plain');
 });

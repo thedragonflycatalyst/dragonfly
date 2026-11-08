@@ -1,7 +1,7 @@
 // coach-sms-inbound: replies to Dragonfly texts (Twilio webhook, form-encoded). Verifies Twilio's signature, finds the
 // client by phone number and the message they're answering, then acts:
 //   STOP / START / HELP   consent changes (carrier keywords always win)
-//   C / R                 confirm or ask to reschedule the session in the latest reminder (goes to the trainer)
+//   C / R                 confirm, or get the link to move the session in the latest reminder (the trainer is told)
 //   YES / NO              take or pass on the latest slot offer
 //   1–5                   answer the latest survey
 //   IN                    join the group session in the latest invite
@@ -10,6 +10,8 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
 import { e164, parseReply } from '../_shared/messaging.ts';
 import { safeEqual, twilioSignature } from '../_shared/twilio.ts';
+
+const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.github.io/dragonfly/').replace(/\/?$/, '/');
 
 const twiml = (msg?: string) => new Response(
   `<?xml version="1.0" encoding="UTF-8"?><Response>${msg ? `<Message>${msg.replace(/[<&>]/g, (c) => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;' }[c]!))}</Message>` : ''}</Response>`,
@@ -65,7 +67,9 @@ Deno.serve(async (req) => {
     const m = await latest(admin, ids, ['reminder']);
     const c = clients.find((x) => x.id === m?.client_id) ?? clients[0];
     await log({ kind: reply.kind, booking_id: m?.related?.booking_id ?? null, day: m?.related?.day ?? null, handled: reply.kind === 'confirm' }, c, m?.id);
-    return twiml(reply.kind === 'confirm' ? 'Thanks, you’re confirmed. See you then!' : 'Thanks, your trainer will be in touch to find a new time.');
+    // Rescheduling is done in the app: another free time, and within 24 hours of the session only the same day
+    return twiml(reply.kind === 'confirm' ? 'Thanks, you’re confirmed. See you then!'
+      : `To move it, pick a new free time in the app: ${WEB}calendar (within 24 hours of the session, same day only). Your trainer has been told.`);
   }
   if (reply.kind === 'yes' || reply.kind === 'no') {
     const m = await latest(admin, ids, ['slot_offer']);

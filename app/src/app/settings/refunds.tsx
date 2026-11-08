@@ -10,9 +10,9 @@ import { DEFAULT_TERMS, policyText, toCentsInput, type RefundMode, type RefundTe
 import { sb } from '@/lib/supabase';
 
 const MODES: [RefundMode, string, string][] = [
+  ['none', 'No refunds (recommended)', 'All sales final; you can still override for an exceptional case, with a reason'],
   ['prorated', 'Unused sessions', 'Refund what wasn’t used, at the price per session paid'],
   ['unused_only', 'Only if unused', 'Full refund only before the first session'],
-  ['none', 'No refunds', 'All sales final'],
 ];
 
 export default function RefundSettings() {

@@ -7,11 +7,13 @@
 // hours (in the trainer's time zone), a weekly cap on non-essential messages, and no health details in the text.
 // Channels (the client picks; default text): 'sms' (texting service, only when the owner has switched it on and it's
 // configured), 'manual' (a text that waits in the trainer's "To send" list), 'email' (when configured), 'app' (chat).
+// Also each run: session billing (attach packages / single-session charges, charge cards on file; see billing.ts).
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
 import { healthWord, nextSendable, occurrences, reminderText, type BookingRow } from '../_shared/messaging.ts';
 import { allowed, ESSENTIAL, pickChannel, skipCa, type ClientRow, type Settings } from './common.ts';
 import { planEngagement } from './engagement.ts';
 import { processOpenSlots } from './waitlist.ts';
+import { processCharges } from './billing.ts';
 import { deliverEmail } from './email.ts';
 import { deliverSms, smsConfigured } from './sms.ts';
 
@@ -135,6 +137,8 @@ Deno.serve(async (req) => {
     } catch (e) { console.error('plan', s.trainer_id, e instanceof Error ? e.message : e); }
   }
   try { planned.waitlist = await processOpenSlots(admin, (all ?? []) as Settings[], now); } catch (e) { console.error('waitlist', e instanceof Error ? e.message : e); }
+  let billing: Record<string, number> = {};
+  try { billing = await processCharges(admin, now); } catch (e) { console.error('billing', e instanceof Error ? e.message : e); }
   const delivered = await deliver(admin, now);
-  return json(200, { planned, delivered });
+  return json(200, { planned, delivered, billing });
 });
