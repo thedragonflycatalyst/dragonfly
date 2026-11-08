@@ -3,16 +3,16 @@ import { test } from 'node:test';
 import { builtIn } from './library.ts';
 import type { ExerciseBlock, WorkoutBlock } from './model.ts';
 import { TEMPLATES } from '../data/templates.ts';
-import { addSet, cloneBlocks, estimateMinutes, fmtSeconds, linkNext, move, newBlock, normalizeGroups, parseSeconds, removeSet, setsDone, setsTotal, startLog, supersetLabels, unlink, volume } from './workouts.ts';
+import { addSet, cloneBlocks, estimateMinutes, fmtSeconds, linkNext, move, newBlock, normalizeGroups, parseSeconds, removeSet, setsDone, setsTotal, startLog, supersetLabels, swapBlock, unlink, volume } from './workouts.ts';
 
 const lib = (name: string) => builtIn().find((e) => e.name === name)!;
 
 test('new blocks get sensible starting sets', () => {
-  const squat = newBlock(lib('Barbell Squat'));
+  const squat = newBlock(lib('Barbell High-Bar Back Squat'));
   assert.equal(squat.metric, 'reps');
   assert.equal(squat.sets.length, 3);
-  assert.equal(squat.ex.id, 'Barbell_Squat');
-  assert.equal(newBlock(lib('Plank')).metric, 'time');
+  assert.equal(squat.ex.id, 'c-barbell-high-bar-back-squat');
+  assert.equal(newBlock(lib('Forearm Plank')).metric, 'time');
   const more = addSet(squat);
   assert.equal(more.sets.length, 4);
   assert.notEqual(more.sets[3], more.sets[2], 'added set is a copy, not the same object');
@@ -20,7 +20,7 @@ test('new blocks get sensible starting sets', () => {
 });
 
 test('supersets link neighbors, stay unbroken and label A, B…', () => {
-  let blocks: WorkoutBlock[] = ['Barbell Squat', 'Pushups', 'Plank', 'Crunches', 'Dead Bug'].map((n) => newBlock(lib(n)));
+  let blocks: WorkoutBlock[] = ['Barbell High-Bar Back Squat', 'Push-Up', 'Forearm Plank', 'Crunch', 'Dead Bug'].map((n) => newBlock(lib(n)));
   blocks = linkNext(blocks, 0);
   assert.deepEqual(supersetLabels(blocks), ['A', 'A', null, null, null]);
   blocks = linkNext(blocks, 1); // plank joins: the superset grows
@@ -41,7 +41,7 @@ test('supersets link neighbors, stay unbroken and label A, B…', () => {
 test('moving, cloning and timing', () => {
   assert.deepEqual(move([1, 2, 3], 0, 2), [2, 3, 1]);
   assert.deepEqual(move([1, 2, 3], 0, -1), [1, 2, 3]);
-  const blocks = [newBlock(lib('Pushups'))];
+  const blocks = [newBlock(lib('Push-Up'))];
   const copy = cloneBlocks(blocks);
   assert.notEqual(copy[0].id, blocks[0].id);
   (copy[0] as ExerciseBlock).sets[0].reps = '99';
@@ -82,4 +82,18 @@ test('every starter template uses real library exercises', () => {
     if (b.kind === 'exercise') assert.ok(refs.has(`lib:${b.ex.id}`), `${t.name}: ${b.ex.id} not in library`);
   }
   assert.ok(TEMPLATES.length >= 6);
+});
+
+test('swapping an exercise for good changes only that block', () => {
+  const sq = { src: 'lib' as const, id: 'c-back-squat', name: 'Back Squat' }, lp = { src: 'lib' as const, id: 'c-leg-press', name: 'Leg Press' };
+  const blocks = [
+    { id: 'a', kind: 'exercise' as const, ex: sq, metric: 'reps' as const, sets: [{ reps: '5' }], note: 'heavy' },
+    { id: 'b', kind: 'note' as const, text: 'rest' },
+    { id: 'c', kind: 'exercise' as const, ex: sq, metric: 'reps' as const, sets: [{ reps: '10' }] },
+  ];
+  const out = swapBlock(blocks, 'c', sq, lp)!;
+  assert.deepEqual(out.map((b) => (b.kind === 'exercise' ? b.ex.id : b.kind)), ['c-back-squat', 'note', 'c-leg-press']);
+  assert.equal((out[2] as { sets: unknown[] }).sets.length, 1, 'sets stay');
+  assert.equal((swapBlock(blocks, 'gone', sq, lp)![0] as { ex: { id: string } }).ex.id, 'c-leg-press', 'falls back to the first block with that exercise');
+  assert.equal(swapBlock(blocks, 'a', lp, sq), null, 'nothing matched');
 });
