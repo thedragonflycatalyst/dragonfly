@@ -1,6 +1,6 @@
 // coach-sms-inbound: replies to Dragonfly texts (Twilio webhook, form-encoded). Verifies Twilio's signature, finds the
 // client by phone number and the message they're answering, then acts:
-//   STOP / START / HELP   consent changes (carrier keywords always win)
+//   STOP / START / HELP   consent changes; Twilio Advanced Opt-Out sends the confirmation and HELP texts
 //   CONFIRM / RESCHEDULE  confirm, or get the link to move the session in the latest reminder (the trainer is told)
 //   CANCEL APPOINTMENT    cancel that session (inside the notice period it still counts as a session) and reply with the policy
 //   YES / NO              take or pass on the latest slot offer
@@ -61,8 +61,9 @@ Deno.serve(async (req) => {
     return twiml();
   }
   if (reply.kind === 'help') {
-    // Word for word what's registered with the carriers (Twilio toll-free verification, 2026-11-08)
-    return twiml('You\'re receiving texts from The Dragonfly Catalyst. For help, email thedragonflycatalyst@outlook.com or visit thedragonflycatalyst.org/sms-terms. Reply STOP to opt out. Msg & data rates may apply.');
+    // Twilio Advanced Opt-Out (Dragonfly messaging service) sends the registered HELP text; don't send a second one
+    for (const c of clients) await log({ kind: 'help', handled: true }, c);
+    return twiml();
   }
   if (reply.kind === 'confirm' || reply.kind === 'reschedule') {
     const m = await latest(admin, ids, ['reminder']);
