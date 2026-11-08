@@ -178,7 +178,7 @@ export type GoalSchedule = {
  *  Does not reinterpret the stored goal or the user's historical weigh-ins.
  */
 export function goalSchedule(trendKg: number, goalKg: number, rateKgPerWeek: number | null, goalDate: string | null, today = new Date()): GoalSchedule | null {
-  if (!goalDate || !/^\\d{4}-\\d{2}-\\d{2}$/.test(goalDate)) return null;
+  if (!goalDate || !/^\d{4}-\d{2}-\d{2}$/.test(goalDate)) return null;
   const deadline = new Date(goalDate + 'T12:00:00Z');
   if (!Number.isFinite(deadline.getTime()) || deadline.toISOString().slice(0, 10) !== goalDate) return null;
   const todayDay = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 12));
