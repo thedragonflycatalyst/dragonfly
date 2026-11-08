@@ -25,7 +25,7 @@ export function LinkedLapisRunner({
   reminderKey: string;
   onComplete?: (actualSeconds: number) => void;
   onReset?: () => void;
-  onStart?: () => void;
+  onStart?: (freshRun: boolean) => void;
   onPause?: () => void;
   blocked?: boolean;
   screenFocused?: boolean;
@@ -137,16 +137,20 @@ export function LinkedLapisRunner({
   }, [elapsed, since, muted, blocked, screenFocused, spokenCues]);
 
   useEffect(() => {
-    if (done && !reported.current) {
-      reported.current = true;
-      if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds)) {
-        onComplete?.(Math.round(elapsed));
-      } else {
-        // A skipped run isn't logged, but must release the audio lease.
-        onPause?.();
-      }
+    if (!done || reported.current) return;
+    reported.current = true;
+    // A completed timeline cannot remain "running" in the persisted draft.
+    // Otherwise a successfully finished interval would block workout saving.
+    if (clock.since !== null) {
+      setClock((previous) => pauseClock(previous, Date.now(), timeline.totalSeconds));
     }
-  }, [done, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
+    if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds)) {
+      onComplete?.(Math.round(elapsed));
+    } else {
+      // A skipped run isn't logged, but must release the audio lease.
+      onPause?.();
+    }
+  }, [done, clock.since, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
 
   const pause = () => {
     hush();
@@ -155,7 +159,7 @@ export function LinkedLapisRunner({
   };
   const start = () => {
     if (blocked || !screenFocused) return;
-    onStart?.(); // Also claim audio ownership when resuming a paused timer.
+    onStart?.(!hasStarted || state.finished); // Resume only claims ownership; a new run invalidates old results.
     if (!hasStarted || state.finished) { lastCuePosition.current = -0.01; explicitlyStarted.current = true; }
     if (state.finished) { lastPhase.current = null; reported.current = false; }
     const tick = Date.now();
