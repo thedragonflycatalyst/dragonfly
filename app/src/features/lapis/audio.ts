@@ -13,8 +13,8 @@ const BELL_FILES: Record<BellStyle, number> = {
 const MODE = { mix: 'mixWithOthers', duck: 'duckOthers', pause: 'doNotMix' } as const;
 
 let mode: MusicMode | null = null;
-async function ready() {
-  const m = getPrefs().music;
+async function ready(over?: MusicMode) {
+  const m = over ?? getPrefs().music;
   if (m === mode) return;
   mode = m;
   await setAudioModeAsync({
@@ -28,7 +28,7 @@ async function ready() {
 const live = new Map<AudioPlayer, () => void>();
 let audioGeneration = 0;
 export function currentAudioGeneration() { return audioGeneration; }
-function play(source: string | number, volume: number, generation: number): Promise<void> {
+function play(source: string | number, volume: number, generation: number, maxMs = 6000): Promise<void> {
   return new Promise((done) => {
     if (!sameAudioGeneration(generation, audioGeneration)) { done(); return; }
     let player: AudioPlayer | null = null;
@@ -56,7 +56,7 @@ function play(source: string | number, volume: number, generation: number): Prom
         if (status.didJustFinish) finish();
       });
       removeListener = () => sub.remove();
-      timeout = setTimeout(finish, 6000);
+      timeout = setTimeout(finish, maxMs); // never wait on a stuck clip
       if (!sameAudioGeneration(generation, audioGeneration)) { finish(); return; }
       pl.play();
     } catch {
@@ -106,7 +106,34 @@ export async function bellThenSay(text: string) {
 
 export function hush() {
   audioGeneration++;
+  reading++;
   for (const finish of [...live.values()]) finish();
+}
+
+let reading = 0;
+/**
+ * Read an exercise's how-to in the Lapis voice (Connor unless they picked another), over the person's music: their music
+ * keeps playing (lowered if they chose that; never paused). Resolves when finished or stopped; false if nothing could play.
+ */
+export async function readAloud(pieces: string[]): Promise<boolean> {
+  hush();
+  const me = reading;
+  const generation = audioGeneration;
+  const p = getPrefs();
+  await ready(p.music === 'pause' ? 'duck' : p.music);
+  const next = (i: number) => (i < pieces.length ? clip(pieces[i], p.voice, p.voiceSpeed) : Promise.resolve(null));
+  let ahead = next(0);
+  let played = false;
+  for (let i = 0; i < pieces.length; i++) {
+    const uri = await ahead;
+    if (me !== reading) return played;
+    ahead = next(i + 1); // fetch the next piece while this one plays
+    if (!uri) return played;
+    await play(uri, p.voiceLevel > 0 ? p.voiceLevel : 1, generation, 45_000);
+    played = true;
+    if (me !== reading) return played;
+  }
+  return played;
 }
 
 /** Lines preloaded when a workout opens. */

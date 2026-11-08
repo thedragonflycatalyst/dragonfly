@@ -84,7 +84,7 @@ export default function CommunityFeed() {
             <Card style={{ gap: 10 }}>
               <TextInput value={text} onChangeText={setText} placeholder={owner ? 'Post an update or a challenge…' : 'Share a win, ask a question…'} placeholderTextColor={p.muted} multiline
                 accessibilityLabel="Write a post" style={{ minHeight: 70, fontFamily: F.body, fontSize: 16, color: p.ink, textAlignVertical: 'top' }} />
-              {photo && <View><Image source={{ uri: photo }} style={{ width: '100%', aspectRatio: 1.4, borderRadius: R.sm }} contentFit="cover" />
+              {photo && <View><Image source={{ uri: photo }} style={{ width: '100%', aspectRatio: 1.4, borderRadius: R.sm }} contentFit="cover" accessibilityLabel="Photo to post" />
                 <Pressable onPress={() => setPhoto(null)} accessibilityLabel="Remove photo" style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#0009', borderRadius: 16, padding: 4 }}><Icon name="close" size={20} color="#fff" /></Pressable></View>}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Button small kind="ghost" icon="photo_library" title="Photo" onPress={async () => { try { const u = await pickPhoto('library'); if (u) setPhoto(u); } catch (e) { toast(errText(e), false); } }} />
@@ -175,7 +175,7 @@ function Comments({ post, onClose, owner, me }: { post: Post | null; onClose: ()
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 10 }}>
         <TextInput value={text} onChangeText={setText} placeholder="Add a comment" placeholderTextColor={p.muted} onSubmitEditing={send} accessibilityLabel="Add a comment"
           style={{ flex: 1, minHeight: 46, borderWidth: 1.5, borderColor: p.line, borderRadius: R.pill, paddingHorizontal: 14, fontFamily: F.body, fontSize: 16, color: p.ink, backgroundColor: p.surface }} />
-        <Button icon="send" onPress={send} />
+        <Button icon="send" label="Send" onPress={send} />
       </View>
     </Sheet>
   );

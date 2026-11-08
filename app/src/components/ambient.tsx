@@ -30,7 +30,7 @@ export function Ambient() {
   return (
     <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]}>
       <Animated.View style={[StyleSheet.absoluteFill, move, { opacity: 0.55 }]}>
-        <Image source={BACKGROUND} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition="top right" accessible={false} />
+        <Image source={BACKGROUND} style={StyleSheet.absoluteFill} contentFit="cover" contentPosition="top right" accessible={false} accessibilityLabel="" />
       </Animated.View>
       <LinearGradient colors={['transparent', p.bg]} locations={[0.35, 0.95]} style={StyleSheet.absoluteFill} />
     </View>
