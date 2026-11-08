@@ -1,6 +1,8 @@
 # Twilio setup checklist (owner-only steps)
 
-Code is ready and off until these are done (PR #47, #48). Agents cannot create accounts, enter keys or pay.
+Code is ready and off until these are done (PR #47, #48, #52). Agents cannot create accounts, enter keys or pay.
+
+**Status 2026-11-07:** Twilio account created and funded Nov 2; a **toll-free verification** was submitted and is still pending (typical review: 3–5 business days, so expect it around Nov 9–11; reviews don't move on weekends). A toll-free number can't text US numbers until it's verified. Check: Twilio console → Trust Hub → Registrations (or Phone Numbers → Active numbers → the number → Regulatory information). If it says Rejected, fix and resubmit within 7 days for priority review. Section 1–2 below applies to a local (10DLC) number instead; the campaign text in section 2 works for the toll-free form too.
 
 ## 1. Twilio account (owner)
 1. When the Twilio application is approved, buy one US local number (about $1.15/month plus about $0.008 per text segment; check current pricing).
