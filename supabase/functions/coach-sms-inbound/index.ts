@@ -1,14 +1,15 @@
 // coach-sms-inbound: replies to Dragonfly texts (Twilio webhook, form-encoded). Verifies Twilio's signature, finds the
 // client by phone number and the message they're answering, then acts:
 //   STOP / START / HELP   consent changes (carrier keywords always win)
-//   C / R                 confirm, or get the link to move the session in the latest reminder (the trainer is told)
+//   CONFIRM / RESCHEDULE  confirm, or get the link to move the session in the latest reminder (the trainer is told)
+//   CANCEL SESSION        cancel that session if it's outside the notice period, and reply with the policy and a rebooking link
 //   YES / NO              take or pass on the latest slot offer
 //   1–5                   answer the latest survey
 //   IN                    join the group session in the latest invite
 //   anything else         lands in the trainer's replies for them to answer
 // Webhook URL (owner sets it in Twilio): https://<project>.supabase.co/functions/v1/coach-sms-inbound
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { e164, parseReply } from '../_shared/messaging.ts';
+import { cancelReplyText, e164, parseReply, timeText } from '../_shared/messaging.ts';
 import { safeEqual, twilioSignature } from '../_shared/twilio.ts';
 
 const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.github.io/dragonfly/').replace(/\/?$/, '/');
@@ -68,8 +69,24 @@ Deno.serve(async (req) => {
     const c = clients.find((x) => x.id === m?.client_id) ?? clients[0];
     await log({ kind: reply.kind, booking_id: m?.related?.booking_id ?? null, day: m?.related?.day ?? null, handled: reply.kind === 'confirm' }, c, m?.id);
     // Rescheduling is done in the app: another free time, and within 24 hours of the session only the same day
-    return twiml(reply.kind === 'confirm' ? 'Thanks, you’re confirmed. See you then!'
-      : `To move it, pick a new free time in the app: ${WEB}calendar (within 24 hours of the session, same day only). Your trainer has been told.`);
+    return twiml(reply.kind === 'confirm' ? 'Thank you, you’re confirmed. See you then!'
+      : `Of course. Pick a new time here: ${WEB}calendar (within 24 hours of the session, another time the same day). Your trainer has been told.`);
+  }
+  if (reply.kind === 'cancel_session') {
+    const m = await latest(admin, ids, ['reminder']);
+    const c = clients.find((x) => x.id === m?.client_id) ?? clients[0];
+    const { data: t } = await admin.from('coach_trainers').select('display_name, timezone, cancel_hours').eq('user_id', c.trainer_id).maybeSingle();
+    const hours = t?.cancel_hours ?? 12, trainer = (t?.display_name || 'your trainer').split(' ')[0];
+    type Cancel = 'cancelled' | 'too_late' | 'not_allowed' | 'no_session';
+    let status = 'no_session' as Cancel, when: string | undefined;
+    if (m?.related?.booking_id && m.related.day) {
+      const { data: r, error } = await admin.rpc('coach_cancel_by_text', { p_booking: m.related.booking_id, p_on: m.related.day, p_client: c.id });
+      const res = (r ?? {}) as { status?: Cancel; starts_at?: string };
+      if (!error && res.status) status = res.status;
+      if (res.starts_at) when = timeText(new Date(res.starts_at), t?.timezone || 'America/New_York', new Date());
+    }
+    await log({ kind: reply.kind, booking_id: m?.related?.booking_id ?? null, day: m?.related?.day ?? null, result: status, handled: status === 'cancelled' }, c, m?.id);
+    return twiml(cancelReplyText({ status, when, hours, link: `${WEB}calendar`, trainer }));
   }
   if (reply.kind === 'yes' || reply.kind === 'no') {
     const m = await latest(admin, ids, ['slot_offer']);

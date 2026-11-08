@@ -8,14 +8,17 @@ import { sb } from '@/lib/supabase';
 
 type Site = { platform: string; label: string; url: string };
 
-export function ReviewSites({ token, text, record }: { token: string; text?: string | null; record?: boolean }) {
+export function ReviewSites({ token, surveyCode, text, record }: { token?: string; surveyCode?: string; text?: string | null; record?: boolean }) {
   const [sites, setSites] = useState<Site[]>([]);
   const [copied, setCopied] = useState(false);
-  useEffect(() => { void sb.rpc('coach_review_links_for', { p_token: token }).then(({ data }) => setSites((data as Site[] | null) ?? [])); }, [token]);
+  useEffect(() => {
+    const q = surveyCode ? sb.rpc('coach_review_links_for_survey', { p_code: surveyCode }) : token ? sb.rpc('coach_review_links_for', { p_token: token }) : null;
+    void q?.then(({ data }) => setSites((data as Site[] | null) ?? []));
+  }, [token, surveyCode]);
   if (!sites.length) return null;
   const go = async (s: Site) => {
     if (text?.trim()) { try { await Clipboard.setStringAsync(text.trim()); setCopied(true); } catch { /* copying is a convenience */ } }
-    if (record) void sb.rpc('coach_testimonial_shared', { p_token: token, p_platform: s.platform });
+    if (record && token) void sb.rpc('coach_testimonial_shared', { p_token: token, p_platform: s.platform });
     await Linking.openURL(s.url);
   };
   return (

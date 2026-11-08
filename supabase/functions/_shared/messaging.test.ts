@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 const assertEquals = (a: unknown, b: unknown) => assert.deepStrictEqual(a, b);
-import { e164, healthWord, isQuiet, nextSendable, occurrences, parseReply, reminderText, wall, zoned, type BookingRow } from './messaging.ts';
+import { cancelReplyText, e164, healthWord, isQuiet, nextSendable, occurrences, parseReply, reminderText, wall, zoned, type BookingRow } from './messaging.ts';
 
 const TZ = 'America/New_York';
 const b = (over: Partial<BookingRow>): BookingRow => ({ id: 'b', starts_at: '2026-10-26T11:00:00Z', duration_min: 60, repeat: 'weekly', repeat_until: null, skipped: [], client_id: 'c', title: 'Session', kind: 'session', location: null, ...over });
@@ -38,7 +38,7 @@ Deno.test('quiet hours wrap midnight and the next sendable time is the end of qu
 Deno.test('reminder text: day words, reply help by text only, nothing about health', () => {
   const now = new Date('2026-11-09T15:00:00Z');
   const sms = reminderText({ first: 'Ana', trainer: 'Emmet', start: new Date('2026-11-10T12:00:00Z'), tz: TZ, now, sms: true });
-  assertEquals(sms, 'Hi Ana, reminder: training with Emmet tomorrow at 7:00 AM. Reply C to confirm or R to reschedule. Reply STOP to opt out.');
+  assertEquals(sms, 'Hi Ana, reminder: training with Emmet tomorrow at 7:00 AM. Reply CONFIRM, RESCHEDULE or CANCEL SESSION. Reply STOP to opt out.');
   assertEquals(healthWord(sms), null);
   assert.ok(reminderText({ first: 'Ana', trainer: 'Emmet', start: new Date('2026-11-09T22:00:00Z'), tz: TZ, now, sms: false }).includes('today at 5:00 PM'));
 });
@@ -62,4 +62,16 @@ Deno.test('phone numbers', () => {
   assertEquals(e164('(410) 555-0123'), '+14105550123');
   assertEquals(e164('+44 20 7946 0958'), '+442079460958');
   assertEquals(e164('555-0123'), null);
+});
+
+Deno.test('text replies: whole words; CANCEL alone stays an opt-out, CANCEL SESSION cancels', () => {
+  assertEquals(parseReply('Confirm').kind, 'confirm');
+  assertEquals(parseReply('reschedule').kind, 'reschedule');
+  assertEquals(parseReply('Cancel session').kind, 'cancel_session');
+  assertEquals(parseReply('cancel my appointment.').kind, 'cancel_session');
+  assertEquals(parseReply('CANCEL').kind, 'stop');
+  const r = cancelReplyText({ status: 'cancelled', when: 'tomorrow at 7:00 AM', hours: 12, link: 'https://x.example/calendar', trainer: 'Emmet' });
+  assert.ok(r.includes('cancelled') && r.includes('12 hours') && r.includes('https://x.example/calendar') && r.length <= 320);
+  const late = cancelReplyText({ status: 'too_late', hours: 12, link: 'https://x.example/calendar', trainer: 'Emmet' });
+  assert.ok(late.includes('count as a session') && late.length <= 320);
 });

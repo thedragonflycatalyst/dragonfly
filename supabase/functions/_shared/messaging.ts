@@ -114,11 +114,12 @@ export function timeText(start: Date, tz: string, now: Date): string {
 export function reminderText(o: { first: string; trainer: string; start: Date; tz: string; now: Date; sms: boolean; location?: string | null }): string {
   const where = o.location ? ` at ${o.location}` : '';
   const base = `Hi ${o.first}, reminder: training with ${o.trainer} ${timeText(o.start, o.tz, o.now)}${where}.`;
-  return o.sms ? `${base} Reply C to confirm or R to reschedule. Reply STOP to opt out.` : `${base} See you there!`;
+  // Whole words, not letters (owner 2026-11-07). "CANCEL" alone is a carrier opt-out keyword, so cancelling is "CANCEL SESSION".
+  return o.sms ? `${base} Reply CONFIRM, RESCHEDULE or CANCEL SESSION. Reply STOP to opt out.` : `${base} See you there!`;
 }
 
 export type Reply =
-  | { kind: 'stop' } | { kind: 'start' } | { kind: 'help' } | { kind: 'confirm' } | { kind: 'reschedule' }
+  | { kind: 'stop' } | { kind: 'start' } | { kind: 'help' } | { kind: 'confirm' } | { kind: 'reschedule' } | { kind: 'cancel_session' }
   | { kind: 'yes' } | { kind: 'no' } | { kind: 'rating'; value: number } | { kind: 'in' } | { kind: 'other' };
 
 /** What a text reply means. Carrier keywords (STOP, START, HELP) always win. */
@@ -128,13 +129,29 @@ export function parseReply(text: string): Reply {
   if (/^(START|UNSTOP|SUBSCRIBE|OPTIN|OPT IN)$/.test(t)) return { kind: 'start' };
   if (/^(HELP|INFO)$/.test(t)) return { kind: 'help' };
   if (/^(C|CONFIRM|CONFIRMED|👍)$/.test(t)) return { kind: 'confirm' };
-  if (/^(R|RESCHEDULE)$/.test(t)) return { kind: 'reschedule' };
+  if (/^(R|RESCHEDULE|MOVE( IT| MY SESSION)?)$/.test(t)) return { kind: 'reschedule' };
+  if (/^CANCEL (MY |THE |THIS )?(SESSION|APPOINTMENT|APPT|TRAINING)$/.test(t)) return { kind: 'cancel_session' };
   if (/^(Y|YES|YEP|YEAH|SURE|I'?LL TAKE IT)$/.test(t)) return { kind: 'yes' };
   if (/^(N|NO|NOPE|NOT THIS TIME)$/.test(t)) return { kind: 'no' };
   if (/^IN$/.test(t)) return { kind: 'in' };
   const n = /^([1-5])(\s*\/\s*5)?$/.exec(t);
   if (n) return { kind: 'rating', value: Number(n[1]) };
   return { kind: 'other' };
+}
+
+/** The cancellation policy in one sentence (from the trainer's notice period) */
+export const cancelPolicyText = (hours: number) =>
+  `Sessions can be cancelled up to ${hours} hour${hours === 1 ? '' : 's'} before they start; later cancellations count as a session.`;
+
+/** Replies to a text asking to cancel */
+export function cancelReplyText(o: { status: 'cancelled' | 'too_late' | 'not_allowed' | 'no_session'; when?: string; hours: number; link: string; trainer: string }): string {
+  const policy = cancelPolicyText(o.hours);
+  switch (o.status) {
+    case 'cancelled': return `Your session${o.when ? ` ${o.when}` : ''} is cancelled. ${policy} Book a new time here: ${o.link}`;
+    case 'too_late': return `It's too close to your session to cancel by text. ${policy} You can still move it to another time today: ${o.link}`;
+    case 'not_allowed': return `Please message ${o.trainer} to cancel. ${policy}`;
+    default: return `We couldn't find an upcoming session to cancel. Your sessions are here: ${o.link}`;
+  }
 }
 
 /** Normalize a US-style phone number to E.164 (+1XXXXXXXXXX); other countries must already include + */

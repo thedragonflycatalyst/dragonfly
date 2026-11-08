@@ -10,13 +10,13 @@ import { sb } from '@/lib/supabase';
 
 type Purpose = 'reminders' | 'offers' | 'surveys' | 'marketing';
 const ROWS: { purpose: Purpose; title: string; body: string }[] = [
-  { purpose: 'reminders', title: 'Session reminders', body: 'A reminder before each session. Reply C to confirm or R to reschedule.' },
+  { purpose: 'reminders', title: 'Session reminders', body: 'A reminder the day before each session. Reply CONFIRM, RESCHEDULE or CANCEL SESSION.' },
   { purpose: 'offers', title: 'Open spots', body: 'When someone cancels and a time you’re free opens up.' },
   { purpose: 'surveys', title: 'Quick feedback', body: 'Now and then, one question about how training is going.' },
   { purpose: 'marketing', title: 'Testimonials, referrals and group classes', body: 'Occasional asks to share your experience, refer a friend or join a group session.' },
 ];
 /** Bump when the consent wording above changes */
-const TEXT_VERSION = 2;
+const TEXT_VERSION = 3;
 type Channel = 'sms' | 'email' | 'app';
 const CH: [Channel, string][] = [['sms', 'By text'], ['email', 'By email'], ['app', 'In the app']];
 
