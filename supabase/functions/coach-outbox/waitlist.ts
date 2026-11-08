@@ -44,11 +44,11 @@ export async function processOpenSlots(admin: SupabaseClient, settings: Settings
     const waiting = (w ?? []) as Wait[];
     if (!waiting.length) { await done('no_waitlist'); continue; }
     const [{ data: t }, { data: cs }, { data: canBook }] = await Promise.all([
-      admin.from('coach_trainers').select('display_name, timezone').eq('user_id', o.trainer_id).maybeSingle(),
+      admin.from('coach_trainers').select('display_name, business_name, timezone').eq('user_id', o.trainer_id).maybeSingle(),
       admin.from('coach_clients').select('*').in('id', waiting.map((x) => x.client_id)),
       admin.rpc('coach_perm', { p_trainer: o.trainer_id, p_key: 'book_sessions' }),
     ]);
-    const tz = t?.timezone || 'America/New_York', trainer = (t?.display_name || 'your trainer').split(' ')[0];
+    const tz = t?.timezone || 'America/New_York', trainer = (t?.business_name || t?.display_name || 'your trainer').trim();
     const when = timeText(start, tz, now);
     const byId = new Map(((cs ?? []) as ClientRow[]).map((c) => [c.id, c]));
     // 1) First person who asked to be booked automatically
@@ -114,8 +114,8 @@ async function nextWaves(admin: SupabaseClient, settings: Settings[], now: Date)
     const reachable = waiting.filter((x) => { const c = byId.get(x.client_id); return !!c && c.status === 'active' && !skipCa(s, c); });
     const people = nextWave(reachable, already).map((x) => byId.get(x.client_id)!);
     if (!people.length) { await done(`offered:${o.offered ?? 0}`); continue; }
-    const { data: t } = await admin.from('coach_trainers').select('display_name, timezone').eq('user_id', o.trainer_id).maybeSingle();
-    const trainer = (t?.display_name || 'your trainer').split(' ')[0];
+    const { data: t } = await admin.from('coach_trainers').select('display_name, business_name, timezone').eq('user_id', o.trainer_id).maybeSingle();
+    const trainer = (t?.business_name || t?.display_name || 'your trainer').trim();
     n += await sendOffers(admin, s, o, offer.id, people, trainer, timeText(new Date(o.starts_at), t?.timezone || 'America/New_York', now));
     await admin.from('coach_open_slots').update({ offered: (o.offered ?? 0) + people.length, next_wave_at: new Date(now.getTime() + WAVE_EVERY_MS).toISOString() }).eq('id', o.id);
   }

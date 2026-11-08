@@ -7,7 +7,8 @@ const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.
 
 export async function processFollowups(admin: SupabaseClient, now: Date): Promise<number> {
   if (!pushConfigured()) return 0;
-  const { data: rows } = await admin.from('coach_followups').select('id, trainer_id, title, alerts, last_alert_at').eq('status', 'open').limit(200);
+  // Hourly repeats are for outside-calendar changes; 'not confirmed' heads-ups are sent once
+  const { data: rows } = await admin.from('coach_followups').select('id, trainer_id, title, alerts, last_alert_at').eq('status', 'open').like('kind', 'calendar_%').limit(200);
   if (!rows?.length) return 0;
   const ids = [...new Set(rows.map((r) => r.trainer_id as string))];
   const [{ data: ts }, { data: toks }] = await Promise.all([

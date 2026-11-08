@@ -9,7 +9,7 @@
 //   anything else         lands in the trainer's replies for them to answer
 // Webhook URL (owner sets it in Twilio): https://<project>.supabase.co/functions/v1/coach-sms-inbound
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { cancelReplyText, CONFIRM_REPLY, e164, parseReply, rescheduleReplyText } from '../_shared/messaging.ts';
+import { cancelReplyText, CONFIRM_REPLY, e164, parseReply, rescheduleText } from '../_shared/messaging.ts';
 import { safeEqual, twilioSignature } from '../_shared/twilio.ts';
 
 const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.github.io/dragonfly/').replace(/\/?$/, '/');
@@ -61,8 +61,8 @@ Deno.serve(async (req) => {
     return twiml();
   }
   if (reply.kind === 'help') {
-    const { data: t } = await admin.from('coach_trainers').select('display_name').eq('user_id', clients[0].trainer_id).maybeSingle();
-    return twiml(`Training messages from ${t?.display_name ?? 'your trainer'} (Dragonfly). Reply STOP to opt out, START to opt back in. Msg & data rates may apply.`);
+    const { data: t } = await admin.from('coach_trainers').select('display_name, business_name').eq('user_id', clients[0].trainer_id).maybeSingle();
+    return twiml(`The Dragonfly Catalyst: training texts from ${t?.business_name || t?.display_name || 'your trainer'}. Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out, START to opt back in. Help: thedragonflycatalyst.org/sms-terms`);
   }
   if (reply.kind === 'confirm' || reply.kind === 'reschedule') {
     const m = await latest(admin, ids, ['reminder']);
@@ -71,13 +71,15 @@ Deno.serve(async (req) => {
     // Rescheduling is done in the app: another free time, and within 24 hours of the session only the same day
     // The link opens the scheduler with this session ready to move (same day when it's within 24 hours)
     const move = m?.related?.booking_id && m.related.day ? `${WEB}calendar?move=${m.related.booking_id}&day=${m.related.day}` : `${WEB}calendar`;
-    return twiml(reply.kind === 'confirm' ? CONFIRM_REPLY : rescheduleReplyText(move));
+    // Inside 24 hours the move is same-day only; further out, any open time
+    const within24h = !m?.related?.starts || new Date(m.related.starts).getTime() - Date.now() < 24 * 3600_000;
+    return twiml(reply.kind === 'confirm' ? CONFIRM_REPLY : rescheduleText(move, within24h));
   }
   if (reply.kind === 'cancel_session') {
     const m = await latest(admin, ids, ['reminder']);
     const c = clients.find((x) => x.id === m?.client_id) ?? clients[0];
-    const { data: t } = await admin.from('coach_trainers').select('display_name, cancel_hours').eq('user_id', c.trainer_id).maybeSingle();
-    const hours = t?.cancel_hours ?? 24, trainer = (t?.display_name || 'your trainer').split(' ')[0];
+    const { data: t } = await admin.from('coach_trainers').select('display_name, business_name, cancel_hours').eq('user_id', c.trainer_id).maybeSingle();
+    const hours = t?.cancel_hours ?? 24, trainer = (t?.business_name || t?.display_name || 'your trainer').trim();
     type Cancel = 'cancelled' | 'late_cancelled' | 'not_allowed' | 'no_session';
     let status = 'no_session' as Cancel;
     if (m?.related?.booking_id && m.related.day) {

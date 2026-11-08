@@ -26,7 +26,7 @@ export async function processCharges(admin: SupabaseClient, now: Date): Promise<
   if (!charges.length) return out;
   const [{ data: cards }, { data: trainers }] = await Promise.all([
     admin.from('coach_client_cards').select('client_id, stripe_account, stripe_customer, payment_method').in('client_id', charges.map((c) => c.client_id)),
-    admin.from('coach_trainers').select('user_id, display_name, stripe_account, stripe_charges_enabled').in('user_id', [...new Set(charges.map((c) => c.trainer_id))]),
+    admin.from('coach_trainers').select('user_id, display_name, business_name, stripe_account, stripe_charges_enabled').in('user_id', [...new Set(charges.map((c) => c.trainer_id))]),
   ]);
   for (const c of charges) {
     const card = ((cards ?? []) as Card[]).find((k) => k.client_id === c.client_id);
@@ -35,7 +35,7 @@ export async function processCharges(admin: SupabaseClient, now: Date): Promise<
     // The card must live on the account the trainer is paid through now
     const acct = t.stripe_account && t.stripe_charges_enabled ? t.stripe_account : null;
     if ((card.stripe_account ?? null) !== acct || c.amount_cents < 50) continue;
-    const description = chargeDescription(c.on_date, (t.display_name || 'your trainer').split(' ')[0]);
+    const description = chargeDescription(c.on_date, (t.business_name || t.display_name || 'your trainer').trim());
     try {
       const pi = await stripe('payment_intents', 'POST', {
         amount: c.amount_cents, currency: c.currency, customer: card.stripe_customer, payment_method: card.payment_method,

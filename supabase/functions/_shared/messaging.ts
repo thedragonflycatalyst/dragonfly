@@ -110,12 +110,61 @@ export function timeText(start: Date, tz: string, now: Date): string {
   return `${day} at ${t}`;
 }
 
-/** Session reminder. By text, it says how to reply; in chat, the client can just answer. */
-export function reminderText(o: { first: string; trainer: string; start: Date; tz: string; now: Date; sms: boolean; location?: string | null }): string {
+/** "Tue, Nov 10 at 7:00 AM" in the trainer's time zone */
+export function dateTimeText(start: Date, tz: string): string {
+  const d = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(start);
+  const t = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(start);
+  return `${d} at ${t}`;
+}
+const clock = (start: Date, tz: string) => new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(start);
+
+// Reminder plan (owner 2026-11-07, from the evidence on reminders): a note when it's booked; the main reminder about
+// 48 hours ahead in the morning, asking for a reply (before the 24-hour cancellation window, so moving to another day
+// is still free); a 24-hour check only if they haven't confirmed; a short see-you-today the morning of. Signed with
+// the business name, never a personal name; no emoji (an emoji makes a text cost two). Under 160 characters.
+export type Stage = 'booked' | 'main' | 'nudge' | 'dayof';
+export function reminderText(o: { stage: Stage; first: string; brand: string; start: Date; tz: string; now: Date; sms: boolean; location?: string | null }): string {
   const where = o.location ? ` at ${o.location}` : '';
-  const base = `Hi ${o.first}, reminder: training with ${o.trainer} ${timeText(o.start, o.tz, o.now)}${where}.`;
-  // Whole words, not letters (owner 2026-11-07). "CANCEL" alone is a carrier opt-out keyword, so it's "CANCEL APPOINTMENT".
-  return o.sms ? `${base} Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT. Reply STOP to opt out.` : `${base} See you there!`;
+  const stop = o.sms ? ' Reply STOP to opt out.' : '';
+  switch (o.stage) {
+    case 'booked': return `Hi ${o.first}, you're booked with ${o.brand} for ${dateTimeText(o.start, o.tz)}${where}. See you then!${stop}`;
+    case 'main': return o.sms
+      ? `Hi ${o.first}, this is ${o.brand}. Your session is ${dateTimeText(o.start, o.tz)}${where}, held just for you. Reply CONFIRM or RESCHEDULE.${stop}`
+      : `Hi ${o.first}, this is ${o.brand}. Your session is ${dateTimeText(o.start, o.tz)}${where}, held just for you. See you there!`;
+    case 'nudge': return `Hi ${o.first}, just checking you're still set for ${timeText(o.start, o.tz, o.now)}. Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT.`;
+    case 'dayof': return `See you today at ${clock(o.start, o.tz)}, ${o.first}! - ${o.brand}`;
+  }
+}
+
+/** When each stage goes out (null = skip). Morning sends at 8 AM local; nothing lands after the session starts. */
+export function reminderAt(stage: Stage, start: Date, tz: string, bookedAt?: Date): Date | null {
+  const local = wall(start, tz);
+  const at8 = (daysBefore: number) => {
+    const d = new Date(Date.UTC(local.y, local.m - 1, local.d - daysBefore));   // calendar date, month/year rollover safe
+    return zoned(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 8, 0, tz);
+  };
+  const h = (n: number) => new Date(start.getTime() - n * 3600_000);
+  switch (stage) {
+    case 'booked': return bookedAt ?? null;
+    case 'main': {
+      // 8 AM two days before (about 48 hours); never inside the 24-hour window
+      const t = at8(2);
+      return t.getTime() <= h(25).getTime() ? t : h(30);
+    }
+    case 'nudge': return h(24);
+    case 'dayof': {
+      // 8 AM on the day, if the session is at least 2 hours after that (early sessions are covered by the day before)
+      const t = at8(0);
+      return t.getTime() <= h(2).getTime() ? t : null;
+    }
+  }
+}
+
+/** Reply after RESCHEDULE: today-only wording inside 24 hours */
+export function rescheduleText(link: string, within24h: boolean): string {
+  return within24h
+    ? `No problem! Click here to see what time slots are left for today: ${link} If you can't make it today, reply CANCEL APPOINTMENT instead.`
+    : `No problem! Pick a new time here: ${link}`;
 }
 
 export type Reply =
@@ -141,8 +190,6 @@ export function parseReply(text: string): Reply {
 
 // Replies in the owner's own voice (owner 2026-11-07)
 export const CONFIRM_REPLY = 'Perfect! See you then 😁';
-export const rescheduleReplyText = (link: string) =>
-  `No problem! Click here to see what time slots are left for today: ${link} If you can't make it today, reply CANCEL APPOINTMENT instead.`;
 
 /** Replies to CANCEL APPOINTMENT. A late cancellation is still cancelled (the time goes to the waitlist) but counts as a session. */
 export function cancelReplyText(o: { status: 'cancelled' | 'late_cancelled' | 'not_allowed' | 'no_session'; hours: number; link: string; trainer: string }): string {

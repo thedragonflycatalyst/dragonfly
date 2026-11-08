@@ -24,7 +24,7 @@ export default function MessageSettings() {
   useEffect(() => {
     if (!tid) return;
     void sb.from('coach_message_settings').select('*').eq('trainer_id', tid).maybeSingle().then(({ data }) => setS((data as S) ?? {
-      trainer_id: tid, quiet_start: '21:00', quiet_end: '08:00', max_per_week: 3, reminders_on: true, reminder_hours: [24], surveys_on: false, survey_every: 4,
+      trainer_id: tid, quiet_start: '21:00', quiet_end: '08:00', max_per_week: 3, reminders_on: true, reminder_hours: [48, 24, 2], surveys_on: false, survey_every: 4,
       survey_min_days: 14, testimonials_on: false, referrals_on: false, referral_every_days: 90, include_ca_clients: false, sms_enabled: false,
     }));
   }, [tid]);
@@ -54,7 +54,7 @@ export default function MessageSettings() {
           <Txt v="bold">Session reminders</Txt>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             <Toggle on={s.reminders_on} label={s.reminders_on ? 'On' : 'Off'} onPress={() => set({ reminders_on: !s.reminders_on })} />
-            {[48, 24, 2].map((h) => <Toggle key={h} on={s.reminder_hours.includes(h)} label={`${h} hours before`} onPress={() => hours(h)} />)}
+            {([[48, 'About 2 days before (8 AM), asks to confirm'], [24, '24 hours before, only if not confirmed'], [2, 'Morning of: see you today']] as [number, string][]).map(([h, label]) => <Toggle key={h} on={s.reminder_hours.includes(h)} label={label} onPress={() => hours(h)} />)}
           </View>
         </Card>
         <Card style={{ gap: 8 }}>
