@@ -1,11 +1,12 @@
 import * as ImagePicker from 'expo-image-picker';
-import { router, Stack, useFocusEffect, type Href } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { router, Stack, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
 import { DateField } from '@/components/date-field';
 import { ClientPicker, ColorPicker, TimeField, Toggle, useClientList } from '@/components/pickers';
 import { ActionMenu, Sheet } from '@/components/sheet';
+import { FillSlotSheet, type OpenSlot } from '@/features/fill-slot';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
@@ -36,6 +37,7 @@ function CoachCalendar() {
   const [events, setEvents] = useState<CoachEvent[]>([]);
   const [book, setBook] = useState<{ day: string; edit?: Booking } | null>(null);
   const [menu, setMenu] = useState<Occurrence | null>(null);
+  const [fill, setFill] = useState<OpenSlot | null>(null);
   const [hours, setHours] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importMenu, setImportMenu] = useState(false);
@@ -80,6 +82,17 @@ function CoachCalendar() {
       : await sb.from('coach_bookings').update({ skipped: [...o.booking.skipped, o.day] }).eq('id', o.booking.id);
     if (error) toast(errText(error), false); else { toast('Cancelled'); load(); }
   };
+  /** Cancel this one, then offer the time to the client pool */
+  const cancelAndFill = async (o: Occurrence) => {
+    if (o.booking.client_id || o.booking.group_id) await skip(o);
+    setFill({ start: o.start, durationMin: o.booking.duration_min, title: o.booking.kind === 'session' ? 'Training session' : o.booking.title, location: o.booking.location, bookingId: o.booking.repeat === 'none' ? null : o.booking.id });
+  };
+  // Clients already booked at the time being filled
+  const busyAtFill = useMemo(() => {
+    if (!fill || !bookings) return new Set<string>();
+    const d = dayKey(fill.start), end = fill.start.getTime() + fill.durationMin * 60_000;
+    return new Set(occurrences(bookings, d, d).filter((o) => o.booking.client_id && o.start.getTime() < end && o.end.getTime() > fill.start.getTime()).map((o) => o.booking.client_id!));
+  }, [fill, bookings]);
   const removeSeries = async (o: Occurrence) => {
     if (!(await confirm('Delete every session in this series?', 'Past ones are removed from your calendar too.', 'Delete all', true))) return;
     const { error } = await sb.from('coach_bookings').delete().eq('id', o.booking.id);
@@ -190,10 +203,12 @@ function CoachCalendar() {
         { label: 'Edit', icon: 'edit', onPress: () => setBook({ day: menu.day, edit: menu.booking }) },
         { label: 'Message client', icon: 'chat_bubble', hidden: !menu.booking.client_id, onPress: () => router.push({ pathname: '/chat/new', params: { client: menu.booking.client_id! } }) },
         { label: menu.booking.repeat === 'none' ? 'Cancel session' : 'Cancel just this one', icon: 'close', onPress: () => skip(menu) },
+        { label: 'Cancel and fill this slot', icon: 'group_add', onPress: () => cancelAndFill(menu) },
         { label: 'Stop repeating from here', icon: 'stop_circle', hidden: menu.booking.repeat === 'none', onPress: () => endSeries(menu) },
         { label: 'Delete the whole series', icon: 'delete', danger: true, hidden: menu.booking.repeat === 'none', onPress: () => removeSeries(menu) },
       ] : []} />
       <HoursSheet visible={hours} onClose={() => setHours(false)} />
+      <FillSlotSheet slot={fill} onClose={() => { setFill(null); load(); }} busyClients={busyAtFill} />
     </View>
   );
 }
@@ -326,8 +341,14 @@ function ClientCalendar() {
   const [mins, setMins] = useState(60);
   const [picked, setPicked] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
+  const [moving, setMoving] = useState<Occurrence | null>(null);
+  const { move: moveParam, day: dayParam } = useLocalSearchParams<{ move?: string; day?: string }>();
+  const [owed, setOwed] = useState(0);
+  const [requests, setRequests] = useState<{ id: string; booking_id: string; on_date: string; new_start: string }[]>([]);
   const load = useCallback(async () => {
     if (!c) return;
+    void sb.from('coach_session_charges').select('id', { count: 'exact', head: true }).eq('client_id', c.id).eq('status', 'due').then(({ count }) => setOwed(count ?? 0));
+    void sb.from('coach_reschedule_requests').select('id, booking_id, on_date, new_start').eq('client_id', c.id).eq('status', 'pending').then(({ data }) => setRequests((data as typeof requests | null) ?? []));
     const [b, a, busy] = await Promise.all([
       sb.from('coach_bookings').select('*').order('starts_at'),
       sb.from('coach_availability').select('*').eq('trainer_id', c.trainer_id),
@@ -337,18 +358,35 @@ function ClientCalendar() {
     setBusy(((busy.data ?? []) as { starts_at: string; ends_at: string }[]).map((x) => ({ start: new Date(x.starts_at), end: new Date(x.ends_at) })));
   }, [c]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  // Opened from a RESCHEDULE text reply: that session is ready to move
+  useEffect(() => {
+    if (!moveParam || !mine) return;
+    const o = occurrences(mine, dayParam ?? dayKey(new Date()), dayParam ?? dayKey(new Date())).find((x) => x.booking.id === moveParam && x.end.getTime() > Date.now());
+    if (o) { setMoving(o); setDay(o.day); setPicked(null); }
+    router.setParams({ move: undefined, day: undefined });
+  }, [moveParam, dayParam, mine]);
   if (!c) return null;
   const today = dayKey(new Date());
   const upcoming = occurrences(mine ?? [], today, dayKey(addDays(new Date(), 60))).filter((o) => o.end.getTime() > Date.now());
-  const days = Array.from({ length: 14 }, (_, i) => dayKey(addDays(new Date(), i + (new Date().getHours() >= 20 ? 1 : 0))));
-  const slots = openSlots(day, mins, avail, busyTimes);
+  // Moving a session within 24 hours of it: same day only (owner rule 2026-11-07)
+  const sameDayOnly = !!moving && moving.start.getTime() - Date.now() < 24 * 3600_000;
+  const days = sameDayOnly ? [moving.day] : Array.from({ length: 14 }, (_, i) => dayKey(addDays(new Date(), i + (new Date().getHours() >= 20 ? 1 : 0))));
+  const slotMins = moving ? moving.booking.duration_min : mins;
+  const slots = openSlots(day, slotMins, avail, moving ? busyTimes.filter((b) => b.start.getTime() !== moving.start.getTime()) : busyTimes)
+    .filter((t) => t.getTime() > Date.now() + 3600_000);
+  const startMove = (o: Occurrence) => { setMoving(o); setDay(o.day); setPicked(null); };
+
   const bookIt = async () => {
     if (!picked) return;
     setSaving(true);
-    const { error } = await sb.rpc('coach_book_session', { p_trainer: c.trainer_id, p_starts: picked.toISOString(), p_minutes: mins });
+    const { error } = moving
+      ? await sb.rpc('coach_reschedule_session', { p_booking: moving.booking.id, p_on: moving.day, p_new: picked.toISOString() })
+      : await sb.rpc('coach_book_session', { p_trainer: c.trainer_id, p_starts: picked.toISOString(), p_minutes: mins });
     setSaving(false);
-    if (error) return toast(/slot_taken/.test(error.message) ? 'That time was just taken. Pick another.' : /booking_closed/.test(error.message) ? 'Your trainer books sessions for you. Send them a message.' : errText(error), false);
-    toast(`Booked for ${picked.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })}`); setPicked(null); load();
+    if (error) return toast(/slot_taken/.test(error.message) ? 'That time was just taken. Pick another.' : /booking_closed/.test(error.message) ? 'Your trainer books sessions for you. Send them a message.'
+      : /payment_due/.test(error.message) ? 'Pay for your last session first (Me → Payments).' : /same_day_only/.test(error.message) ? 'Within 24 hours of a session it can only move to another time that day.' : errText(error), false);
+    const at = picked.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' });
+    toast(moving ? `Asked ${app.myTrainer?.display_name?.split(' ')[0] ?? 'your trainer'} to move it to ${at}. You'll hear back soon.` : `Booked for ${at}`); setPicked(null); setMoving(null); load();
   };
   const cancel = async (o: Occurrence) => {
     if (!(await confirm('Cancel this session?', `${o.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`, 'Cancel session', true))) return;
@@ -369,14 +407,36 @@ function ClientCalendar() {
                   <View style={{ flex: 1 }}>
                     <Txt v="bold">{o.start.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</Txt>
                     <Txt v="small">{t12(o.start)} · {fmtDuration(o.booking.duration_min)}{o.booking.location ? ` · ${o.booking.location}` : ''}</Txt>
+                    {requests.filter((q) => q.booking_id === o.booking.id && q.on_date === o.day).map((q) => (
+                      <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Txt v="small" color={p.gold} style={{ flex: 1 }}>Waiting for approval to move to {new Date(q.new_start).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</Txt>
+                        <Button small kind="quiet" title="Take back" onPress={async () => { const { error } = await sb.rpc('coach_reschedule_withdraw', { p_request: q.id }); if (error) toast(errText(error), false); else load(); }} />
+                      </View>
+                    ))}
                   </View>
+                  {app.perms.book_sessions && o.booking.client_id && avail.length > 0 && <Button small kind="ghost" title="Change time" onPress={() => startMove(o)} />}
                   {app.perms.cancel_sessions && o.booking.client_id && <Button small kind="ghost" title="Cancel" onPress={() => cancel(o)} />}
                 </View>
               ))}
             </Card>
           )}
+          <Button small kind="ghost" icon="schedule" title="Want a time that’s taken? Join the waitlist" onPress={() => router.push('/me/availability')} style={{ alignSelf: 'flex-start' }} />
+          {owed > 0 && (
+            <Card style={{ gap: 6 }}>
+              <Txt v="bold">{owed === 1 ? 'One session isn’t paid yet' : `${owed} sessions aren’t paid yet`}</Txt>
+              <Txt v="small">Pay for it to book more sessions.</Txt>
+              <Button small title="Pay now" onPress={() => router.push('/me/billing')} style={{ alignSelf: 'flex-start' }} />
+            </Card>
+          )}
           {app.perms.book_sessions && avail.length > 0 && <>
-            <SectionLabel>Book a session</SectionLabel>
+            <SectionLabel>{moving ? 'Move your session' : 'Book a session'}</SectionLabel>
+            {moving && (
+              <View style={{ gap: 6 }}>
+                <Txt v="small">{`Moving ${moving.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. `}
+                  {sameDayOnly ? 'It’s less than 24 hours away, so it can only move to another time the same day.' : 'Pick any open time.'} Your trainer approves the change.</Txt>
+                <Button small kind="ghost" title="Keep the current time" onPress={() => { setMoving(null); setPicked(null); }} style={{ alignSelf: 'flex-start' }} />
+              </View>
+            )}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
               {days.map((d) => (
                 <Pressable key={d} onPress={() => { setDay(d); setPicked(null); }} accessibilityRole="button" accessibilityState={{ selected: d === day }}
@@ -386,13 +446,13 @@ function ClientCalendar() {
                 </Pressable>
               ))}
             </ScrollView>
-            <View style={{ flexDirection: 'row', gap: 8 }}>{[30, 45, 60, 90].map((m) => <Chip key={m} label={fmtDuration(m)} selected={mins === m} onPress={() => { setMins(m); setPicked(null); }} />)}</View>
+            {!moving && <View style={{ flexDirection: 'row', gap: 8 }}>{[30, 45, 60, 90].map((m) => <Chip key={m} label={fmtDuration(m)} selected={mins === m} onPress={() => { setMins(m); setPicked(null); }} />)}</View>}
             {slots.length === 0 ? <Txt v="small">No open times that day. Try another.</Txt> : (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {slots.map((s) => <Chip key={s.toISOString()} label={t12(s)} selected={picked?.getTime() === s.getTime()} onPress={() => setPicked(s)} />)}
               </View>
             )}
-            {picked && <Button title={`Book ${t12(picked)}`} icon="check" busy={saving} onPress={bookIt} />}
+            {picked && <Button title={`${moving ? 'Move to' : 'Book'} ${t12(picked)}`} icon="check" busy={saving} onPress={bookIt} />}
           </>}
           {app.perms.book_sessions && avail.length === 0 && mine !== null && <Txt v="small">Your trainer hasn’t opened booking times yet. Message them to set up a session.</Txt>}
         </View>
