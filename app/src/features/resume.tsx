@@ -2,20 +2,24 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Row } from '@/components/bits';
 import { Card } from '@/components/ui';
-import { readDraft, type Draft } from '@/lib/session';
+import { discoverWorkoutDrafts } from '@/lib/draft-integrity';
 import { storage } from '@/lib/storage';
 import { usePalette } from '@/lib/theme';
 
-/** "Finish your workout" banner when a workout was started on this device and not saved */
+/** Opens the full list when one or more workouts are unfinished. */
 export function ResumeBanner() {
   const p = usePalette();
-  const [d, setD] = useState<Draft | null>(null);
-  useFocusEffect(useCallback(() => { setD(readDraft((k) => storage.getItem(k))); }, []));
-  if (!d) return null;
+  const [count, setCount] = useState(0);
+  useFocusEffect(useCallback(() => {
+    try { setCount(discoverWorkoutDrafts(storage).length); }
+    catch { setCount(0); }
+  }, []));
+  if (!count) return null;
   return (
     <Card style={{ padding: 0, borderWidth: 1.5, borderColor: p.focus }}>
-      <Row icon="play_arrow" title={`Finish “${d.title}”`} sub="You started this workout and haven’t saved it yet" last
-        onPress={() => router.push({ pathname: '/session', params: d.params })} />
+      <Row icon="play_arrow" title={count === 1 ? '1 unfinished workout' : `${count} unfinished workouts`}
+        sub="Resume where you left off, or manage saved sessions" last
+        onPress={() => router.push('/unfinished-workouts')} />
     </Card>
   );
 }

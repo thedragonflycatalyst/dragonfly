@@ -91,3 +91,44 @@ export function listWorkoutDrafts(store: DraftStore & { length: number; key(inde
   }
   return drafts.sort((a, b) => b.started - a.started);
 }
+
+/** Include the one legacy draft in the recovery screen even if its workout
+ * has not been opened (and thus migrated) yet. New v2 data always wins.
+ */
+export function discoverWorkoutDrafts(
+  store: DraftStore & { length: number; key(index: number): string | null },
+  legacySlot = 'dragonfly.session',
+): Draft[] {
+  const drafts = listWorkoutDrafts(store);
+  const legacy = parseDraft(store.getItem(legacySlot));
+  if (legacy && /^(a|w):.+$/.test(legacy.key) &&
+    !drafts.some((item) => item.key === legacy.key)) drafts.push(legacy);
+  return drafts.sort((a, b) => b.started - a.started);
+}
+export function discardWorkoutDraft(store: DraftStore, key: string,
+  legacySlot = 'dragonfly.session'): boolean {
+  let removed = clearMatchingDraft(store, workoutDraftSlot(key), key);
+  if (parseDraft(store.getItem(legacySlot))?.key === key) {
+    store.removeItem(legacySlot);
+    removed = true;
+  }
+  return removed;
+}
+/** Never navigate using arbitrary draft params; derive the route directly
+ * from its saved assignment/workout identity.
+ */
+export function routeForWorkoutDraft(draft: Draft): { aid: string } | { workout: string } | null {
+  if (draft.key.startsWith('a:') && draft.key.length > 2) return { aid: draft.key.slice(2) };
+  if (draft.key.startsWith('w:') && draft.key.length > 2) return { workout: draft.key.slice(2) };
+  return null;
+}
+export function draftProgress(draft: Draft): { completed: number; total: number; intervals: number; inProgress: boolean } {
+  const entries = Array.isArray(draft.log) ? draft.log : [];
+  const total = entries.reduce((n, e) => n + (Array.isArray(e.sets) ? e.sets.length : 0), 0);
+  const completed = entries.reduce((n, e) => n + (Array.isArray(e.sets) ? e.sets.filter(s => s.done).length : 0), 0);
+  const intervals = Array.isArray(draft.timerResults) ? draft.timerResults.length : 0;
+  const inProgress = Object.values(draft.runnerClocks ?? {}).some(c => c?.since != null) ||
+    Object.values(draft.timedSetClocks ?? {}).some(c => c?.since != null) ||
+    draft.restClock?.pausedLeft === null && draft.restClock !== null && draft.restClock !== undefined;
+  return { completed, total, intervals, inProgress };
+}
