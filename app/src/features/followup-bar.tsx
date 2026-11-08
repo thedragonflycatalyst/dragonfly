@@ -56,7 +56,7 @@ export function FollowupBar() {
       style={{ backgroundColor: '#c23a3a', paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <Txt style={{ fontSize: 20 }}>📋</Txt>
       <View style={{ flex: 1 }}>
-        <Txt v="bold" color="#ffffff" style={{ fontSize: 16 }}>{open.length === 1 ? (open[0].title.startsWith('Reschedule') || open[0].title.startsWith('Cancel') ? 'Update your calendar' : 'Heads-up') : `To do (${open.length})`}</Txt>
+        <Txt v="bold" color="#ffffff" style={{ fontSize: 16 }}>{open.length === 1 ? 'Update your calendar' : `Update your calendar (${open.length})`}</Txt>
         <Txt color="#ffffff" numberOfLines={1}>{open[0].title}</Txt>
       </View>
       <View style={{ backgroundColor: '#ffffff', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6 }}><Txt v="bold" color="#c23a3a">Open</Txt></View>

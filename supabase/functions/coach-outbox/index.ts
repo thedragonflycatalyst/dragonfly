@@ -9,7 +9,7 @@
 // configured), 'manual' (a text that waits in the trainer's "To send" list), 'email' (when configured), 'app' (chat).
 // Also each run: session billing (attach packages / single-session charges, charge cards on file; see billing.ts).
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { dateTimeText, healthWord, nextSendable, occurrences, reminderAt, reminderText, type BookingRow, type Stage } from '../_shared/messaging.ts';
+import { healthWord, nextSendable, occurrences, reminderAt, reminderText, type BookingRow, type Stage } from '../_shared/messaging.ts';
 import { allowed, ESSENTIAL, pickChannel, skipCa, type ClientRow, type Settings } from './common.ts';
 import { planEngagement } from './engagement.ts';
 import { processOpenSlots } from './waitlist.ts';
@@ -23,7 +23,6 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 
 // Reminder plan (see reminderText): 'booked' note, 'main' ~48 h ask (8 AM), 'nudge' at 24 h only if not confirmed,
 // 'dayof' 8 AM see-you-today. Trainer settings reminder_hours switch them: 48 = main, 24 = nudge, 2 = morning-of.
-// Clients who still haven't confirmed 12 hours out are flagged to the trainer (a to-do in the app).
 const STAGE_HOURS: Record<Exclude<Stage, 'booked'>, number> = { main: 48, nudge: 24, dayof: 2 };
 async function planReminders(admin: SupabaseClient, s: Settings, tz: string, brand: string, now: Date): Promise<number> {
   if (!s.reminders_on) return 0;
@@ -71,17 +70,6 @@ async function planReminders(admin: SupabaseClient, s: Settings, tz: string, bra
         const late = stage === 'main' && at < now && created > at && o.start.getTime() - now.getTime() > 25 * 3600_000;
         if (!inWindow(at) && !late) continue;
         await queue(stage, o, at, `rem:${b.id}:${o.day}:${stage}`);
-      }
-      // 12 hours out and still not confirmed after a text asked: tell the trainer
-      const flagAt = new Date(o.start.getTime() - 12 * 3600_000);
-      if (!isConfirmed && inWindow(flagAt)) {
-        const { count } = await admin.from('coach_outbox').select('id', { count: 'exact', head: true }).eq('client_id', c.id).eq('status', 'sent').eq('channel', 'sms')
-          .in('dedupe_key', [`rem:${b.id}:${o.day}:main`, `rem:${b.id}:${o.day}:nudge`]);
-        const { count: flagged } = await admin.from('coach_followups').select('id', { count: 'exact', head: true }).eq('booking_id', b.id).eq('kind', 'unconfirmed').eq('old_start', o.start.toISOString());
-        if (count && !flagged) {
-          await admin.from('coach_followups').insert({ trainer_id: s.trainer_id, client_id: c.id, booking_id: b.id, kind: 'unconfirmed', old_start: o.start.toISOString(),
-            title: `${(c as ClientRow & { name?: string }).name ?? c.first_name} hasn't confirmed ${dateTimeText(o.start, tz)}` });
-        }
       }
     }
   }

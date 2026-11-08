@@ -120,7 +120,8 @@ const clock = (start: Date, tz: string) => new Intl.DateTimeFormat('en-US', { ti
 
 // Reminder plan (owner 2026-11-07, from the evidence on reminders): a note when it's booked; the main reminder about
 // 48 hours ahead in the morning, asking for a reply (before the 24-hour cancellation window, so moving to another day
-// is still free); a 24-hour check only if they haven't confirmed; a short see-you-today the morning of. Signed with
+// is still free); a 24-hour check only if they haven't confirmed; a short see-you-today the morning of.
+// No confirmation simply means unconfirmed: the trainer isn't alerted (owner 2026-11-08). Signed with
 // the business name, never a personal name; no emoji (an emoji makes a text cost two). Under 160 characters.
 export type Stage = 'booked' | 'main' | 'nudge' | 'dayof';
 export function reminderText(o: { stage: Stage; first: string; brand: string; start: Date; tz: string; now: Date; sms: boolean; location?: string | null }): string {
@@ -129,8 +130,8 @@ export function reminderText(o: { stage: Stage; first: string; brand: string; st
   switch (o.stage) {
     case 'booked': return `Hi ${o.first}, you're booked with ${o.brand} for ${dateTimeText(o.start, o.tz)}${where}. See you then!${stop}`;
     case 'main': return o.sms
-      ? `Hi ${o.first}, this is ${o.brand}. Your session is ${dateTimeText(o.start, o.tz)}${where}, held just for you. Reply CONFIRM or RESCHEDULE.${stop}`
-      : `Hi ${o.first}, this is ${o.brand}. Your session is ${dateTimeText(o.start, o.tz)}${where}, held just for you. See you there!`;
+      ? `Hi ${o.first}, this is ${o.brand}. Your session is ${dateTimeText(o.start, o.tz)}${where}. Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT.${stop}`
+      : `Hi ${o.first}, this is ${o.brand}. Your session is ${dateTimeText(o.start, o.tz)}${where}. See you there!`;
     case 'nudge': return `Hi ${o.first}, just checking you're still set for ${timeText(o.start, o.tz, o.now)}. Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT.`;
     case 'dayof': return `See you today at ${clock(o.start, o.tz)}, ${o.first}! - ${o.brand}`;
   }
@@ -159,6 +160,10 @@ export function reminderAt(stage: Stage, start: Date, tz: string, bookedAt?: Dat
     }
   }
 }
+
+/** One courtesy reply (at most daily) when a client texts something the system can't act on; the trainer gets it in the app */
+export const relayText = (first: string, brand: string) =>
+  `Thanks, ${first}! Your message was passed along to ${brand}. The app's chat is the quickest way to reach us.`;
 
 /** Reply after RESCHEDULE: today-only wording inside 24 hours */
 export function rescheduleText(link: string, within24h: boolean): string {

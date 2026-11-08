@@ -46,7 +46,6 @@ async function accessToken(sa: ServiceAccount): Promise<string> {
 
 /** The FCM message: top priority, the Android "approvals" channel (loud), time-sensitive on iPhone */
 export const FOLLOWUP_TITLE = '📋 Update your calendar';
-export const followupTitle = (kind: string) => (kind === 'unconfirmed' ? '⚠️ Not confirmed yet' : FOLLOWUP_TITLE);
 export const followupBody = (title: string) => `${title}. Tap Done when it's changed.`;
 /** Hourly repeats for open follow-ups, only 8 AM–9 PM in the trainer's time zone */
 export function followupDue(last: Date | null, now: Date, tz: string): boolean {

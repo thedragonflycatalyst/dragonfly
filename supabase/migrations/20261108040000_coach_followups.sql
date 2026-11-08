@@ -8,7 +8,7 @@ create table public.coach_followups (
   trainer_id uuid not null references public.coach_trainers(user_id) on delete cascade,
   client_id uuid references public.coach_clients(id) on delete set null,
   booking_id uuid references public.coach_bookings(id) on delete set null,
-  kind text not null default 'calendar_move' check (kind in ('calendar_move', 'calendar_cancel', 'unconfirmed')),
+  kind text not null default 'calendar_move' check (kind in ('calendar_move', 'calendar_cancel')),
   calendars text check (char_length(calendars) <= 200),    -- which outside calendars to update
   title text not null check (char_length(title) between 1 and 300),
   old_start timestamptz,

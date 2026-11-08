@@ -6,7 +6,7 @@
 // Deploy with --no-verify-jwt (it checks the cron secret or the user's session itself). Android needs FCM_SERVICE_ACCOUNT;
 // iPhone needs APNS_KEY, APNS_KEY_ID and APNS_TEAM_ID.
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { type Device, followupBody, followupTitle, pushConfigured, rescheduleAlertText, sendUrgent } from '../_shared/push.ts';
+import { type Device, FOLLOWUP_TITLE, followupBody, pushConfigured, rescheduleAlertText, sendUrgent } from '../_shared/push.ts';
 
 const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.github.io/dragonfly/').replace(/\/?$/, '/');
 const json = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -53,9 +53,9 @@ Deno.serve(async (req) => {
     const { data: ok } = await admin.rpc('coach_cron_ok', { p: req.headers.get('x-cron-secret') ?? '' });
     if (ok !== true) return json(403, { error: 'forbidden' });
     if (!UUID.test(String(body.followup_id ?? ''))) return json(400, { error: 'bad_request' });
-    const { data: f } = await admin.from('coach_followups').select('trainer_id, title, status, alerts, kind').eq('id', body.followup_id).maybeSingle();
+    const { data: f } = await admin.from('coach_followups').select('trainer_id, title, status, alerts').eq('id', body.followup_id).maybeSingle();
     if (!f || f.status !== 'open') return json(200, { sent: 0 });
-    const sent = await send(f.trainer_id, followupTitle(f.kind), f.kind === 'unconfirmed' ? `${f.title}. You might give them a call.` : followupBody(f.title), `${WEB}followups`, 'followup');
+    const sent = await send(f.trainer_id, FOLLOWUP_TITLE, followupBody(f.title), `${WEB}followups`, 'followup');
     await admin.from('coach_followups').update({ alerts: (f.alerts ?? 0) + 1, last_alert_at: new Date().toISOString() }).eq('id', body.followup_id);
     return json(200, { sent });
   }

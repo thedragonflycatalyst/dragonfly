@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 const assertEquals = (a: unknown, b: unknown) => assert.deepStrictEqual(a, b);
-import { cancelReplyText, CONFIRM_REPLY, e164, reminderAt, rescheduleText, healthWord, isQuiet, nextSendable, occurrences, parseReply, reminderText, wall, zoned, type BookingRow } from './messaging.ts';
+import { cancelReplyText, CONFIRM_REPLY, e164, relayText, reminderAt, rescheduleText, healthWord, isQuiet, nextSendable, occurrences, parseReply, reminderText, wall, zoned, type BookingRow } from './messaging.ts';
 
 const TZ = 'America/New_York';
 const b = (over: Partial<BookingRow>): BookingRow => ({ id: 'b', starts_at: '2026-10-26T11:00:00Z', duration_min: 60, repeat: 'weekly', repeat_until: null, skipped: [], client_id: 'c', title: 'Session', kind: 'session', location: null, ...over });
@@ -38,7 +38,7 @@ Deno.test('quiet hours wrap midnight and the next sendable time is the end of qu
 Deno.test('reminder text: day words, reply help by text only, nothing about health', () => {
   const now = new Date('2026-11-09T15:00:00Z');
   const sms = reminderText({ stage: 'main', first: 'Sam', brand: 'The Dragonfly Catalyst', start: new Date('2026-11-10T12:00:00Z'), tz: TZ, now, sms: true });
-  assertEquals(sms, 'Hi Sam, this is The Dragonfly Catalyst. Your session is Tue, Nov 10 at 7:00 AM, held just for you. Reply CONFIRM or RESCHEDULE. Reply STOP to opt out.');
+  assertEquals(sms, 'Hi Sam, this is The Dragonfly Catalyst. Your session is Tue, Nov 10 at 7:00 AM. Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT. Reply STOP to opt out.');
   assert.ok(reminderText({ stage: 'nudge', first: 'Sam', brand: 'B', start: new Date('2026-11-09T22:00:00Z'), tz: TZ, now, sms: true }).includes('today at 5:00 PM'));
 });
 
@@ -95,4 +95,9 @@ Deno.test('reminder plan: under 160 characters, no emoji, business name only, ri
   // Month rollover: a Dec 1 session's main reminder is Nov 29
   assertEquals(reminderAt('main', new Date('2026-12-01T15:00:00Z'), TZ)!.toISOString(), '2026-11-29T13:00:00.000Z');
   assert.ok(rescheduleText('https://x', true).includes('today') && !rescheduleText('https://x', false).includes('today'));
+});
+
+Deno.test('stray texts get one short, clear courtesy reply', () => {
+  const t = relayText('Samantha', 'The Dragonfly Catalyst');
+  assert.ok(t.length <= 160 && !/[^\x00-\x7F]/.test(t), t);
 });
