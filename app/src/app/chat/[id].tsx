@@ -284,7 +284,7 @@ export default function Conversation() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 8 }}>
               <Icon name="info" size={18} color={p.focus} />
               <Txt v="small" style={{ flex: 1 }}>{pref.first} prefers {CONTACT_LABEL[pref.via]}{outside ? '' : ' (add their phone number to use it)'}</Txt>
-              {outside && <Pressable accessibilityRole="button" onPress={sendOutside} style={{ paddingHorizontal: 12, height: 32, borderRadius: R.md, backgroundColor: p.focus, justifyContent: 'center' }}>
+              {outside && <Pressable accessibilityRole="button" onPress={sendOutside} style={{ paddingHorizontal: 12, height: 32, borderRadius: R.md, backgroundColor: p.fill, justifyContent: 'center' }}>
                 <Txt v="smallBold" color={p.onAccent}>{text.trim() ? `Send by ${CONTACT_LABEL[pref.via]}` : `Open ${CONTACT_LABEL[pref.via]}`}</Txt>
               </Pressable>}
             </View>
@@ -294,7 +294,7 @@ export default function Conversation() {
               <Pressable accessibilityRole="button" accessibilityLabel="Discard recording" onPress={() => stopRec(false)} hitSlop={8}><Icon name="delete" size={26} color={p.danger} /></Pressable>
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: p.danger }} />
               <Txt style={{ flex: 1 }}>Recording… {Math.floor(recording / 60)}:{String(recording % 60).padStart(2, '0')}</Txt>
-              <Pressable accessibilityRole="button" accessibilityLabel="Send voice message" onPress={() => stopRec(true)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.focus, alignItems: 'center', justifyContent: 'center' }}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Send voice message" onPress={() => stopRec(true)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.fill, alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name="send" size={20} color={p.onAccent} />
               </Pressable>
             </View>
@@ -308,7 +308,7 @@ export default function Conversation() {
                 <Pressable accessibilityRole="button" accessibilityLabel="Emoji" onPress={() => setEmoji(true)} style={{ padding: 8 }}><Text style={{ fontSize: 22 }}>🙂</Text></Pressable>
               </View>
               {sending ? <ActivityIndicator style={{ padding: 10 }} color={p.ink} />
-                : text.trim() ? <Pressable accessibilityRole="button" accessibilityLabel="Send" onPress={sendText} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.focus, alignItems: 'center', justifyContent: 'center' }}><Icon name={editing ? 'check' : 'send'} size={20} color={p.onAccent} /></Pressable>
+                : text.trim() ? <Pressable accessibilityRole="button" accessibilityLabel="Send" onPress={sendText} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.fill, alignItems: 'center', justifyContent: 'center' }}><Icon name={editing ? 'check' : 'send'} size={20} color={p.onAccent} /></Pressable>
                 : <Pressable accessibilityRole="button" accessibilityLabel="Record a voice message" onPress={startRec} style={{ padding: 8 }}><Icon name="mic" size={28} /></Pressable>}
             </View>
           )}

@@ -51,7 +51,7 @@ function Shell() {
       <AutoSync />
       <View style={{ flex: 1, flexDirection: 'row', backgroundColor: p.bg }}>
       {wide && <SidebarRail />}
-      <View style={{ flex: 1 }}>
+      <View role="main" style={{ flex: 1 }}>
       <Stack key={viewingKey} screenOptions={{ ...header, headerShown: false }}>
         <Stack.Screen name="account" options={{ headerShown: true, title: 'Account' }} />
         {['clients/new', 'clients/[id]/index', 'clients/[id]/edit', 'clients/[id]/[section]', 'groups/[id]', 'forms/[rid]', 'forms/build', 'me/[section]', 'workouts/[id]', 'programs/[id]', 'session', 'workout/[aid]', 'clients/[id]/workouts', 'nutrition/[id]', 'clients/[id]/nutrition', 'me/nutrition', 'me/food', 'team', 'support', 'exercises', 'soon/[key]', 'checkins/index', 'checkins/[id]', 'programs/index',

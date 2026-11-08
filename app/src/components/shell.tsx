@@ -30,7 +30,7 @@ function Brand({ size = 34 }: { size?: number }) {
   const p = usePalette();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-      <Image source={LOGO} style={{ width: size, height: size }} contentFit="contain" accessibilityIgnoresInvertColors accessible={false} />
+      <Image source={LOGO} style={{ width: size, height: size }} contentFit="contain" accessibilityIgnoresInvertColors accessible={false} accessibilityLabel="" />
       <Text style={{ fontFamily: F.display, fontSize: 18, color: p.ink, letterSpacing: -0.3 }}>Dragonfly</Text>
     </View>
   );
@@ -137,7 +137,7 @@ function SidebarBody({ onGo }: { onGo?: () => void }) {
 /** Always-open sidebar beside the page on wide screens */
 export function SidebarRail() {
   const p = usePalette();
-  return <View style={{ width: 252, borderRightWidth: 1, borderRightColor: p.line, backgroundColor: p.surface }}><SidebarBody /></View>;
+  return <View role="navigation" style={{ width: 252, borderRightWidth: 1, borderRightColor: p.line, backgroundColor: p.surface }}><SidebarBody /></View>;
 }
 
 /** Slide-in sidebar on phones (opened by the menu button) */
