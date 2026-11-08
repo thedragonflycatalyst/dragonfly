@@ -6,6 +6,7 @@ import { ComingWith, Initials, Row, SectionLabel, statusColor } from '@/componen
 import { Badge } from '@/components/shell';
 import { Button, Card, Empty, Txt, useToast } from '@/components/ui';
 import { PoolCard } from '@/features/client-pool';
+import { AwayCard } from '@/features/client-away';
 import { SECTIONS, useClientRecord, type SectionKey } from '@/features/common';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
@@ -131,6 +132,8 @@ export default function ClientProfile() {
             `${first} keeps their history but can’t see their training or log anything until you unfreeze them.`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Freeze', onPress: () => setStatus('frozen', `${first} is frozen`) }])} />}
           {c.status === 'frozen' && <Button small icon="ac_unit" title="Unfreeze" busy={busy === 'active'} onPress={() => setStatus('active', `${first} is active again`)} />}
         </View>
+
+        {c.status !== 'lead' && c.status !== 'archived' && <AwayCard client={c} onChanged={reload} />}
 
         {s?.flagged && (
           <Card style={{ marginTop: 16, borderWidth: 1.5, borderColor: p.danger, gap: 6 }}>

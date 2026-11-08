@@ -1,4 +1,5 @@
 // The client pool: who to offer an open slot to. Pure functions so the ranking can be tested.
+import { dayKey, isAwayOn, type AwayFields } from './client-away';
 export type Tier = 'regular' | 'occasional' | 'on_call' | 'lapsed' | 'prospect';
 export const TIERS: { key: Tier; label: string; hint: string }[] = [
   { key: 'regular', label: 'Regular', hint: 'Fixed weekly sessions' },
@@ -11,7 +12,7 @@ export const tierLabel = (t: Tier) => TIERS.find((x) => x.key === t)?.label ?? t
 
 export type PoolClient = {
   id: string; name: string; status: string; frequency_tier: Tier; short_notice_ok: boolean; client_of?: string; phone?: string | null;
-};
+} & AwayFields;
 export type Window = { client_id: string; weekday: number; start_time: string; end_time: string };
 export type Ranked = {
   client: PoolClient; tier: Tier; fits: boolean; lastAt: string | null; daysSince: number | null; credits: number | null; why: string[];
@@ -36,7 +37,7 @@ export function fitsWindow(windows: Window[], start: Date, durationMin: number):
 
 /**
  * Who to offer a slot to, best first: free at that time, opted in to short notice, longest since their last session,
- * most credits left. Regulars, inactive clients and anyone already booked then are left out unless asked for.
+ * most credits left. Regulars, inactive clients, anyone away that day and anyone already booked then are left out (regulars unless asked for).
  */
 export function rankPool(opts: {
   clients: PoolClient[]; windows: Window[]; lastSeen: Record<string, string | null>; credits: Record<string, number | null>;
@@ -44,7 +45,7 @@ export function rankPool(opts: {
 }): Ranked[] {
   const out: Ranked[] = [];
   for (const c of opts.clients) {
-    if (c.status !== 'active' || opts.busy?.has(c.id)) continue;
+    if (c.status !== 'active' || opts.busy?.has(c.id) || isAwayOn(c, dayKey(opts.start))) continue; // away that day: don't ask
     const lastAt = opts.lastSeen[c.id] ?? null;
     const tier = effectiveTier(c, lastAt, opts.now, opts.lapsedWeeks);
     if (tier === 'regular' && !opts.includeRegulars) continue;
