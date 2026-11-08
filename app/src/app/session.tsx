@@ -10,6 +10,8 @@ import { CUE_LINES, hush, say } from '@/features/lapis/audio';
 import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
+import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
+import { parseLapisTimer } from '@/features/lapis/library';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { useHidden } from '@/features/library-extras';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
@@ -188,6 +190,14 @@ export default function Session() {
             </Card>
           )}
           {src.assignment?.trainer_note ? <Card><Txt v="smallBold" color={p.focus}>From your trainer</Txt><Txt>{src.assignment.trainer_note}</Txt></Card> : null}
+          {src.blocks.filter((b) => b.kind === 'timed').map((b) => {
+            if (b.kind !== 'timed') return null;
+            const savedTimer = b.timer.source?.app === 'lapis'
+              ? parseLapisTimer(b.timer.source.snapshot) : null;
+            return savedTimer
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer} />
+              : <Card key={b.id}><Txt v="bold">{b.name}</Txt><Txt v="small" color={p.muted}>This older timer needs to be linked again from the workout builder.</Txt></Card>;
+          })}
           <Txt v="small">{done} of {total} sets done{volume(log) ? ` · ${volume(log).toLocaleString()} ${unit} lifted` : ''}</Txt>
           {log.map((e, bi) => {
             const b = blocks.find((x) => x.id === e.block_id);
