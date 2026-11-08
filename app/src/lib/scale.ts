@@ -2,7 +2,7 @@
 // Everything is stored metric (kg); shown in the person's bodyweight unit.
 
 export type Weighin = { id: string; user_id: string; measured_at: string; weight_kg: number; metrics: Partial<Record<ReadingKey, number>>; source: 'manual' | 'import' | 'health_connect'; note: string | null };
-export type ScaleSettings = { user_id: string; metrics: MetricKey[]; goal_kg: number | null; goal_date: string | null; height_cm: number | null; sex: 'male' | 'female' | 'other' | null; reminder_on: boolean; reminder_time: string };
+export type ScaleSettings = { user_id: string; metrics: MetricKey[]; goal_kg: number | null; goal_date: string | null; height_cm: number | null; sex: 'male' | 'female' | 'other' | null; reminder_on: boolean; reminder_time: string; trend_smoothing?: number | null };
 export type BodyUnit = 'lb' | 'kg' | 'st';
 
 /** Keep stored readings that are not shown in the current edit form; clear only visible blank fields. */
@@ -130,6 +130,8 @@ export function bmiClass(b: number) {
 
 /* ---------------- trend ---------------- */
 const DAY = 86_400_000;
+export const SMOOTHING_OPTIONS = [0.05, 0.1, 0.2, 0.35] as const;
+export const getSmoothing = (value: number | null | undefined): number => value != null && SMOOTHING_OPTIONS.some((x) => x === value) ? value : 0.1;
 /** Exponentially smoothed weight (10% a day, adjusted for gaps), oldest first. Takes weigh-ins in any order. */
 export function trend(list: Pick<Weighin, 'measured_at' | 'weight_kg'>[], smoothing = 0.1): { t: number; kg: number; trend: number }[] {
   const pts = [...list].map((w) => ({ t: new Date(w.measured_at).getTime(), kg: Number(w.weight_kg) })).sort((a, b) => a.t - b.t);
@@ -163,6 +165,36 @@ export function goalEta(trendKg: number, goalKg: number, kgPerWeek: number | nul
   const weeks = diff / kgPerWeek;
   if (weeks > 520) return null;
   return new Date(from.getTime() + weeks * 7 * DAY);
+}
+
+/** Deadline comparisons use calendar days, not the user's device time-of-day. */
+export type GoalSchedule = {
+  status: 'reached' | 'overdue' | 'ahead' | 'on_track' | 'behind' | 'insufficient';
+  requiredKgPerWeek: number | null;
+  projected: Date | null;
+  daysToDeadline: number;
+  daysDifference: number | null;
+};
+
+/** Planning estimate only: compares a recent smoothed trend with an optional target date.
+ *  Does not reinterpret the stored goal or the user's historical weigh-ins.
+ */
+export function goalSchedule(trendKg: number, goalKg: number, rateKgPerWeek: number | null, goalDate: string | null, today = new Date()): GoalSchedule | null {
+  if (!goalDate || !/^\d{4}-\d{2}-\d{2}$/.test(goalDate)) return null;
+  const deadline = new Date(goalDate + 'T12:00:00Z');
+  if (!Number.isFinite(deadline.getTime()) || deadline.toISOString().slice(0, 10) !== goalDate) return null;
+  const todayDay = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 12));
+  const daysToDeadline = Math.round((deadline.getTime() - todayDay.getTime()) / DAY);
+  const remaining = goalKg - trendKg;
+  const requiredKgPerWeek = daysToDeadline > 0 ? remaining / daysToDeadline * 7 : null;
+  if (Math.abs(remaining) < 0.05) return { status: 'reached', requiredKgPerWeek: 0, projected: today, daysToDeadline, daysDifference: null };
+  if (daysToDeadline < 0) return { status: 'overdue', requiredKgPerWeek: null, projected: null, daysToDeadline, daysDifference: null };
+  const projected = goalEta(trendKg, goalKg, rateKgPerWeek, today);
+  if (!projected) return { status: 'insufficient', requiredKgPerWeek, projected: null, daysToDeadline, daysDifference: null };
+  const projectionDay = Date.UTC(projected.getFullYear(), projected.getMonth(), projected.getDate(), 12);
+  const daysDifference = Math.round((projectionDay - deadline.getTime()) / DAY);
+  return { status: daysDifference < -7 ? 'ahead' : daysDifference <= 7 ? 'on_track' : 'behind',
+    requiredKgPerWeek, projected, daysToDeadline, daysDifference };
 }
 
 /* ---------------- stats ---------------- */
@@ -202,7 +234,7 @@ export function yearlyChange(tr: { t: number; trend: number }[]): { year: number
   return [...last.keys()].sort().map((y) => { const a = first.get(y)!, b = last.get(y)!; return { year: y, kg: b - a, pct: ((b - a) / a) * 100 }; });
 }
 /** Weigh-ins grouped by month, newest first, with the month's change */
-export function byMonth(list: Weighin[]) {
+export function byMonth(list: Weighin[], smoothing = 0.1) {
   const sorted = [...list].sort((a, b) => b.measured_at.localeCompare(a.measured_at));
   const groups: { month: string; items: Weighin[]; change: number | null; pct: number | null }[] = [];
   for (const w of sorted) {
@@ -211,10 +243,13 @@ export function byMonth(list: Weighin[]) {
     if (!g || g.month !== k) { g = { month: k, items: [], change: null, pct: null }; groups.push(g); }
     g.items.push(w);
   }
-  for (let i = 0; i < groups.length; i++) {
-    const newest = Number(groups[i].items[0].weight_kg), prevMonth = groups[i + 1]?.items[0];
-    const base = prevMonth ? Number(prevMonth.weight_kg) : Number(groups[i].items[groups[i].items.length - 1].weight_kg);
-    groups[i].change = newest - base; groups[i].pct = ((newest - base) / base) * 100;
+  // Use exactly the same trend endpoints as the Stats tab, not raw weigh-ins
+  // compared against a different reference point.
+  const monthChanges = new Map(monthlyChange(trend(list, smoothing)).map((m) => [m.month, m]));
+  for (const g of groups) {
+    const change = monthChanges.get(g.month);
+    g.change = change?.kg ?? null;
+    g.pct = change?.pct ?? null;
   }
   return groups;
 }
@@ -321,6 +356,44 @@ export function parseCsv(text: string, fallback: BodyUnit = 'lb'): { rows: Impor
     rows.push({ measured_at: when.toISOString(), weight_kg: Math.round(kg * 100) / 100, metrics });
   }
   return { rows, skipped };
+}
+
+/** Preview a CSV import without replacing any existing weight, note, source or measurement.
+ *  Exact timestamps are the collision key, matching the database uniqueness constraint.
+ *  Repeated rows inside one file are coalesced, keeping the first weight and first value
+ *  of every measurement so a malformed export cannot silently replace values.
+ */
+export type ImportPlan = {
+  inserts: Imported[];
+  enrichments: { id: string; metrics: Weighin['metrics'] }[];
+  unchanged: number;
+  conflictingWeights: number;
+  duplicateRows: number;
+};
+export function planCsvImport(rows: Imported[], existing: Pick<Weighin, 'id' | 'measured_at' | 'weight_kg' | 'metrics'>[]): ImportPlan {
+  const unique = new Map<string, Imported>();
+  let duplicateRows = 0;
+  for (const row of rows) {
+    const prev = unique.get(row.measured_at);
+    if (prev) {
+      duplicateRows++;
+      unique.set(row.measured_at, { ...prev, metrics: { ...row.metrics, ...prev.metrics } });
+    } else unique.set(row.measured_at, { ...row, metrics: { ...row.metrics } });
+  }
+  const have = new Map(existing.map((w) => [new Date(w.measured_at).toISOString(), w]));
+  const inserts: Imported[] = [], enrichments: ImportPlan['enrichments'] = [];
+  let unchanged = 0, conflictingWeights = 0;
+  for (const row of unique.values()) {
+    const old = have.get(row.measured_at);
+    if (!old) { inserts.push(row); continue; }
+    if (Math.abs(Number(old.weight_kg) - row.weight_kg) > 0.01) conflictingWeights++;
+    // Existing measurements always win. Only fill measurements that are absent.
+    const merged = { ...row.metrics, ...(old.metrics ?? {}) };
+    if (Object.keys(merged).some((key) => old.metrics?.[key as ReadingKey] == null))
+      enrichments.push({ id: old.id, metrics: merged });
+    else unchanged++;
+  }
+  return { inserts, enrichments, unchanged, conflictingWeights, duplicateRows };
 }
 
 /* ---------------- Health Connect (Android) ---------------- */

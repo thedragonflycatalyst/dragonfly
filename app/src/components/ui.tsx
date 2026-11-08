@@ -27,7 +27,7 @@ const SF: Partial<Record<AndroidSymbol, SFSymbol>> = {
   group_add: 'person.2.badge.plus', person_add: 'person.badge.plus', content_copy: 'doc.on.doc', fitness_center: 'dumbbell', swap_horiz: 'arrow.left.arrow.right',
   sports_gymnastics: 'figure.strengthtraining.traditional', link: 'link', pause: 'pause.circle', archive: 'archivebox', badge: 'person.text.rectangle',
   play_arrow: 'play.fill', star: 'star.fill', star_outline: 'star', video_library: 'play.rectangle.on.rectangle', arrow_upward: 'arrow.up', arrow_downward: 'arrow.down',
-  timer: 'timer', folder: 'folder', drive_file_move: 'folder.badge.plus', remove: 'minus', stop_circle: 'stop.circle', skip_next: 'forward.end', bolt: 'bolt',
+  timer: 'timer', folder: 'folder', drive_file_move: 'folder.badge.plus', remove: 'minus', stop_circle: 'stop.circle', volume_up: 'speaker.wave.2', skip_next: 'forward.end', bolt: 'bolt',
   home: 'house', menu: 'line.3.horizontal', ac_unit: 'snowflake', filter_list: 'line.3.horizontal.decrease', sort: 'arrow.up.arrow.down',
   description: 'doc.text', attach_file: 'paperclip', sticky_note_2: 'note.text', checklist: 'checklist', health_and_safety: 'cross.case', straighten: 'ruler',
   timeline: 'chart.xyaxis.line', settings: 'gearshape', payments: 'creditcard', event: 'calendar', groups: 'person.3', inbox: 'tray', link_off: 'personalhotspot.slash',
@@ -43,18 +43,22 @@ export function Icon({ name, size = 22, color }: { name: AndroidSymbol; size?: n
 
 /* ---------- buttons ---------- */
 type BtnKind = 'solid' | 'ghost' | 'quiet' | 'danger' | 'accent' | 'on';
-export function Button({ title, onPress, kind = 'solid', icon, small, busy, disabled, accent, style, haptic = true, tight }: {
-  title?: string; tight?: boolean; onPress?: () => void; kind?: BtnKind; icon?: AndroidSymbol; small?: boolean; busy?: boolean; disabled?: boolean;
-  accent?: string; style?: StyleProp<ViewStyle>; haptic?: boolean;
-}) {
+type BtnBase = { tight?: boolean; onPress?: () => void; kind?: BtnKind; icon?: AndroidSymbol; small?: boolean; busy?: boolean; disabled?: boolean;
+  accent?: string; style?: StyleProp<ViewStyle>; haptic?: boolean };
+/** Icon-only buttons must say what they do (screen readers): pass `label` when there's no `title`. */
+export type ButtonProps = BtnBase & ({ title: string; label?: string } | { title?: undefined; label: string });
+// Small buttons and chips are 36 tall; this makes their touch area at least 44×44
+const SLOP = { top: 4, bottom: 4, left: 4, right: 4 };
+export function Button({ title, label, onPress, kind = 'solid', icon, small, busy, disabled, accent, style, haptic = true, tight }: ButtonProps) {
   const p = usePalette();
   // Uploader buttons: primary violet, secondary outlined, quiet tinted, danger outlined
-  const bg = { solid: p.focus, ghost: p.surface, quiet: p.soft, danger: 'transparent', accent: accent ?? p.focus, on: p.good }[kind];
-  const fg = { solid: p.onAccent, ghost: p.ink, quiet: p.ink, danger: p.danger, accent: p.onAccent, on: p.onAccent }[kind];
+  const bg = { solid: p.fill, ghost: p.surface, quiet: p.soft, danger: 'transparent', accent: accent ?? p.fill, on: p.good }[kind];
+  const fg = { solid: p.onAccent, ghost: p.ink, quiet: p.ink, danger: p.danger, accent: p.onAccent, on: p.onGood }[kind];
   const border = kind === 'ghost' ? p.line : kind === 'danger' ? p.danger : 'transparent';
   return (
     <Pressable
-      accessibilityRole="button" accessibilityLabel={title} disabled={disabled || busy}
+      accessibilityRole="button" accessibilityLabel={label ?? title} accessibilityState={{ disabled: !!(disabled || busy), busy: !!busy }}
+      disabled={disabled || busy} hitSlop={small ? SLOP : undefined}
       onPress={() => { if (haptic) Haptics.selectionAsync().catch(() => {}); onPress?.(); }}
       style={({ pressed }) => [
         { backgroundColor: bg, borderColor: border, borderWidth: 1, minHeight: small ? 36 : 46, paddingHorizontal: title ? (small ? 12 : tight ? 10 : 18) : 0,
@@ -74,10 +78,10 @@ export function Button({ title, onPress, kind = 'solid', icon, small, busy, disa
 
 export function Chip({ label, emoji, selected, onPress, color }: { label: string; emoji?: string; selected?: boolean; onPress?: () => void; color?: string }) {
   const p = usePalette();
-  const on = color ?? p.focus;
+  const on = color ?? p.fill;
   return (
     <Pressable
-      accessibilityRole="button" accessibilityState={{ selected }} onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress?.(); }}
+      accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={label} hitSlop={SLOP} onPress={() => { Haptics.selectionAsync().catch(() => {}); onPress?.(); }}
       style={({ pressed }) => [styles.chip, { backgroundColor: selected ? on : p.surface, borderColor: selected ? on : p.line, opacity: pressed ? 0.8 : 1 }]}>
       {emoji && <Text style={{ fontSize: 16 }}>{emoji}</Text>}
       <Text style={[selected ? styles.bold : styles.body, { fontSize: 14, color: selected ? p.onAccent : p.ink }]}>{label}</Text>
@@ -97,7 +101,7 @@ export function Field({ label, hint, style, ...input }: TextInputProps & { label
     <View style={{ marginBottom: 16 }}>
       <Txt v="bold" style={{ marginBottom: 6, fontSize: 14 }}>{label}{hint ? <Txt v="small"> {hint}</Txt> : null}</Txt>
       <TextInput
-        placeholderTextColor={p.muted} {...input}
+        placeholderTextColor={p.muted} accessibilityLabel={label} {...input}
         onFocus={(e) => { setFocus(true); input.onFocus?.(e); }} onBlur={(e) => { setFocus(false); input.onBlur?.(e); }}
         style={[styles.input, { backgroundColor: p.raise, color: p.ink, borderColor: focus ? p.focus : p.line }, input.multiline && { minHeight: 120, textAlignVertical: 'top', paddingTop: 12 }, style]}
       />

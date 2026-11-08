@@ -9,12 +9,14 @@ import { useApp } from '@/lib/app-state';
 import { addDays, dayKey } from '@/lib/dates';
 import { errText, type Client, type Program } from '@/lib/model';
 import { compliance } from '@/lib/session';
+import { cloneBlocks } from '@/lib/workouts';
+import { PROGRAM_TEMPLATES, scheduleFor, type ProgramTemplate } from '@/data/program-templates';
 import { sb } from '@/lib/supabase';
 import { F, MAX_W, R, usePalette } from '@/lib/theme';
 
 type Row = { client: Client; program: string; done: number; due: number; pct: number | null };
 
-/** Programs: multi-week plans of workouts and tasks, how clients are keeping up, and (later) Dragonfly templates. */
+/** Programs: multi-week plans of workouts and tasks, how clients are keeping up, and Dragonfly program templates. */
 export default function Programs() {
   const p = usePalette();
   const toast = useToast();
@@ -64,6 +66,31 @@ export default function Programs() {
     if (error) return toast(errText(error), false);
     setCreating(false); setName(''); setWeeks('4');
     router.push({ pathname: '/programs/[id]', params: { id: data.id } });
+  };
+
+  /** Copy a Dragonfly template into the trainer's own workouts and a new program, then open it */
+  const [installing, setInstalling] = useState<string | null>(null);
+  const install = async (t: ProgramTemplate) => {
+    const tid = app.trainer?.user_id;
+    if (!tid) return;
+    setInstalling(t.key);
+    try {
+      const { data: ws, error } = await sb.from('coach_workouts').insert(t.workouts.map((w) => ({
+        trainer_id: tid, name: `${t.name}: ${w.name}`.slice(0, 120), description: w.description || null, blocks: cloneBlocks(w.blocks), cover: t.cover,
+      }))).select('id, name');
+      if (error) throw error;
+      // Keep template order (returned rows follow insert order, but match by name to be safe)
+      const rows = (ws as { id: string; name: string }[]) ?? [];
+      const ids = t.workouts.map((w, i) => rows.find((x) => x.name === `${t.name}: ${w.name}`.slice(0, 120))?.id ?? rows[i]?.id);
+      if (ids.some((x) => !x)) throw new Error('Couldn’t copy every workout. Try again.');
+      const { data: prog, error: e2 } = await sb.from('coach_programs').insert({
+        trainer_id: tid, name: t.name, weeks: t.weeks, cover: t.cover, schedule: scheduleFor(t, ids as string[]),
+        description: `${t.description}\n\nProgression: ${t.progression}`.slice(0, 4000),
+      }).select('id').single();
+      if (e2) throw e2;
+      toast(`${t.name} added to your programs`);
+      router.push({ pathname: '/programs/[id]', params: { id: prog.id } });
+    } catch (e) { toast(errText(e), false); } finally { setInstalling(null); }
   };
 
   return (
@@ -121,7 +148,20 @@ export default function Programs() {
                 ))}
               </Card>
             </>)}
-          {tab === 'templates' && <Empty emoji="✨" title="Dragonfly programs are on the way" body="Ready-made programs with their own artwork will appear here as they’re built. Until then, build your own in Programs." />}
+          {tab === 'templates' && (
+            <View style={{ gap: 10 }}>
+              <Txt v="small">Ready-made programs. Using one copies its workouts into your library and creates a program you can edit and assign.</Txt>
+              {PROGRAM_TEMPLATES.map((t) => (
+                <Card key={t.key} style={{ gap: 6 }}>
+                  <Txt v="kicker" color={p.focus}>{t.focus} · {t.level} · {t.weeks} weeks · {t.perWeek}× a week</Txt>
+                  <Txt v="bold">{t.name}</Txt>
+                  <Txt v="small">{t.description}</Txt>
+                  <Txt v="small">Workouts: {t.workouts.map((w) => w.name).join(', ')}</Txt>
+                  <Button small title="Use this program" busy={installing === t.key} disabled={!!installing} onPress={() => install(t)} style={{ alignSelf: 'flex-start' }} />
+                </Card>
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
       {tab === 'programs' && <View style={{ position: 'absolute', bottom: 20, left: 0, right: 0, alignItems: 'center' }} pointerEvents="box-none">
