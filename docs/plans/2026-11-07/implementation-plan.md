@@ -169,3 +169,10 @@ Record answers here (replace the default column with the decision and date) as s
 - 2026-11-07 · 4 · #47 · Client picks reminder channel (text/email/app, default text); email adapter (Resend, off); manual email via mailto.
 - 2026-11-07 · 6 · #48 · Waitlist worker in coach-outbox; review sites (`coach_review_links`, `coach_testimonial_shares`) · `rls_engagement`, 12 deno tests.
 - 2026-11-07 · 0.7 · #51 · Refund policy (prorated / unused only / none, window, fee, event cutoff), terms snapshotted per purchase, refund quote and over-policy reason · `rls_refund_policy`, unit tests.
+
+## Owner decisions, 2026-11-07 (evening)
+
+- Client reschedules need trainer approval; the trainer gets an urgent phone alert ("Susan Forbes, 3:00 PM wants to reschedule to 5:00 PM.") that opens the request with Approve / Decline. Our own push system (Firebase for Android, Apple APNs for iPhone), no outside alert apps.
+- Trainers with any outside calendar get a to-do for every move or cancellation that stays until marked done (hourly phone alerts 8 AM–9 PM). App-only trainers get none.
+- Apple (developer account, iPhone builds, iPhone push keys) is planned and coded, but the owner pays for it only once the app is live. Android first.
+- Owner to-do: Twilio number/verification; Firebase project (`GOOGLE_SERVICES_JSON` GitHub secret, `FCM_SERVICE_ACCOUNT` Supabase secret).
