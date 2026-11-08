@@ -1,10 +1,11 @@
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, Field, Txt, useToast } from '@/components/ui';
 import { confirmWithCode, recoverWithCode, resendVerification, sendRecoveryCode } from '@/lib/account';
 import { useApp } from '@/lib/app-state';
+import { rememberLogin, setRememberLogin } from '@/lib/remember-login';
 import { errText, isEmail } from '@/lib/model';
 import { F, usePalette } from '@/lib/theme';
 
@@ -28,6 +29,7 @@ export default function SignIn() {
   const [pw, setPw] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [remember, setRemember] = useState(rememberLogin());
   const [err, setErr] = useState('');
 
   // Back to a join page (QR sign-up) after signing in; only our own paths
@@ -42,6 +44,7 @@ export default function SignIn() {
 
   const signIn = () => attempt(async () => {
     if (!id.trim() || !pw) throw new Error('Enter your email, username or phone, and your password.');
+    setRememberLogin(remember);
     await app.signIn(id.trim(), pw);
     toast('Signed in'); done();
   });
@@ -60,6 +63,7 @@ export default function SignIn() {
     if (!isEmail(email)) throw new Error('Enter your email.');
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{2,29}$/.test(uname)) throw new Error('dragonfly_username_invalid');
     if (pw.length < 8) throw new Error('Use at least 8 characters for your password.');
+    setRememberLogin(remember);
     const r = await app.signUp(email.trim(), uname.trim(), pw);
     if (r === 'signed-in') { await app.becomeTrainer(); toast('Welcome!'); done(); } else setMode('confirm');
   });
@@ -80,6 +84,10 @@ export default function SignIn() {
                 <Field label="Email, username or phone" value={id} onChangeText={setId} autoCapitalize="none" autoComplete="username" autoCorrect={false} keyboardType="email-address" />
                 <Field label="Password" value={pw} onChangeText={setPw} secureTextEntry autoComplete="current-password" onSubmitEditing={signIn} />
                 {errLine}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <Txt>Keep me signed in</Txt>
+                  <Switch accessibilityLabel="Keep me signed in on this device" value={remember} onValueChange={setRemember} />
+                </View>
                 <Button title="Sign in" busy={busy} onPress={signIn} />
                 <Button kind="quiet" small title="Forgot password" style={{ alignSelf: 'center', marginTop: 12 }}
                   onPress={() => (isEmail(id) ? sendCode('reset') : (setEmail(''), go('reset')))} />
