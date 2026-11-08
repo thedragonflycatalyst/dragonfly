@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, goalEta, kcalPerDay, monthlyChange, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
+import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, getSmoothing, goalEta, goalSchedule, kcalPerDay, monthlyChange, parseCsv, planCsvImport, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
 import { occurrences, openSlots, priceLabel, toCents, voucherPrice, voucherState, weekOf, spotsText, eventCost, byMonth as moneyByMonth, type Booking } from './business';
 import { bigEmoji, layout, linkify, seenBy, tally, chatName, type Message, type ChatMember } from './chat';
 import { unitPrefs, notifyPrefs } from './prefs';
@@ -68,6 +68,24 @@ test('goal projection: only when heading the right way', () => {
   assert.equal(goalEta(90.01, 90, 0.5, from), from);
 });
 
+test('goal schedule uses deadline, trend and required weekly rate', () => {
+  const now = new Date(2026, 10, 1, 12);
+  const early = goalSchedule(100, 90, -2, '2026-12-20', now)!;
+  assert.equal(early.status, 'ahead');
+  assert.ok(early.requiredKgPerWeek! < -1.4 && early.requiredKgPerWeek! > -1.5);
+  assert.ok(early.daysDifference! < -7);
+  const onTime = goalSchedule(100, 90, -1, '2027-01-10', now)!;
+  assert.equal(onTime.status, 'on_track');
+  const late = goalSchedule(100, 90, -0.5, '2026-12-20', now)!;
+  assert.equal(late.status, 'behind');
+  assert.equal(goalSchedule(100, 90, 1, '2026-12-20', now)!.status, 'insufficient');
+  assert.equal(goalSchedule(100, 90, null, '2026-12-20', now)!.status, 'insufficient');
+  assert.equal(goalSchedule(100, 90, -1, '2026-10-10', now)!.status, 'overdue');
+  assert.equal(goalSchedule(90.01, 90, null, '2026-12-20', now)!.status, 'reached');
+  assert.equal(goalSchedule(100, 90, -1, null, now), null);
+  assert.equal(goalSchedule(100, 90, -1, '2026-02-30', now), null);
+});
+
 test('change over periods, monthly and yearly, and month groups', () => {
   const list = [W('2025-12-15', 110), W('2026-01-15', 108), W('2026-02-15', 106), W('2026-03-15', 107)];
   const tr = trend(list, 1);  // no smoothing so numbers are easy
@@ -75,9 +93,37 @@ test('change over periods, monthly and yearly, and month groups', () => {
   assert.equal(changeOver(tr, 365), null);
   assert.deepEqual(monthlyChange(tr).map((m) => Math.round(m.kg)), [-2, -2, 1]);
   assert.deepEqual(yearlyChange(tr).map((y) => [y.year, Math.round(y.kg)]), [[2025, 0], [2026, -1]]);
-  const g = byMonth(list);
+  const g = byMonth(list, 1);
   assert.equal(g[0].month, '2026-03'); assert.equal(g[0].change, 1); assert.equal(g.length, 4);
   assert.equal(spanText(list), '3 months');
+});
+
+test('monthly history and stats agree on identical smoothed endpoints', () => {
+  const entries = [
+    W('2026-01-02T12:00:00', 100),
+    W('2026-01-31T12:00:00', 98),
+    W('2026-02-01T12:00:00', 103),
+    W('2026-02-27T12:00:00', 96),
+    W('2026-03-02T12:00:00', 97),
+    W('2026-03-29T12:00:00', 95),
+  ];
+  for (const smoothing of [0.05, 0.1, 0.2, 0.35]) {
+    const changes = new Map(monthlyChange(trend(entries, smoothing)).map((m) => [m.month, m]));
+    const groups = byMonth(entries, smoothing);
+    assert.equal(groups.find((g) => g.month === '2026-01')?.change, null, 'first month has no prior month-end baseline');
+    for (const group of groups.filter((g) => g.month !== '2026-01')) {
+      assert.ok(Math.abs(group.change! - changes.get(group.month)!.kg) < 1e-9);
+      assert.ok(Math.abs(group.pct! - changes.get(group.month)!.pct) < 1e-9);
+    }
+  }
+});
+
+test('smoothing defaults and only permits supported options', () => {
+  assert.equal(getSmoothing(undefined), 0.1);
+  assert.equal(getSmoothing(null), 0.1);
+  assert.equal(getSmoothing(0.2), 0.2);
+  assert.equal(getSmoothing(0.123), 0.1);
+  assert.equal(getSmoothing(-1), 0.1);
 });
 
 test('CSV import: Libra export', () => {
@@ -98,6 +144,47 @@ test('CSV import: RENPHO export with masses in pounds', () => {
   assert.equal(m.body_fat_pct, 30.2); assert.equal(m.visceral_fat, 14); assert.equal(m.body_water_pct, 50.2);
   assert.equal(m.muscle_pct, 36.9); assert.equal(m.bone_mass_kg, 4.1); assert.equal(m.bmr_kcal, 2010); assert.equal(m.metabolic_age, 48);
   assert.equal(new Date(rows[0].measured_at).getHours(), 23);
+});
+
+test('safe CSV import enriches only missing metrics and keeps existing values', () => {
+  const original = W('2026-10-30', 110, { body_fat_pct: 30, muscle_pct: 37 });
+  original.note = 'Existing manual note';
+  const rows = [
+    { measured_at: original.measured_at, weight_kg: 111, metrics: { body_fat_pct: 32, visceral_fat: 14 } },
+    { measured_at: new Date('2026-10-31').toISOString(), weight_kg: 109, metrics: { body_fat_pct: 29 } },
+  ];
+  const plan = planCsvImport(rows, [original]);
+  assert.equal(plan.inserts.length, 1);
+  assert.equal(plan.enrichments.length, 1);
+  assert.equal(plan.conflictingWeights, 1);
+  assert.deepEqual(plan.enrichments[0].metrics, { body_fat_pct: 30, visceral_fat: 14, muscle_pct: 37 });
+  assert.deepEqual(original.metrics, { body_fat_pct: 30, muscle_pct: 37 }, 'does not mutate original');
+  assert.equal(original.note, 'Existing manual note');
+});
+
+test('safe CSV import coalesces repeated rows and is idempotent', () => {
+  const timestamp = '2026-11-01T12:00:00.000Z';
+  const rows = [
+    { measured_at: timestamp, weight_kg: 100, metrics: { body_fat_pct: 30 } },
+    { measured_at: timestamp, weight_kg: 99, metrics: { muscle_pct: 36, body_fat_pct: 31 } },
+  ];
+  const first = planCsvImport(rows, []);
+  assert.equal(first.duplicateRows, 1);
+  assert.equal(first.inserts.length, 1);
+  assert.equal(first.inserts[0].weight_kg, 100);
+  assert.deepEqual(first.inserts[0].metrics, { muscle_pct: 36, body_fat_pct: 30 });
+  const stored = { id: 'existing', ...first.inserts[0] };
+  const again = planCsvImport(rows, [stored]);
+  assert.equal(again.inserts.length, 0);
+  assert.equal(again.enrichments.length, 0);
+  assert.equal(again.unchanged, 1);
+});
+
+test('safe CSV import never replaces matching existing weights with empty readings', () => {
+  const existing = W('2026-10-31', 108, { body_fat_pct: 28 });
+  const plan = planCsvImport([{ measured_at: existing.measured_at, weight_kg: 108, metrics: {} }], [existing]);
+  assert.equal(plan.unchanged, 1);
+  assert.deepEqual(plan.enrichments, []);
 });
 
 test('calendar: repeating sessions, skips and week strip', () => {

@@ -15,11 +15,11 @@ import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
-import { progressShareText, scaleProgress } from '@/lib/scale-report';
+import { canShareProgress, progressShareText, scaleProgress } from '@/lib/scale-report';
 import { errText } from '@/lib/model';
 import {
-  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
-  kcalPerDay, metricLabel, monthlyChange, parseCsv, PERIODS, RANGES, ratePerWeek, READINGS, signed, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
+  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, getSmoothing, goalEta, goalSchedule, GROUPS, isMassChart,
+  kcalPerDay, metricLabel, monthlyChange, parseCsv, planCsvImport, PERIODS, RANGES, ratePerWeek, READINGS, signed, SMOOTHING_OPTIONS, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
   type MetricKey, type ReadingKey, type ScaleSettings, type Weighin,
 } from '@/lib/scale';
 import { sb } from '@/lib/supabase';
@@ -82,11 +82,11 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
           body={readOnly ? 'When they log weigh-ins in their Scale tab, you’ll see their trend here.' : 'Add your weight and any readings your scale gives (body fat, muscle…). You can also import a CSV from Libra or RENPHO in Settings.'}
           action={readOnly ? undefined : <Button title="Log weigh-in" icon="add" onPress={() => setEditing('new')} />} />
       ) : tab === 'chart' ? (
-        <ChartTab list={list} settings={settings} metrics={metrics} chosen={chosen} setChosen={setChosen} range={range} setRange={setRange} unit={unit} fmt={fmt} height={height} />
+        <ChartTab readOnly={readOnly} list={list} settings={settings} metrics={metrics} chosen={chosen} setChosen={setChosen} range={range} setRange={setRange} unit={unit} fmt={fmt} height={height} />
       ) : tab === 'history' ? (
-        <History list={list} metrics={metrics} unit={unit} fmt={fmt} onOpen={readOnly ? undefined : setEditing} />
+        <History list={list} metrics={metrics} unit={unit} fmt={fmt} smoothing={getSmoothing(settings.trend_smoothing)} onOpen={readOnly ? undefined : setEditing} />
       ) : tab === 'stats' ? (
-        <Stats list={list} unit={unit} fmt={fmt} />
+        <Stats list={list} unit={unit} fmt={fmt} smoothing={getSmoothing(settings.trend_smoothing)} />
       ) : (
         <SettingsTab settings={settings} save={saveSettings} unit={unit} heightUnit={app.prefs.height} reload={load} count={list.length} list={list} />
       )}
@@ -97,16 +97,18 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
 }
 
 /* ---------------- chart ---------------- */
-function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange, unit, fmt, height }: {
+function ChartTab({ readOnly, list, settings, metrics, chosen, setChosen, range, setRange, unit, fmt, height }: {
+  readOnly?: boolean;
   list: Weighin[]; settings: ScaleSettings; metrics: MetricKey[]; chosen: MetricKey[]; setChosen: (m: MetricKey[]) => void;
   range: number | null; setRange: (r: number | null) => void; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; height: number | null;
 }) {
   const p = usePalette();
   const toast = useToast();
   const report = useMemo(() => scaleProgress(list, range, settings.goal_kg == null ? null : Number(settings.goal_kg)), [list, range, settings.goal_kg]);
+  const [withGoal, setWithGoal] = useState(false);
   const shareProgress = async () => {
-    if (!report) return;
-    const message = progressShareText(report, unit, fmt);
+    if (!canShareProgress(readOnly, report)) return;
+    const message = progressShareText(report, unit, fmt, withGoal);
     try {
       if (Platform.OS === 'web') {
         await Clipboard.setStringAsync(message);
@@ -116,11 +118,13 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
       }
     } catch (error) { toast(errText(error), false); }
   };
-  const tr = useMemo(() => trend(list), [list]);
+  const smoothing = getSmoothing(settings.trend_smoothing);
+  const tr = useMemo(() => trend(list, smoothing), [list, smoothing]);
   const last = tr[tr.length - 1];
   const rate = ratePerWeek(tr);
   const goal = settings.goal_kg != null ? Number(settings.goal_kg) : null;
   const eta = goal != null && last ? goalEta(last.trend, goal, rate) : null;
+  const schedule = goal != null && last ? goalSchedule(last.trend, goal, rate, settings.goal_date) : null;
   const chartable = metrics.filter((k) => list.some((w) => chartValue(w, k, height) != null));
   const sel = chosen.filter((k) => chartable.includes(k)).length ? chosen.filter((k) => chartable.includes(k)) : ['weight' as MetricKey];
   const massMode = sel.every(isMassChart);
@@ -135,7 +139,7 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
   const from = range ? now - range * 86_400_000 : first - 86_400_000;
   const series: Series[] = sel.map((k, i) => {
     const pts = list.map((w) => ({ w, v: chartValue(w, k, height) })).filter((x) => x.v != null) as { w: Weighin; v: number }[];
-    const sm = trend(pts.map((x) => ({ measured_at: x.w.measured_at, weight_kg: x.v })));
+    const sm = trend(pts.map((x) => ({ measured_at: x.w.measured_at, weight_kg: x.v })), smoothing);
     const conv = (v: number) => (massMode ? fromKg(v, unit) : v);
     const latest = pts.sort((a, b) => b.w.measured_at.localeCompare(a.w.measured_at))[0];
     const shown = k === 'body_fat_pct' || k === 'muscle_pct' || k === 'skeletal_muscle_pct' ? valueOf(latest.w, k)! : latest.v;
@@ -176,8 +180,11 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
             <View><Txt v="small">Latest</Txt><Txt v="bold">{fmtMass(report.endKg, unit, fmt)}</Txt></View>
             <View><Txt v="small">Change</Txt><Txt v="bold">{report.count < 2 ? '—' : `${signed(fromKg(report.changeKg, unit), 1, fmt)} ${unitLabel(unit)}`}</Txt></View>
           </View>
-          <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and optional goal information; review before sharing.</Txt>
-          <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+          {canShareProgress(readOnly, report) && <>
+            <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and, if you include it, your goal; review before sharing.</Txt>
+            {report.goalKg != null && <Toggle label="Include goal" sub="Add your goal weight and how far you are from it" value={withGoal} onChange={setWithGoal} />}
+            <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+          </>}
         </Card>
       )}
       {last && (
@@ -194,6 +201,15 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
               <Txt v="bold">Goal: {fmtMass(goal, unit, fmt)}</Txt>
               <Txt>Δ {signed(fromKg(goal - last.trend, unit), 1, fmt)} {unitLabel(unit)}</Txt>
               <Txt v="small">{eta ? (Math.abs(goal - last.trend) < 0.05 ? 'Reached 🎉' : `Around ${eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`) : 'Not at this rate'}</Txt>
+              {settings.goal_date && <Txt v="small">Target: {new Date(settings.goal_date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</Txt>}
+              {schedule && <>
+                <Txt v="smallBold" color={schedule.status === 'behind' || schedule.status === 'overdue' ? p.gold : schedule.status === 'ahead' || schedule.status === 'reached' ? p.good : p.ink}>
+                  {{ ahead: 'Ahead of schedule', on_track: 'On track', behind: 'Behind target date', reached: 'Goal reached', overdue: 'Target date passed', insufficient: 'Not projected at current pace' }[schedule.status]}
+                </Txt>
+                {schedule.requiredKgPerWeek != null && schedule.status !== 'reached' && <Txt v="small">Needed: {signed(fromKg(schedule.requiredKgPerWeek, unit), 1, fmt)} {unitLabel(unit)}/week</Txt>}
+                {schedule.daysDifference != null && <Txt v="small">{Math.abs(schedule.daysDifference)} day{Math.abs(schedule.daysDifference) === 1 ? '' : 's'} {schedule.daysDifference < 0 ? 'early' : schedule.daysDifference > 0 ? 'late' : 'on target'}</Txt>}
+              </>}
+
             </> : <Txt v="small" style={{ textAlign: 'right' }}>Set a goal weight in Settings to see when you’ll get there.</Txt>}
           </View>
         </Card>
@@ -203,25 +219,45 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
 }
 
 /* ---------------- history ---------------- */
-function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metrics: MetricKey[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; onOpen?: (w: Weighin) => void }) {
+function History({ list, metrics, unit, fmt, smoothing, onOpen }: { list: Weighin[]; metrics: MetricKey[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; smoothing: number; onOpen?: (w: Weighin) => void }) {
   const p = usePalette();
-  const groups = useMemo(() => byMonth(list), [list]);
+  const groups = useMemo(() => byMonth(list, smoothing), [list, smoothing]);
   const [shown, setShown] = useState(6);
+  const [year, setYear] = useState<string | null>(null);
+  const [month, setMonth] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const years = [...new Set(groups.map((g) => g.month.slice(0, 4)))];
+  const availableMonths = groups.filter((g) => !year || g.month.startsWith(year));
+  const visible = month ? groups.filter((g) => g.month === month) : year ? availableMonths : groups.slice(0, shown);
   const tags = enterable(metrics);
   return (
     <>
+      <Card style={{ gap: 8 }}>
+        <Txt v="smallBold">Jump to a month</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <Chip label="Recent" selected={!year && !month} onPress={() => { setYear(null); setMonth(null); setShown(6); setExpanded(null); }} />
+          {years.map((y) => <Chip key={y} label={y} selected={year === y} onPress={() => { setYear(y); setMonth(null); setExpanded(null); }} />)}
+        </View>
+        {year && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <Chip label="All months" selected={!month} onPress={() => { setMonth(null); setExpanded(null); }} />
+          {availableMonths.map((g) => <Chip key={g.month}
+            label={new Date(`${g.month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'short' })}
+            selected={month === g.month} onPress={() => { setMonth(g.month); setExpanded(null); }} />)}
+        </View>}
+      </Card>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        {groups.slice(0, shown).map((g) => (
+        {visible.map((g) => (
           <View key={g.month}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: p.soft }}>
               <Txt v="bold">{new Date(`${g.month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Txt>
-              <Txt v="smallBold">{signed(fromKg(g.change ?? 0, unit), 1, fmt)} {unitLabel(unit)} ({fmtNum(Math.abs(g.pct ?? 0), 1, fmt)}%)</Txt>
+              <Txt v="smallBold">{g.change == null || g.pct == null ? '—' : `${signed(fromKg(g.change, unit), 1, fmt)} ${unitLabel(unit)} (${signed(g.pct, 1, fmt)}%)`}</Txt>
             </View>
             {g.items.map((w) => {
               const d = new Date(w.measured_at);
               return (
-                <Pressable key={w.id} disabled={!onOpen} onPress={() => onOpen?.(w)} accessibilityRole={onOpen ? 'button' : undefined}
-                  accessibilityLabel={`${d.toDateString()}, ${fmtMass(w.weight_kg, unit, fmt)}`}
+                <View key={w.id}>
+                <Pressable onPress={() => setExpanded((id) => id === w.id ? null : w.id)} accessibilityRole="button"
+                  accessibilityLabel={`${d.toDateString()}, ${fmtMass(w.weight_kg, unit, fmt)}, view reading details`}
                   style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: p.line, opacity: pressed ? 0.7 : 1 })}>
                   <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
                     <Txt v="bold" style={{ lineHeight: 19 }}>{d.getDate()}</Txt>
@@ -239,21 +275,34 @@ function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metric
                     </View>
                   </View>
                 </Pressable>
+                {expanded === w.id && <View style={{ padding: 14, backgroundColor: p.soft, gap: 7 }}>
+                  <Txt v="smallBold">Recorded {d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</Txt>
+                  <Txt v="small">Source: {w.source === 'health_connect' ? 'Health Connect' : w.source === 'import' ? 'Imported' : 'Manual'}</Txt>
+                  {(Object.keys(READINGS) as ReadingKey[]).filter((key) => w.metrics?.[key] != null).map((key) => (
+                    <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                      <Txt v="small">{READINGS[key].label}</Txt>
+                      <Txt v="smallBold">{fmtMetric(key, w.metrics[key]!, unit, fmt)}</Txt>
+                    </View>
+                  ))}
+                  {w.note && <Txt v="small">Note: {w.note}</Txt>}
+                  {onOpen && <Button title="Edit weigh-in" icon="edit" kind="ghost" small onPress={() => onOpen(w)} style={{ alignSelf: 'flex-start' }} />}
+                </View>}
+                </View>
               );
             })}
           </View>
         ))}
       </Card>
-      {groups.length > shown && <Button kind="ghost" title="Show earlier months" onPress={() => setShown((s) => s + 12)} />}
+      {!year && !month && groups.length > shown && <Button kind="ghost" title="Show earlier months" onPress={() => setShown((s) => s + 12)} />}
       <Txt v="small" center>{list.length} entr{list.length === 1 ? 'y' : 'ies'}{list.length > 1 ? ` · ${spanText(list)}` : ''}</Txt>
     </>
   );
 }
 
 /* ---------------- stats ---------------- */
-function Stats({ list, unit, fmt }: { list: Weighin[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma' }) {
+function Stats({ list, unit, fmt, smoothing }: { list: Weighin[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; smoothing: number }) {
   const p = usePalette();
-  const tr = useMemo(() => trend(list), [list]);
+  const tr = useMemo(() => trend(list, smoothing), [list, smoothing]);
   const ex = extremes(list)!;
   const [pct, setPct] = useState(false);
   const months = monthlyChange(tr);
@@ -336,17 +385,48 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
       const text = Platform.OS === 'web' ? await (await fetch(res.assets[0].uri)).text() : await new (await import('expo-file-system')).File(res.assets[0].uri).text();
       const { rows, skipped } = parseCsv(text, unit);
       if (!rows.length) return toast('No weigh-ins found. Export a CSV from Libra (Settings → Export) or the RENPHO app and try again.', false);
-      const ok = await confirm(`Import ${rows.length} weigh-ins?`, `${skipped ? `${skipped} rows couldn’t be read and will be skipped. ` : ''}Any you already have at the same date and time are updated.`, 'Import');
-      if (!ok) return;
-      for (let i = 0; i < rows.length; i += 500) {
-        const { error } = await sb.from('coach_weighins').upsert(rows.slice(i, i + 500).map((r) => ({ ...r, user_id: settings.user_id, source: 'import' })), { onConflict: 'user_id,measured_at' });
+      // Fetch all timestamp collisions from the database, not just the first 5000
+      // records currently loaded into the Scale view.
+      const dates = [...new Set(rows.map((r) => r.measured_at))];
+      const existing: Pick<Weighin, 'id' | 'measured_at' | 'weight_kg' | 'metrics'>[] = [];
+      for (let i = 0; i < dates.length; i += 100) {
+        const { data, error } = await sb.from('coach_weighins')
+          .select('id,measured_at,weight_kg,metrics').eq('user_id', settings.user_id)
+          .in('measured_at', dates.slice(i, i + 100));
+        if (error) throw error;
+        existing.push(...((data ?? []) as typeof existing));
+      }
+      const plan = planCsvImport(rows, existing);
+      const changes = plan.inserts.length + plan.enrichments.length;
+      if (!changes) {
+        toast(`Already up to date: ${plan.unchanged} existing weigh-ins. No changes made.`);
+        return;
+      }
+      const preview = [
+        `${plan.inserts.length} new weigh-ins`,
+        `${plan.enrichments.length} existing weigh-ins will gain missing measurements`,
+        `${plan.unchanged} unchanged`,
+        ...(plan.conflictingWeights ? [`${plan.conflictingWeights} different weights at matching timestamps will be kept as already recorded`] : []),
+        ...(plan.duplicateRows ? [`${plan.duplicateRows} repeated file rows combined`] : []),
+        ...(skipped ? [`${skipped} unreadable rows skipped`] : []),
+        'Existing weights, manually entered measurements and notes will never be replaced.',
+      ].join('\n');
+      if (!(await confirm('Review CSV import', preview, 'Import safely'))) return;
+      for (let i = 0; i < plan.inserts.length; i += 200) {
+        const { error } = await sb.from('coach_weighins').upsert(
+          plan.inserts.slice(i, i + 200).map((r) => ({ ...r, user_id: settings.user_id, source: 'import' })),
+          { onConflict: 'user_id,measured_at', ignoreDuplicates: true });
         if (error) throw error;
       }
-      // Show any readings the file had
+      for (const entry of plan.enrichments) {
+        const { error } = await sb.from('coach_weighins')
+          .update({ metrics: entry.metrics }).eq('user_id', settings.user_id).eq('id', entry.id);
+        if (error) throw error;
+      }
       const seen = new Set(rows.flatMap((r) => Object.keys(r.metrics))) as Set<ReadingKey>;
       const add = [...seen].filter((k) => !metrics.includes(k));
       if (add.length) await save({ metrics: [...metrics, ...add] });
-      toast(`Imported ${rows.length} weigh-ins`); reload();
+      toast(`Imported ${plan.inserts.length} new; enriched ${plan.enrichments.length}`); reload();
     } catch (e) { toast(errText(e), false); } finally { setImporting(false); }
   };
   const exportCsv = () => {
@@ -401,6 +481,18 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
           </View>
         ))}
         <Txt v="small">Lean mass and fat mass are worked out from body fat; BMI from your height.</Txt>
+      </Card>
+
+      <SectionLabel>Weight trend</SectionLabel>
+      <Card style={{ gap: 10 }}>
+        <Txt v="small">Choose how quickly the smoothed trend follows daily weigh-ins. This changes charts, projections and monthly changes, but never your recorded measurements.</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {SMOOTHING_OPTIONS.map((value) => <Chip key={value}
+            label={({ 0.05: 'Very smooth', 0.1: 'Balanced', 0.2: 'Responsive', 0.35: 'Very responsive' } as Record<number, string>)[value]}
+            selected={getSmoothing(settings.trend_smoothing) === value}
+            onPress={() => save({ trend_smoothing: value })} />)}
+        </View>
+        <Txt v="small">Balanced is the default. A smoother line reacts more slowly; a responsive line follows new readings sooner.</Txt>
       </Card>
 
       <SectionLabel>Reminder</SectionLabel>
