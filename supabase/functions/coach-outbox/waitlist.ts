@@ -23,7 +23,7 @@ export const bookedText = (first: string, trainer: string, when: string) =>
 export const openText = (first: string, trainer: string, when: string, link: string) =>
   `Hi ${first}, the time you're waiting for with ${trainer} opened up: ${when}. First to grab it gets it: ${link}`;
 
-const defaults = (trainer_id: string): Settings => ({
+export const defaults = (trainer_id: string): Settings => ({
   trainer_id, quiet_start: '21:00', quiet_end: '08:00', max_per_week: 3, reminders_on: false, reminder_hours: [24], surveys_on: false, survey_every: 4,
   survey_min_days: 14, testimonials_on: false, referrals_on: false, referral_every_days: 90, include_ca_clients: true, sms_enabled: false,
 });

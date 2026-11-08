@@ -344,9 +344,11 @@ function ClientCalendar() {
   const [moving, setMoving] = useState<Occurrence | null>(null);
   const { move: moveParam, day: dayParam } = useLocalSearchParams<{ move?: string; day?: string }>();
   const [owed, setOwed] = useState(0);
+  const [requests, setRequests] = useState<{ id: string; booking_id: string; on_date: string; new_start: string }[]>([]);
   const load = useCallback(async () => {
     if (!c) return;
     void sb.from('coach_session_charges').select('id', { count: 'exact', head: true }).eq('client_id', c.id).eq('status', 'due').then(({ count }) => setOwed(count ?? 0));
+    void sb.from('coach_reschedule_requests').select('id, booking_id, on_date, new_start').eq('client_id', c.id).eq('status', 'pending').then(({ data }) => setRequests((data as typeof requests | null) ?? []));
     const [b, a, busy] = await Promise.all([
       sb.from('coach_bookings').select('*').order('starts_at'),
       sb.from('coach_availability').select('*').eq('trainer_id', c.trainer_id),
@@ -383,7 +385,8 @@ function ClientCalendar() {
     setSaving(false);
     if (error) return toast(/slot_taken/.test(error.message) ? 'That time was just taken. Pick another.' : /booking_closed/.test(error.message) ? 'Your trainer books sessions for you. Send them a message.'
       : /payment_due/.test(error.message) ? 'Pay for your last session first (Me → Payments).' : /same_day_only/.test(error.message) ? 'Within 24 hours of a session it can only move to another time that day.' : errText(error), false);
-    toast(`${moving ? 'Moved to' : 'Booked for'} ${picked.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })}`); setPicked(null); setMoving(null); load();
+    const at = picked.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' });
+    toast(moving ? `Asked ${app.myTrainer?.display_name?.split(' ')[0] ?? 'your trainer'} to move it to ${at}. You'll hear back soon.` : `Booked for ${at}`); setPicked(null); setMoving(null); load();
   };
   const cancel = async (o: Occurrence) => {
     if (!(await confirm('Cancel this session?', `${o.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`, 'Cancel session', true))) return;
@@ -404,6 +407,12 @@ function ClientCalendar() {
                   <View style={{ flex: 1 }}>
                     <Txt v="bold">{o.start.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</Txt>
                     <Txt v="small">{t12(o.start)} · {fmtDuration(o.booking.duration_min)}{o.booking.location ? ` · ${o.booking.location}` : ''}</Txt>
+                    {requests.filter((q) => q.booking_id === o.booking.id && q.on_date === o.day).map((q) => (
+                      <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Txt v="small" color={p.gold} style={{ flex: 1 }}>Waiting for approval to move to {new Date(q.new_start).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</Txt>
+                        <Button small kind="quiet" title="Take back" onPress={async () => { const { error } = await sb.rpc('coach_reschedule_withdraw', { p_request: q.id }); if (error) toast(errText(error), false); else load(); }} />
+                      </View>
+                    ))}
                   </View>
                   {app.perms.book_sessions && o.booking.client_id && avail.length > 0 && <Button small kind="ghost" title="Change time" onPress={() => startMove(o)} />}
                   {app.perms.cancel_sessions && o.booking.client_id && <Button small kind="ghost" title="Cancel" onPress={() => cancel(o)} />}
@@ -424,7 +433,7 @@ function ClientCalendar() {
             {moving && (
               <View style={{ gap: 6 }}>
                 <Txt v="small">{`Moving ${moving.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. `}
-                  {sameDayOnly ? 'It’s less than 24 hours away, so it can only move to another time the same day.' : 'Pick any open time.'}</Txt>
+                  {sameDayOnly ? 'It’s less than 24 hours away, so it can only move to another time the same day.' : 'Pick any open time.'} Your trainer approves the change.</Txt>
                 <Button small kind="ghost" title="Keep the current time" onPress={() => { setMoving(null); setPicked(null); }} style={{ alignSelf: 'flex-start' }} />
               </View>
             )}

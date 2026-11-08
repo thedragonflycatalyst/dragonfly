@@ -247,6 +247,9 @@ begin
                    or (bk.repeat = 'none' and bk.starts_at > now())) loop
     perform public.coach_charge_attach_booking(b);
   end loop;
+  -- Reschedule requests nobody answered before the session (or the new time) started
+  update public.coach_reschedule_requests set status = 'expired', decided_at = now()
+   where status = 'pending' and (old_start <= now() or new_start <= now());
   -- No price set: nothing to collect
   update public.coach_session_charges set status = 'waived', settled_at = now(), note = 'No single-session price set'
    where status = 'pending' and amount_cents is null and starts_at <= now();
@@ -287,6 +290,32 @@ grant execute on function public.coach_charge_settle(uuid, text, text, text) to 
 -- ------------------------------------------------------------ rescheduling
 -- Move one session (one date of a repeating booking, or a one-off) to another free time. Within 24 hours of the
 -- session it can only move to another time the same day. The old time goes to the slot waitlist.
+-- A client's move is a request the trainer approves (owner 2026-11-07); the trainer moving a session applies at once.
+create table public.coach_reschedule_requests (
+  id uuid primary key default gen_random_uuid(),
+  booking_id uuid not null references public.coach_bookings(id) on delete cascade,
+  on_date date not null,
+  client_id uuid not null references public.coach_clients(id) on delete cascade,
+  trainer_id uuid not null references public.coach_trainers(user_id) on delete cascade,
+  old_start timestamptz not null,
+  new_start timestamptz not null,
+  duration_min int not null,
+  status text not null default 'pending' check (status in ('pending', 'approved', 'declined', 'expired', 'withdrawn')),
+  reason text check (char_length(reason) <= 300),
+  new_booking_id uuid references public.coach_bookings(id) on delete set null,
+  trainer_alerted_at timestamptz,          -- text to the trainer (when texting is on)
+  client_told_at timestamptz,              -- the decision sent to the client
+  created_at timestamptz not null default now(),
+  decided_at timestamptz
+);
+create unique index coach_reschedule_requests_open on public.coach_reschedule_requests (booking_id, on_date) where status = 'pending';
+create index coach_reschedule_requests_trainer_idx on public.coach_reschedule_requests (trainer_id, status, created_at desc);
+alter table public.coach_reschedule_requests enable row level security;
+revoke all on public.coach_reschedule_requests from anon;
+grant select on public.coach_reschedule_requests to authenticated;
+create policy coach_reschedule_requests_read on public.coach_reschedule_requests for select to authenticated
+  using (public.coach_is_client(client_id) or public.coach_owns_client(client_id));
+
 create function public.coach_reschedule_session(p_booking uuid, p_on date, p_new timestamptz) returns uuid
 language plpgsql security definer set search_path = '' as $$
 declare b public.coach_bookings%rowtype; tz text; r tstzrange; want tstzrange; loc timestamp; is_client boolean; v uuid; nd date;
@@ -317,6 +346,13 @@ begin
      or exists (select 1 from public.coach_external_busy x where x.trainer_id = b.trainer_id and tstzrange(x.starts_at, x.ends_at) && want) then
     raise exception 'slot_taken' using errcode = '22023';
   end if;
+  -- A client asks; the trainer approves (coach_reschedule_decide). A newer request for the same session replaces the old one.
+  if is_client then
+    update public.coach_reschedule_requests set status = 'withdrawn', decided_at = now() where booking_id = b.id and on_date = p_on and status = 'pending';
+    insert into public.coach_reschedule_requests (booking_id, on_date, client_id, trainer_id, old_start, new_start, duration_min)
+    values (b.id, p_on, b.client_id, b.trainer_id, lower(r), p_new, b.duration_min) returning id into v;
+    return v;
+  end if;
   perform set_config('coach.rescheduling', 'on', true);
   if b.repeat = 'none' then
     update public.coach_bookings set starts_at = p_new where id = b.id;
@@ -334,6 +370,40 @@ begin
 end $$;
 revoke execute on function public.coach_reschedule_session(uuid, date, timestamptz) from public, anon;
 grant execute on function public.coach_reschedule_session(uuid, date, timestamptz) to authenticated;
+
+-- The trainer approves (the session moves, if the time is still free) or declines (it stays). Returns the session's id.
+create function public.coach_reschedule_decide(p_request uuid, p_approve boolean, p_reason text default null) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare q public.coach_reschedule_requests%rowtype; v uuid;
+begin
+  select * into q from public.coach_reschedule_requests where id = p_request for update;
+  if not found or not public.coach_owns_client(q.client_id) then raise exception 'not_your_client' using errcode = '42501'; end if;
+  if q.status <> 'pending' then raise exception 'already_decided' using errcode = '22023'; end if;
+  if not p_approve then
+    update public.coach_reschedule_requests set status = 'declined', decided_at = now(), reason = left(nullif(trim(coalesce(p_reason, '')), ''), 300) where id = q.id;
+    return q.booking_id;
+  end if;
+  if q.old_start <= now() or q.new_start <= now() then
+    update public.coach_reschedule_requests set status = 'expired', decided_at = now() where id = q.id;
+    raise exception 'request_expired' using errcode = '22023';
+  end if;
+  v := public.coach_reschedule_session(q.booking_id, q.on_date, q.new_start);   -- as the trainer: moves now
+  update public.coach_reschedule_requests set status = 'approved', decided_at = now(), new_booking_id = v where id = q.id;
+  return v;
+end $$;
+revoke execute on function public.coach_reschedule_decide(uuid, boolean, text) from public, anon;
+grant execute on function public.coach_reschedule_decide(uuid, boolean, text) to authenticated;
+
+-- The client takes back their request
+create function public.coach_reschedule_withdraw(p_request uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  update public.coach_reschedule_requests set status = 'withdrawn', decided_at = now()
+   where id = p_request and status = 'pending' and public.coach_is_client(client_id);
+  if not found then raise exception 'not_pending' using errcode = '22023'; end if;
+end $$;
+revoke execute on function public.coach_reschedule_withdraw(uuid) from public, anon;
+grant execute on function public.coach_reschedule_withdraw(uuid) to authenticated;
 
 -- ------------------------------------------------------------ waitlist offers in waves of 3, every hour
 alter table public.coach_open_slots

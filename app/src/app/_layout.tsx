@@ -10,6 +10,7 @@ import { ToastProvider } from '@/components/ui';
 import { SidebarDrawer, SidebarRail, useWide } from '@/components/shell';
 import { AutoSync } from '@/features/auto-sync';
 import { loadLibraryExtras } from '@/features/library-extras';
+import { RescheduleAlerts } from '@/features/reschedule-alerts';
 import { ViewingBanner } from '@/features/team';
 import { AppProvider, useApp } from '@/lib/app-state';
 import { F, usePalette } from '@/lib/theme';
@@ -37,6 +38,7 @@ function Shell() {
     <>
       <StatusBar style={p.scheme === 'dark' ? 'light' : 'dark'} />
       <ViewingBanner />
+      <RescheduleAlerts />
       <AutoSync />
       <View style={{ flex: 1, flexDirection: 'row', backgroundColor: p.bg }}>
       {wide && <SidebarRail />}

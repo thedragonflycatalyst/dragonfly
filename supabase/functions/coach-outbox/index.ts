@@ -1,6 +1,6 @@
 // coach-outbox: plans and delivers automatic messages.
 //
-// POST { action: 'send_now' } + trainer session  delivers that trainer's due messages right away
+// POST { action: 'send_now' } + trainer session  delivers that trainer's due messages right away (and reschedule decisions)
 // POST { action: 'run' } + x-cron-secret   pg_cron every 15 minutes: plan reminders (and, when switched on, surveys,
 //                                          testimonial and referral asks), then deliver queued messages that are due.
 // Delivery rules, checked again at send time: the client's consent for that purpose and channel, the trainer's quiet
@@ -14,6 +14,7 @@ import { allowed, ESSENTIAL, pickChannel, skipCa, type ClientRow, type Settings 
 import { planEngagement } from './engagement.ts';
 import { processOpenSlots } from './waitlist.ts';
 import { processCharges } from './billing.ts';
+import { processReschedules } from './reschedule.ts';
 import { deliverEmail } from './email.ts';
 import { deliverSms, smsConfigured } from './sms.ts';
 
@@ -118,6 +119,9 @@ Deno.serve(async (req) => {
     if (!me?.user) return json(401, { error: 'sign_in_required' });
     const { data: tr } = await admin.from('coach_trainers').select('user_id').eq('user_id', me.user.id).maybeSingle();
     if (!tr) return json(403, { error: 'trainers_only' });
+    // A just-decided reschedule request is told to the client right away
+    const { data: mine } = await admin.from('coach_message_settings').select('*').eq('trainer_id', me.user.id);
+    try { await processReschedules(admin, (mine ?? []) as Settings[], new Date(), me.user.id); } catch (e) { console.error('reschedule', e instanceof Error ? e.message : e); }
     return json(200, { delivered: await deliver(admin, new Date(), me.user.id) });
   }
   if (body.action !== 'run') return json(400, { error: 'bad_request' });
@@ -137,6 +141,7 @@ Deno.serve(async (req) => {
     } catch (e) { console.error('plan', s.trainer_id, e instanceof Error ? e.message : e); }
   }
   try { planned.waitlist = await processOpenSlots(admin, (all ?? []) as Settings[], now); } catch (e) { console.error('waitlist', e instanceof Error ? e.message : e); }
+  try { planned.reschedules = (await processReschedules(admin, (all ?? []) as Settings[], now)).told; } catch (e) { console.error('reschedule', e instanceof Error ? e.message : e); }
   let billing: Record<string, number> = {};
   try { billing = await processCharges(admin, now); } catch (e) { console.error('billing', e instanceof Error ? e.message : e); }
   const delivered = await deliver(admin, now);

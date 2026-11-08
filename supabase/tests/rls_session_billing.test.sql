@@ -88,7 +88,19 @@ select t.ok(t.refused($$select public.coach_charge_settle((select id from public
 
 -- Rescheduling: more than 24 hours ahead, to another day; within 24 hours, same day only
 select t.as_user('ana');
-select t.ok(public.coach_reschedule_session((select id from public.coach_bookings where title = 'S3'), current_date + 3, t.at(5, '10:00')) is not null, 'more than a day ahead, it can move to another day');
+create temp table req as select public.coach_reschedule_session((select id from public.coach_bookings where title = 'S3'), current_date + 3, t.at(5, '10:00')) as id;
+grant select on req to authenticated;
+select t.ok((select status = 'pending' and new_start = t.at(5, '10:00') from public.coach_reschedule_requests where id = (select id from req)), 'a client''s move (another day, more than a day ahead) is a request');
+select t.ok((select starts_at from public.coach_bookings where title = 'S3') = t.at(3, '08:00'), 'the session stays put until the trainer approves');
+select t.ok(t.refused($$select public.coach_reschedule_decide((select id from req), true)$$), 'clients can''t approve their own request');
+select t.as_user('trainer2');
+select t.ok(t.refused($$select public.coach_reschedule_decide((select id from req), true)$$), 'nor can other trainers');
+select t.as_user('trainer');
+select t.ok((select count(*) from public.coach_reschedule_requests where status = 'pending') = 1, 'the trainer sees the request');
+select public.coach_reschedule_decide((select id from req), true);
+select t.ok((select status from public.coach_reschedule_requests where id = (select id from req)) = 'approved', 'approved');
+select t.ok((select starts_at from public.coach_bookings where title = 'S3') = t.at(5, '10:00'), 'and the session moved');
+select t.as_user('ana');
 select t.ok((select starts_at from public.coach_session_charges where booking_id = (select id from public.coach_bookings where title = 'S3')) = t.at(5, '10:00'), 'what pays for it moves with it');
 select t.as_admin();
 select t.ok((select count(*) from public.coach_open_slots where starts_at = t.at(3, '08:00')) = 1, 'the old time goes to the waitlist');
@@ -97,6 +109,15 @@ insert into public.coach_bookings (trainer_id, client_id, title, starts_at, dura
 select t.as_user('ana');
 select t.ok(t.refused($$select public.coach_reschedule_session((select id from public.coach_bookings where title = 'Soon'), ((now() + interval '20 hours') at time zone 'America/New_York')::date, now() + interval '44 hours')$$), 'within 24 hours it can''t move to another day');
 select t.ok(t.refused($$select public.coach_reschedule_session((select id from public.coach_bookings where title = 'S4'), current_date + 4, t.at(6, '09:00'))$$), 'can''t move onto a taken time');
+create temp table req2 as select public.coach_reschedule_session((select id from public.coach_bookings where title = 'S4'), current_date + 4, t.at(4, '13:00')) as id;
+grant select on req2 to authenticated;
+select public.coach_reschedule_withdraw((select id from req2));
+select t.ok((select status from public.coach_reschedule_requests where id = (select id from req2)) = 'withdrawn', 'a client can take back a request');
+create temp table req3 as select public.coach_reschedule_session((select id from public.coach_bookings where title = 'S4'), current_date + 4, t.at(4, '14:00')) as id;
+grant select on req3 to authenticated;
+select t.as_user('trainer');
+select public.coach_reschedule_decide((select id from req3), false, 'Fully booked then');
+select t.ok((select status from public.coach_reschedule_requests where id = (select id from req3)) = 'declined' and (select starts_at from public.coach_bookings where title = 'S4') = t.at(4, '08:00'), 'a declined request leaves the session where it was');
 -- A repeating session: one date moves; the rest stay
 select t.as_user('trainer');
 insert into public.coach_bookings (trainer_id, client_id, title, starts_at, duration_min, repeat) select (select v from t.ids where k = 'trainer'), v, 'Weekly', t.at(8, '15:00'), 60, 'weekly' from t.ids where k = 'c_bo';
