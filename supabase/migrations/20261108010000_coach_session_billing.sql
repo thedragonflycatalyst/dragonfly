@@ -366,6 +366,8 @@ begin
     values (b.trainer_id, b.client_id, b.title, b.kind, b.location, p_new, b.duration_min, b.notes, b.color, b.booked_by) returning id into v;
   end if;
   perform set_config('coach.rescheduling', 'off', true);
+  -- Club calendars (e.g. ClubAutomation) don't update themselves: a to-do that stays until the trainer marks it done
+  perform public.coach_followup_move(b.trainer_id, b.client_id, b.id, lower(r), p_new);
   return v;
 end $$;
 revoke execute on function public.coach_reschedule_session(uuid, date, timestamptz) from public, anon;

@@ -27,4 +27,20 @@ insert into public.coach_bookings (trainer_id, client_id, title, starts_at, dura
 select t.as_user('ana');
 select t.ok(public.coach_reschedule_session((select id from public.coach_bookings where title = 'S'), current_date + 3, ((current_date + 3) + time '10:00') at time zone 'America/New_York') is not null, 'a request with the trainer''s phone registered goes through (push call made)');
 select t.ok(t.refused($$select public.coach_reschedule_push()$$), 'the push trigger function isn''t callable directly');
+-- Follow-ups: only for trainers with a ClubAutomation calendar; stay until marked done
+select t.as_user('trainer');
+select t.ok((select count(*) from public.coach_followups) = 0, 'no ClubAutomation calendar, no follow-up');
+select t.as_admin();
+insert into public.coach_calendar_feeds (trainer_id, label, source, url) select v, 'ClubAutomation', 'clubautomation', 'https://example.clubautomation.com/cal.ics' from t.ids where k = 'trainer';
+select t.as_user('trainer');
+select public.coach_reschedule_decide((select id from public.coach_reschedule_requests where status = 'pending'), true);
+select t.ok((select count(*) from public.coach_followups where status = 'open') = 1, 'an approved move makes a ClubAutomation follow-up');
+select t.ok((select title from public.coach_followups) ~ '^Reschedule Ana.* in ClubAutomation from .* to ', 'it says who, from and to');
+select t.as_user('other');
+select t.ok((select count(*) from public.coach_followups) = 0, 'nobody else sees it');
+select t.ok(t.refused($$select public.coach_followup_done((select id from public.coach_followups limit 1))$$), 'or can close it');
+select t.as_user('trainer');
+select t.ok(t.refused($$update public.coach_followups set status = 'done'$$) or (select status from public.coach_followups) = 'open', 'it can''t be closed by editing the row');
+select public.coach_followup_done((select id from public.coach_followups limit 1));
+select t.ok((select status from public.coach_followups) = 'done', 'the trainer marks it done');
 select 'ALL PUSH TESTS PASSED';

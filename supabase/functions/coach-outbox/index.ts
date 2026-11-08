@@ -15,6 +15,7 @@ import { planEngagement } from './engagement.ts';
 import { processOpenSlots } from './waitlist.ts';
 import { processCharges } from './billing.ts';
 import { processReschedules } from './reschedule.ts';
+import { processFollowups } from './followups.ts';
 import { deliverEmail } from './email.ts';
 import { deliverSms, smsConfigured } from './sms.ts';
 
@@ -142,6 +143,7 @@ Deno.serve(async (req) => {
   }
   try { planned.waitlist = await processOpenSlots(admin, (all ?? []) as Settings[], now); } catch (e) { console.error('waitlist', e instanceof Error ? e.message : e); }
   try { planned.reschedules = (await processReschedules(admin, (all ?? []) as Settings[], now)).told; } catch (e) { console.error('reschedule', e instanceof Error ? e.message : e); }
+  try { planned.followups = await processFollowups(admin, now); } catch (e) { console.error('followups', e instanceof Error ? e.message : e); }
   let billing: Record<string, number> = {};
   try { billing = await processCharges(admin, now); } catch (e) { console.error('billing', e instanceof Error ? e.message : e); }
   const delivered = await deliver(admin, now);

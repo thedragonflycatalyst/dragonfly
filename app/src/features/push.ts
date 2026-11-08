@@ -26,6 +26,7 @@ export async function startPush(): Promise<'on' | 'denied' | 'unavailable'> {
       N.addNotificationResponseReceivedListener((r) => {
         const d = r.notification.request.content.data as { kind?: string; path?: string } | undefined;
         if (d?.kind === 'reschedule') router.push((d.path && /^\/reschedule\/[0-9a-f-]{36}$/.test(d.path) ? d.path : '/calendar') as never);
+        if (d?.kind === 'followup') router.push('/followups');
       });
     }
     return 'on';
