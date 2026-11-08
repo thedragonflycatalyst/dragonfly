@@ -54,10 +54,12 @@ insert into public.coach_bookings (trainer_id, client_id, title, starts_at, dura
 select t.as_user('ana');
 select t.ok(t.refused($$select public.coach_cancel_by_text((select id from public.coach_bookings where title = 'Far'), current_date, (select v from t.ids where k = 'c_ana'))$$), 'clients can''t call the text-cancel function');
 select t.as_admin();
-select t.ok((public.coach_cancel_by_text((select id from public.coach_bookings where title = 'Near'), ((now() + interval '2 hours') at time zone 'America/New_York')::date, (select v from t.ids where k = 'c_ana')) ->> 'status') = 'too_late', 'inside the notice period it isn''t cancelled');
+select t.ok((public.coach_cancel_by_text((select id from public.coach_bookings where title = 'Near'), ((now() + interval '2 hours') at time zone 'America/New_York')::date, (select v from t.ids where k = 'c_ana')) ->> 'status') = 'late_cancelled', 'inside the notice period it''s a late cancellation');
+select t.ok((select skipped <> '{}' from public.coach_bookings where title = 'Near'), 'the late-cancelled time is freed (for the waitlist)');
 select t.ok((public.coach_cancel_by_text((select id from public.coach_bookings where title = 'Far'), ((now() + interval '3 days') at time zone 'America/New_York')::date, (select v from t.ids where k = 'c_ana')) ->> 'status') = 'cancelled', 'outside it, it is');
 select t.ok((select skipped <> '{}' from public.coach_bookings where title = 'Far'), 'the trainer-booked session is skipped for that day');
 select t.ok((public.coach_cancel_by_text((select id from public.coach_bookings where title = 'Far'), current_date + 30, (select v from t.ids where k = 'c_ana')) ->> 'status') = 'no_session', 'no session that day');
 update public.coach_trainers set client_perms = client_perms || '{"cancel_sessions": false}';
-select t.ok((public.coach_cancel_by_text((select id from public.coach_bookings where title = 'Near'), ((now() + interval '2 hours') at time zone 'America/New_York')::date, (select v from t.ids where k = 'c_ana')) ->> 'status') = 'not_allowed', 'trainers who don''t let clients cancel get not_allowed');
+insert into public.coach_bookings (trainer_id, client_id, title, starts_at, duration_min) select (select v from t.ids where k = 'trainer'), v, 'Near2', now() + interval '3 hours', 60 from t.ids where k = 'c_ana';
+select t.ok((public.coach_cancel_by_text((select id from public.coach_bookings where title = 'Near2'), ((now() + interval '3 hours') at time zone 'America/New_York')::date, (select v from t.ids where k = 'c_ana')) ->> 'status') = 'not_allowed', 'trainers who don''t let clients cancel get not_allowed');
 select 'ALL OPEN-SURVEY TESTS PASSED';

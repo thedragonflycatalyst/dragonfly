@@ -114,8 +114,8 @@ export function timeText(start: Date, tz: string, now: Date): string {
 export function reminderText(o: { first: string; trainer: string; start: Date; tz: string; now: Date; sms: boolean; location?: string | null }): string {
   const where = o.location ? ` at ${o.location}` : '';
   const base = `Hi ${o.first}, reminder: training with ${o.trainer} ${timeText(o.start, o.tz, o.now)}${where}.`;
-  // Whole words, not letters (owner 2026-11-07). "CANCEL" alone is a carrier opt-out keyword, so cancelling is "CANCEL SESSION".
-  return o.sms ? `${base} Reply CONFIRM, RESCHEDULE or CANCEL SESSION. Reply STOP to opt out.` : `${base} See you there!`;
+  // Whole words, not letters (owner 2026-11-07). "CANCEL" alone is a carrier opt-out keyword, so it's "CANCEL APPOINTMENT".
+  return o.sms ? `${base} Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT. Reply STOP to opt out.` : `${base} See you there!`;
 }
 
 export type Reply =
@@ -139,18 +139,20 @@ export function parseReply(text: string): Reply {
   return { kind: 'other' };
 }
 
-/** The cancellation policy in one sentence (from the trainer's notice period) */
-export const cancelPolicyText = (hours: number) =>
-  `Sessions can be cancelled up to ${hours} hour${hours === 1 ? '' : 's'} before they start; later cancellations count as a session.`;
+// Replies in the owner's own voice (owner 2026-11-07)
+export const CONFIRM_REPLY = 'Perfect! See you then 😁';
+export const rescheduleReplyText = (link: string) =>
+  `No problem! Click here to see what time slots are left for today: ${link} If you can't make it today, reply CANCEL APPOINTMENT instead.`;
 
-/** Replies to a text asking to cancel */
-export function cancelReplyText(o: { status: 'cancelled' | 'too_late' | 'not_allowed' | 'no_session'; when?: string; hours: number; link: string; trainer: string }): string {
-  const policy = cancelPolicyText(o.hours);
+/** Replies to CANCEL APPOINTMENT. A late cancellation is still cancelled (the time goes to the waitlist) but counts as a session. */
+export function cancelReplyText(o: { status: 'cancelled' | 'late_cancelled' | 'not_allowed' | 'no_session'; hours: number; link: string; trainer: string }): string {
+  const sorry = 'That’s too bad, I hope everything is okay!';
+  const h = `${o.hours} hour${o.hours === 1 ? '' : 's'}`;
   switch (o.status) {
-    case 'cancelled': return `Your session${o.when ? ` ${o.when}` : ''} is cancelled. ${policy} Book a new time here: ${o.link}`;
-    case 'too_late': return `It's too close to your session to cancel by text. ${policy} You can still move it to another time today: ${o.link}`;
-    case 'not_allowed': return `Please message ${o.trainer} to cancel. ${policy}`;
-    default: return `We couldn't find an upcoming session to cancel. Your sessions are here: ${o.link}`;
+    case 'cancelled': return `${sorry} You’re all set, your session is cancelled. Whenever you’re ready, you can book a new time here: ${o.link}`;
+    case 'late_cancelled': return `${sorry} Your session is cancelled. Just a gentle heads-up: with less than ${h}’ notice it still counts as a session under my ${o.hours}-hour cancellation policy, since that time was held for you. Book your next one whenever you’re ready: ${o.link}`;
+    case 'not_allowed': return `${sorry} Send me a message and we’ll sort out your session together.`;
+    default: return `${sorry} I couldn’t find an upcoming session to cancel. Your sessions are here: ${o.link}`;
   }
 }
 

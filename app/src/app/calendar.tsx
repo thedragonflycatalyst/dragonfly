@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
-import { router, Stack, useFocusEffect, type Href } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { router, Stack, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
 import { DateField } from '@/components/date-field';
@@ -342,6 +342,7 @@ function ClientCalendar() {
   const [picked, setPicked] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [moving, setMoving] = useState<Occurrence | null>(null);
+  const { move: moveParam, day: dayParam } = useLocalSearchParams<{ move?: string; day?: string }>();
   const [owed, setOwed] = useState(0);
   const load = useCallback(async () => {
     if (!c) return;
@@ -355,6 +356,13 @@ function ClientCalendar() {
     setBusy(((busy.data ?? []) as { starts_at: string; ends_at: string }[]).map((x) => ({ start: new Date(x.starts_at), end: new Date(x.ends_at) })));
   }, [c]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  // Opened from a RESCHEDULE text reply: that session is ready to move
+  useEffect(() => {
+    if (!moveParam || !mine) return;
+    const o = occurrences(mine, dayParam ?? dayKey(new Date()), dayParam ?? dayKey(new Date())).find((x) => x.booking.id === moveParam && x.end.getTime() > Date.now());
+    if (o) { setMoving(o); setDay(o.day); setPicked(null); }
+    router.setParams({ move: undefined, day: undefined });
+  }, [moveParam, dayParam, mine]);
   if (!c) return null;
   const today = dayKey(new Date());
   const upcoming = occurrences(mine ?? [], today, dayKey(addDays(new Date(), 60))).filter((o) => o.end.getTime() > Date.now());
@@ -365,6 +373,7 @@ function ClientCalendar() {
   const slots = openSlots(day, slotMins, avail, moving ? busyTimes.filter((b) => b.start.getTime() !== moving.start.getTime()) : busyTimes)
     .filter((t) => t.getTime() > Date.now() + 3600_000);
   const startMove = (o: Occurrence) => { setMoving(o); setDay(o.day); setPicked(null); };
+
   const bookIt = async () => {
     if (!picked) return;
     setSaving(true);

@@ -93,11 +93,13 @@ revoke execute on function public.coach_open_survey_answer(text, int, text, text
 grant execute on function public.coach_open_survey_answer(text, int, text, text) to anon, authenticated;
 
 -- ------------------------------------------------------------ cancel by text (server only)
--- Same rules as coach_cancel_session: the session must happen that day, the trainer must let clients cancel, and it
--- must be at least cancel_hours away. Returns {status: cancelled | too_late | not_allowed | no_session, starts_at}.
+-- CANCEL APPOINTMENT: the session must happen that day and the trainer must let clients cancel. With enough notice
+-- (cancel_hours) it's a normal cancellation. With less, it's a late cancellation (owner 2026-11-07): the session is
+-- still cancelled, so the time goes to the waitlist, but whatever paid for it is kept (it counts as a session).
+-- Returns {status: cancelled | late_cancelled | not_allowed | no_session, starts_at}.
 create function public.coach_cancel_by_text(p_booking uuid, p_on date, p_client uuid) returns jsonb
 language plpgsql security definer set search_path = '' as $$
-declare b public.coach_bookings%rowtype; hrs int; tz text; r tstzrange;
+declare b public.coach_bookings%rowtype; hrs int; tz text; r tstzrange; late boolean;
 begin
   select * into b from public.coach_bookings where id = p_booking and client_id = p_client for update;
   if not found then return jsonb_build_object('status', 'no_session'); end if;
@@ -105,10 +107,15 @@ begin
   r := public.coach_booking_on(b, p_on, tz);
   if r is null or lower(r) <= now() then return jsonb_build_object('status', 'no_session'); end if;
   if not public.coach_perm(b.trainer_id, 'cancel_sessions') then return jsonb_build_object('status', 'not_allowed', 'starts_at', lower(r)); end if;
-  if lower(r) < now() + make_interval(hours => coalesce(hrs, 12)) then return jsonb_build_object('status', 'too_late', 'starts_at', lower(r)); end if;
+  late := lower(r) < now() + make_interval(hours => coalesce(hrs, 24));
+  if late then
+    perform set_config('coach.late_cancel', 'on', true);
+    update public.coach_session_charges set note = 'Late cancellation (counts as a session)' where booking_id = b.id and on_date = p_on;
+  end if;
   if b.repeat = 'none' and b.booked_by = 'client' then delete from public.coach_bookings where id = b.id;
   else update public.coach_bookings set skipped = array_append(skipped, p_on) where id = b.id and not (p_on = any (skipped)); end if;
-  return jsonb_build_object('status', 'cancelled', 'starts_at', lower(r));
+  perform set_config('coach.late_cancel', 'off', true);
+  return jsonb_build_object('status', case when late then 'late_cancelled' else 'cancelled' end, 'starts_at', lower(r));
 end $$;
 revoke execute on function public.coach_cancel_by_text(uuid, date, uuid) from public, anon, authenticated;
 grant execute on function public.coach_cancel_by_text(uuid, date, uuid) to service_role;
@@ -123,3 +130,34 @@ language sql stable security definer set search_path = '' as $$
 $$;
 revoke execute on function public.coach_review_links_for_survey(text) from public;
 grant execute on function public.coach_review_links_for_survey(text) to anon, authenticated;
+
+-- A late cancellation keeps what paid for the session: the charge release trigger skips it
+create or replace function public.coach_booking_charges() returns trigger language plpgsql security definer set search_path = '' as $$
+declare tz text; d date; c uuid; keep boolean := coalesce(current_setting('coach.late_cancel', true) = 'on', false);
+begin
+  if tg_op = 'DELETE' then
+    if not keep then
+      for c in select id from public.coach_session_charges where booking_id = old.id and status in ('package', 'pending', 'paid') and starts_at > now() loop
+        perform public.coach_charge_release(c);
+      end loop;
+    end if;
+    return old;
+  end if;
+  if tg_op = 'INSERT' then perform public.coach_charge_attach_booking(new.id); return null; end if;
+  if not keep then
+    for d in select x from unnest(new.skipped) x where not (x = any (old.skipped)) loop
+      for c in select id from public.coach_session_charges where booking_id = new.id and on_date = d and status in ('package', 'pending', 'paid') loop
+        perform public.coach_charge_release(c);
+      end loop;
+    end loop;
+  end if;
+  if new.repeat = 'none' and new.starts_at is distinct from old.starts_at then
+    select coalesce(timezone, 'UTC') into tz from public.coach_trainers where user_id = new.trainer_id;
+    update public.coach_session_charges set starts_at = new.starts_at, on_date = (new.starts_at at time zone tz)::date
+     where booking_id = new.id and status in ('package', 'pending', 'paid');
+  end if;
+  return null;
+end $$;
+
+-- New trainers start with a 24-hour cancellation notice (existing trainers keep their setting)
+alter table public.coach_trainers alter column cancel_hours set default 24;

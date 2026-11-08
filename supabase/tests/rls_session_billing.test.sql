@@ -119,4 +119,14 @@ update public.coach_trainers set session_billing = 'external';
 insert into public.coach_bookings (trainer_id, client_id, title, starts_at, duration_min) select (select v from t.ids where k = 'trainer2'), id, 'X', t.at(2, '08:00'), 60 from public.coach_clients where first_name = 'Cy';
 select t.as_admin();
 select t.ok((select count(*) from public.coach_session_charges where trainer_id = (select v from t.ids where k = 'trainer2')) = 0, 'trainers who bill elsewhere get no session charges');
+-- A late cancellation by text keeps the package session used
+select t.as_user('trainer');
+insert into public.coach_client_packages (trainer_id, client_id, name, credits_total) select (select v from t.ids where k = 'trainer'), v, '10 sessions', 10 from t.ids where k = 'c_bo';
+insert into public.coach_bookings (trainer_id, client_id, title, starts_at, duration_min) select (select v from t.ids where k = 'trainer'), v, 'BoLate', now() + interval '3 hours', 60 from t.ids where k = 'c_bo';
+select t.as_admin();
+select t.ok((select status from public.coach_session_charges where booking_id = (select id from public.coach_bookings where title = 'BoLate')) = 'package', 'Bo''s session uses his package');
+create temp table bo_used as select credits_used from public.coach_client_packages where name = '10 sessions';
+select t.ok((public.coach_cancel_by_text((select id from public.coach_bookings where title = 'BoLate'), ((now() + interval '3 hours') at time zone 'America/New_York')::date, (select v from t.ids where k = 'c_bo')) ->> 'status') = 'late_cancelled', 'a late cancel by text');
+select t.ok((select status = 'package' and note like 'Late cancellation%' from public.coach_session_charges where booking_id = (select id from public.coach_bookings where title = 'BoLate')), 'keeps the package session used');
+select t.ok((select credits_used from public.coach_client_packages where name = '10 sessions') = (select credits_used from bo_used), 'and the credit isn''t returned');
 select 'ALL SESSION-BILLING TESTS PASSED';
