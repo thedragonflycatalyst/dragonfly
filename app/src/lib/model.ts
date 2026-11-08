@@ -14,6 +14,7 @@ export type Client = {
   id: string; trainer_id: string; user_id: string | null; name: string; first_name: string; last_name: string;
   email: string; phone: string | null; sex: Sex | null; date_of_birth: string | null; height_cm: number | null;
   status: ClientStatus; goals: string | null; interests: string[]; source: string | null;
+  frequency_tier?: import('./client-pool').Tier; short_notice_ok?: boolean; short_notice_at?: string | null; client_of?: 'private' | 'ca' | 'other';
   started_on: string | null; frozen_at: string | null; frozen_reason: 'manual' | 'inactive' | null;
   last_session_at: string | null; onboarded_at: string | null; created_at: string; updated_at: string;
   contact_via?: 'app' | 'sms' | 'whatsapp';
@@ -52,7 +53,7 @@ export type Exercise = {
 };
 
 /** Timer spec a timed block hands to Lapis: rounds of work/rest in seconds. */
-export type TimerSpec = { rounds: number; work: number; rest: number; label?: string };
+export type TimerSpec = { rounds: number; work: number; rest: number; label?: string; source?: { app: 'lapis'; id: string; snapshot: Record<string, unknown> } };
 
 /** What a block points at: a built-in library exercise or one of the trainer's own (copied in so it still shows if edited later) */
 export type ExerciseRef = { src: 'lib' | 'my'; id: string; name: string; img?: string | null; video?: string | null };
@@ -100,9 +101,13 @@ export type SetLog = {
 };
 /** One exercise in a logged workout. sides: logged left/right. note: the trainer's or client's note for this exercise. */
 export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; swapped_from_ref?: string; sides?: boolean; note?: string };
+export type LapisTimerResult = {
+  block_id: string; timer_id: string; name: string;
+  planned_seconds: number; actual_seconds: number; completed_at: string;
+};
 export type WorkoutLog = {
   id: string; assignment_id: string | null; client_id: string; user_id: string; performed_at: string;
-  duration_seconds: number | null; entries: LogEntry[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
+  duration_seconds: number | null; entries: LogEntry[]; timer_results?: LapisTimerResult[]; rpe: number | null; note: string | null; source: 'app' | 'lapis' | 'trainer';
 };
 
 export type Team = { id: string; owner_id: string; name: string };

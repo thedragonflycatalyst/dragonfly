@@ -93,7 +93,7 @@ export function Photos({ client, role, me }: SectionProps) {
               onPress={() => comparing ? setCompare((c) => picked ? c.filter((x) => x !== r.id) : [...c, r.id].slice(-2)) : undefined}
               onLongPress={() => (role === 'coach' || r.uploaded_by === me) && del(r)}
               style={{ width: 150, flexGrow: 1, maxWidth: 220, gap: 4 }}>
-              <Image source={{ uri: urls[r.path] }} style={{ width: '100%', aspectRatio: 3 / 4, borderRadius: R.sm, backgroundColor: p.soft, borderWidth: picked ? 3 : 0, borderColor: p.focus }} contentFit="cover" />
+              <Image source={{ uri: urls[r.path] }} style={{ width: '100%', aspectRatio: 3 / 4, borderRadius: R.sm, backgroundColor: p.soft, borderWidth: picked ? 3 : 0, borderColor: p.focus }} contentFit="cover" accessibilityLabel="" accessible={false} />
               <Txt v="small">{fmtDate(r.taken_on)} · {r.pose}</Txt>
               {!comparing && (role === 'coach' || r.uploaded_by === me) && <Button small kind="quiet" title="Delete" onPress={() => del(r)} style={{ alignSelf: 'flex-start' }} />}
             </Pressable>

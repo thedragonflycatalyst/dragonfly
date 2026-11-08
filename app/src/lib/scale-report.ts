@@ -45,7 +45,11 @@ export function scaleProgress(
     rangeLabel: days == null ? 'All recorded history' : `Last ${days} days`,
   };
 }
-export function progressShareText(p: ScaleProgress, unit: BodyUnit, format: 'dot' | 'comma' = 'dot') {
+/** Only the person whose scale it is can share it; trainers see a client's scale read-only (L-020). */
+export const canShareProgress = (readOnly: boolean | undefined, report: ScaleProgress | null | undefined): report is ScaleProgress => !readOnly && !!report;
+
+/** The goal is left out unless they choose to include it (L-021). */
+export function progressShareText(p: ScaleProgress, unit: BodyUnit, format: 'dot' | 'comma' = 'dot', includeGoal = false) {
   const date = (iso: string) => iso.slice(0, 10);
   const lines = [
     'Dragonfly Coach · Weight progress',
@@ -56,7 +60,7 @@ export function progressShareText(p: ScaleProgress, unit: BodyUnit, format: 'dot
       ? `Change: ${signed(fromKg(p.changeKg, unit), 1, format)} ${unitLabel(unit)} (${signed(p.changePct, 1, format)}%)`
       : 'Change: Not enough measurements',
     `Smoothed trend: ${fmtMass(p.trendKg, unit, format)}`,
-    ...(p.goalKg == null ? [] : [
+    ...(p.goalKg == null || !includeGoal ? [] : [
       `Goal: ${fmtMass(p.goalKg, unit, format)}`,
       `Distance to goal: ${fmtNum(Math.abs(fromKg(p.goalKg - p.trendKg, unit)), 1, format)} ${unitLabel(unit)}`,
     ]),

@@ -1,6 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as Crypto from 'expo-crypto';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Toggle } from '@/components/pickers';
 import { Sheet } from '@/components/sheet';
@@ -10,13 +11,17 @@ import { CUE_LINES, hush, say } from '@/features/lapis/audio';
 import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
+import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
+import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
+import type { RunnerClock } from '@/features/lapis/runner-clock';
+import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { useHidden } from '@/features/library-extras';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
-import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
+import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LapisTimerResult, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
 import { exKey, ghostSet, historyOf, notesOf, pastSwaps, setLine, type PastLog } from '@/lib/history';
 import { clock, doneOnly, DRAFT_KEY, readDraft, type Draft } from '@/lib/session';
 import { weakSide } from '@/lib/sides';
@@ -37,7 +42,21 @@ export default function Session() {
   const key = aid ? `a:${aid}` : `w:${workout}`;
   const unit = weightUnit(app.units);
   const [src, setSrc] = useState<Source | null | undefined>(undefined);
+  // Parse snapshots once when the assigned workout changes, rather than on
+  // every 200 ms runner tick or every exercise-set update.
+  const linkedTimers = useMemo(() => {
+    const parsed: Record<string, LapisTimer> = {};
+    for (const block of src?.blocks ?? []) {
+      if (block.kind !== 'timed' || block.timer.source?.app !== 'lapis') continue;
+      const timer = parseLapisTimer(block.timer.source.snapshot);
+      if (timer) parsed[block.id] = timer;
+    }
+    return parsed;
+  }, [src]);
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [timerResults, setTimerResults] = useState<LapisTimerResult[]>([]);
+  const [runnerClocks, setRunnerClocks] = useState<Record<string, RunnerClock>>({});
+  const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
   const [started, setStarted] = useState(Date.now());
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -53,6 +72,8 @@ export default function Session() {
   const [rpe, setRpe] = useState<number | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const saveInFlight = useRef(false);
+  const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
   const saved = useRef(false);
   const [swapping, setSwapping] = useState<number | null>(null);
   const [info, setInfo] = useState<ExerciseRef | null>(null);
@@ -73,18 +94,27 @@ export default function Session() {
       }
       if (s?.assignment?.status === 'done') { setSrc(s); return; }
       const d = readDraft((k) => storage.getItem(k));
-      if (s && d?.key === key) { setLog(d.log); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
-      else if (s) setLog(startLog(s.blocks, unit));
+      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {});
+        setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
+        setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
+      else if (s) {
+        setLog(startLog(s.blocks, unit));
+        setTimerResults([]);
+        setRunnerClocks({});
+        setActiveTimerId(null);
+        setPendingAssignmentId(null);
+        setStarted(Date.now());
+      }
       setSrc(s);
     })();
   }, [aid, workout, key, unit]);
 
   // Keep the draft on the device after every change
   useEffect(() => {
-    if (!src || saved.current || src.assignment?.status === 'done' || !log.length) return;
-    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log };
+    if (!src || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
+    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, pendingAssignmentId };
     try { storage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch { /* storage full or blocked: keep going without a draft */ }
-  }, [log, clientId, src, key, aid, workout, started]);
+  }, [log, timerResults, runnerClocks, pendingAssignmentId, clientId, src, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
@@ -150,26 +180,75 @@ export default function Session() {
 
   const clearDraft = () => { try { if (readDraft((k) => storage.getItem(k))?.key === key) storage.removeItem(DRAFT_KEY); } catch { /* nothing to clear */ } };
   const save = async () => {
-    if (!app.user) return;
-    if (!done) return toast('Tick off at least one set first', false);
+    if (saveInFlight.current || !app.user) return;
+    if (!done && !timerResults.length) return toast('Complete an exercise set or Lapis timer first', false);
     if (isTrainer && !clientId) return toast('Choose who you’re training', false);
+    saveInFlight.current = true;
     setBusy(true);
-    let assignmentId = src.assignment?.id ?? null;
-    if (!assignmentId) {
-      // A trainer running a library workout: put it on the client's calendar for today, then log it
-      const { data, error } = await sb.from('coach_assignments').insert({ trainer_id: app.user.id, client_id: clientId, workout_id: src.workoutId, scheduled_on: dayKey(new Date()), title: src.title, snapshot: src.blocks }).select('id').single();
-      if (error) { setBusy(false); return toast(errText(error), false); }
-      assignmentId = data.id;
+    try {
+      let assignmentId = src.assignment?.id ?? pendingAssignmentId;
+      if (!assignmentId) {
+        // Persist the exact intended primary key before contacting Supabase.
+        // A lost HTTP response can never create a second assignment on retry.
+        assignmentId = Crypto.randomUUID();
+        const draft: Draft = {
+          key, title: src.title, params: aid ? { aid } : { workout: workout! },
+          client_id: clientId, started, log, timerResults, runnerClocks,
+          pendingAssignmentId: assignmentId,
+        };
+        // Fail closed: without a persisted ID we cannot safely retry after
+        // an unknown network outcome.
+        storage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        setPendingAssignmentId(assignmentId);
+      }
+      if (!src.assignment) {
+        const expectedId = assignmentId;
+        const getExisting = async () => {
+          const existing = await sb.from('coach_assignments')
+            .select('id, client_id, trainer_id, workout_id')
+            .eq('id', expectedId).maybeSingle();
+          if (existing.error) throw existing.error;
+          if (!existing.data) return false;
+          if (!matchesPendingAssignment(existing.data, expectedId, app.user!.id, clientId!, src.workoutId))
+            throw new Error('Assignment ID belongs to a different workout or client');
+          return true;
+        };
+        if (!(await getExisting())) {
+          const { error: createError } = await sb.from('coach_assignments').insert({
+            id: expectedId, trainer_id: app.user.id, client_id: clientId,
+            workout_id: src.workoutId, scheduled_on: dayKey(new Date()),
+            title: src.title, snapshot: src.blocks,
+          });
+          if (createError && createError.code !== '23505') throw createError;
+          // Also handles duplicate PK and the case where the server inserted
+          // the assignment but its response was lost.
+          if (!(await getExisting())) throw new Error('Assignment creation not confirmed');
+        }
+      }
+      const { error } = await sb.from('coach_logs').insert({
+        assignment_id: assignmentId, client_id: clientId, user_id: app.user.id,
+        duration_seconds: Math.min(86400, Math.max(0, Math.round((Date.now() - started) / 1000))),
+        entries: doneOnly(log), timer_results: timerResults, rpe,
+        note: note.trim() || null, source: isTrainer ? 'trainer' : 'app',
+      });
+      if (error) {
+        // A concurrent save on another device may already have succeeded.
+        // Only treat a duplicate as success if the log truly exists.
+        if (error.code !== '23505') throw error;
+        const existing = await sb.from('coach_logs')
+          .select('id').eq('assignment_id', assignmentId).maybeSingle();
+        if (existing.error || !existing.data) throw error;
+      }
+      saved.current = true;
+      clearDraft();
+      toast('Workout saved. Nice work!');
+      router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId!, done: '1' } });
+    } catch (error) {
+      toast(errText(error), false);
+    } finally {
+      saveInFlight.current = false;
+      setBusy(false);
     }
-    const { error } = await sb.from('coach_logs').insert({
-      assignment_id: assignmentId, client_id: clientId, user_id: app.user.id, duration_seconds: Math.min(86400, Math.round((Date.now() - started) / 1000)),
-      entries: doneOnly(log), rpe, note: note.trim() || null, source: isTrainer ? 'trainer' : 'app',
-    });
-    setBusy(false);
-    if (error) return toast(errText(error), false);
-    saved.current = true; clearDraft();
-    toast('Workout saved. Nice work!');
-    router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId! } });
   };
 
   return (
@@ -180,14 +259,40 @@ export default function Session() {
           {isTrainer && !src.assignment && (
             <Card style={{ gap: 8 }}>
               <Txt v="bold">Who are you training?</Txt>
+              {pendingAssignmentId ? <Txt v="small" color={p.muted}>This workout is already associated with a client. The client cannot change while a save is being retried.</Txt> : null}
               {clients.length === 0 ? <Txt v="small">You need an active client to log a session.</Txt> : (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {clients.map((c) => <Chip key={c.id} label={c.name} selected={clientId === c.id} onPress={() => setClientId(c.id)} />)}
+                  {clients.map((c) => <Chip key={c.id} label={c.name} selected={clientId === c.id} onPress={() => { if (!pendingAssignmentId) setClientId(c.id); }} />)}
                 </View>
               )}
             </Card>
           )}
           {src.assignment?.trainer_note ? <Card><Txt v="smallBold" color={p.focus}>From your trainer</Txt><Txt>{src.assignment.trainer_note}</Txt></Card> : null}
+          {src.blocks.filter((b) => b.kind === 'timed').map((b) => {
+            if (b.kind !== 'timed') return null;
+            const savedTimer = linkedTimers[b.id] ?? null;
+            return savedTimer
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer}
+                  initialClock={runnerClocks[b.id]}
+                  blocked={activeTimerId !== null && activeTimerId !== b.id}
+                  onClockChange={(clock) => setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }))}
+                  onStart={() => {
+                    setActiveTimerId(b.id);
+                    setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id));
+                  }}
+                  onPause={() => setActiveTimerId((current) => current === b.id ? null : current)}
+                  onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))}
+                  onComplete={(actualSeconds) => {
+                  setActiveTimerId((current) => current === b.id ? null : current);
+                  const result: LapisTimerResult = {
+                    block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
+                    planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
+                    completed_at: new Date().toISOString(),
+                  };
+                  setTimerResults((prior) => [...prior.filter((x) => x.block_id !== b.id), result]);
+                }} />
+              : <Card key={b.id}><Txt v="bold">{b.name}</Txt><Txt v="small" color={p.muted}>This older timer needs to be linked again from the workout builder.</Txt></Card>;
+          })}
           <Txt v="small">{done} of {total} sets done{volume(log) ? ` · ${volume(log).toLocaleString()} ${unit} lifted` : ''}</Txt>
           {log.map((e, bi) => {
             const b = blocks.find((x) => x.id === e.block_id);
@@ -304,7 +409,7 @@ export default function Session() {
 
       <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16, alignItems: 'center', gap: 10 }} pointerEvents="box-none">
         <RestBar t={rest} />
-        <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done ? setFinishing(true) : toast('Tick off at least one set first', false))} />
+        <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done || timerResults.length ? setFinishing(true) : toast('Complete an exercise set or Lapis timer first', false))} />
       </View>
 
       <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)} past={past}
@@ -323,7 +428,7 @@ export default function Session() {
           {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => <Chip key={n} label={String(n)} selected={rpe === n} onPress={() => setRpe(rpe === n ? null : n)} />)}
         </View>
         <Field label="Notes" hint="(optional)" value={note} onChangeText={setNote} multiline placeholder="Felt strong, left knee a bit sore" />
-        <Txt v="small" style={{ marginBottom: 12 }}>{done} of {total} sets · {clock((now - started) / 1000)}</Txt>
+        <Txt v="small" style={{ marginBottom: 12 }}>{done} of {total} sets · {timerResults.length} Lapis timers · {clock((now - started) / 1000)}</Txt>
         <Button title="Save workout" busy={busy} onPress={save} style={{ alignSelf: 'flex-start' }} />
       </Sheet>
     </View>

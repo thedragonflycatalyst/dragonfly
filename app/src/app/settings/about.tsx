@@ -2,7 +2,9 @@ import Constants from 'expo-constants';
 import { useEffect, useState } from 'react';
 import { Linking, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
+import { Toggle } from '@/components/pickers';
 import { Button, Card, Txt } from '@/components/ui';
+import { crashReportsOn, setCrashReportsOn } from '@/features/crash-reporter';
 import { Page } from '@/features/settings-page';
 import { sb, WEB_URL } from '@/lib/supabase';
 import { usePalette } from '@/lib/theme';
@@ -14,6 +16,7 @@ export default function About() {
   const p = usePalette();
   const [admin, setAdmin] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
+  const [crashes, setCrashes] = useState(crashReportsOn);
   const load = async () => {
     const { data: a } = await sb.rpc('dragonfly_is_admin');
     setAdmin(!!a);
@@ -31,6 +34,7 @@ export default function About() {
         <Txt v="bold">Your privacy</Txt>
         <Txt v="small">Your data is yours. Clients’ information is visible only to their own trainer (and the team owner when they open that trainer’s account). Payments are handled by Stripe; Dragonfly never sees card numbers. AI features send only what’s needed for that one request.</Txt>
         <Button small kind="ghost" title="Privacy policy" onPress={() => Linking.openURL(`${WEB_URL}privacy`)} style={{ alignSelf: 'flex-start' }} />
+        <Toggle label="Send crash reports" sub="If the app crashes, send the error and where it happened in the code. Never your name, email, clients, health or payment details." value={crashes} onChange={(v) => { setCrashReportsOn(v); setCrashes(v); }} />
       </Card>
       <Card style={{ gap: 4 }}>
         <Txt v="bold">Credits</Txt>

@@ -11,7 +11,8 @@ const block = ([id, sets, target, rest = 60, note]: Line, i: number, group?: str
   const set: SetSpec = timed ? { time: target as number, rest } : { reps: String(target), rest, weight: '' };
   return { id: `t${i}`, kind: 'exercise', ex, metric: timed ? 'time' : 'reps', sets: Array.from({ length: sets }, () => ({ ...set })), note, group: group ?? null };
 };
-const make = (lines: (Line | Line[])[]): WorkoutBlock[] => {
+export type { Line };
+export const make = (lines: (Line | Line[])[]): WorkoutBlock[] => {
   const out: WorkoutBlock[] = [];
   lines.forEach((l, i) => {
     if (Array.isArray(l[0])) (l as Line[]).forEach((x, j) => out.push(block(x, i * 10 + j, `g${i}`)));
@@ -48,4 +49,4 @@ function build(): Template[] {
       ['c-air-bike', 3, 30, 30]]) },
   ];
 }
-export const TEMPLATES: Template[] = new Proxy([] as Template[], { get: (_t, k) => Reflect.get((cache ??= build()), k) });
+export const TEMPLATES: Template[] = new Proxy([] as Template[], { get: (_t, k) => Reflect.get((cache ??= build()), k), has: (_t, k) => Reflect.has((cache ??= build()), k) });
