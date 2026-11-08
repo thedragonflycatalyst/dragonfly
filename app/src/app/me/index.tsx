@@ -99,6 +99,7 @@ export default function Me() {
             <Row icon="event" title="When I’m free" sub="Get offered open spots when someone cancels" onPress={() => router.push('/me/availability')} />
             <Row icon="group_add" title="Refer a friend" sub="Share your link with someone who’d enjoy training" onPress={() => router.push('/me/refer')} />
             <Row icon="timer" title="Rest timer · Lapis" sub="Voice, bell, countdown and music during workouts" onPress={() => router.push('/settings/rest-timer')} />
+            <Row icon="photo_camera" title="Photos and AI" sub="Machine scans and meal estimates" onPress={() => router.push('/settings/privacy')} />
             <Row icon="school" title="Credentials and challenges" sub="Certificates you hold, and milestones to work toward" last onPress={() => router.push('/credentials')} />
           </Card>
           <Card style={{ padding: 0 }}>
