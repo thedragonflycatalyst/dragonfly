@@ -77,18 +77,27 @@ export function useRest() {
     for (const k of ['3', '2', '1', 'half']) fired.current.delete(k);
     return { ...r, until, total: Math.max(1, r.total + sec) };
   });
-  const pause = () => setRest((r) => (r && r.pausedLeft == null ? { ...r, pausedLeft: Math.max(0, (r.until - Date.now()) / 1000) } : r));
-  const resume = () => setRest((r) => (r && r.pausedLeft != null ? { ...r, until: Date.now() + r.pausedLeft * 1000, pausedLeft: null } : r));
+  const pause = () => {
+    void backstop(null);
+    setRest((r) => (r && r.pausedLeft == null ? { ...r, pausedLeft: Math.max(0, (r.until - Date.now()) / 1000) } : r));
+  };
+  const resume = () => setRest((r) => {
+    if (!r || r.pausedLeft == null) return r;
+    const until = Date.now() + r.pausedLeft * 1000;
+    if (AppState.currentState !== 'active') void backstop(until, r.label ? `Rest is over. ${r.label}` : undefined);
+    return { ...r, until, pausedLeft: null };
+  });
   const skip = () => { void backstop(null); setRest(null); onEnd.current = null; };
   return { rest, left, start, add, pause, resume, skip };
 }
 
 /** The Lapis rest bar pinned to the bottom of the workout */
-export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
+export function RestBar({ t, blocked = false }: { t: ReturnType<typeof useRest>; blocked?: boolean }) {
   const p = usePalette();
   if (!t.rest) return null;
   const frac = t.rest.total ? Math.min(1, t.left / t.rest.total) : 0;
   const paused = t.rest.pausedLeft != null;
+  const resumeBlocked = blocked && paused;
   const btn = { width: 44, height: 44, borderRadius: 22, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: p.soft };
   return (
     <View accessibilityRole="timer" accessibilityLabel={`Rest, ${Math.ceil(t.left)} seconds left`}
@@ -96,12 +105,12 @@ export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
       <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${frac * 100}%`, backgroundColor: p.glow }} />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10 }}>
         <View style={{ flex: 1, paddingLeft: 6 }}>
-          <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>{paused ? 'Paused' : 'Rest'}{t.rest.label ? ` · ${t.rest.label}` : ''}</Txt>
+          <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>{paused ? (blocked ? 'Paused for Lapis' : 'Paused') : 'Rest'}{t.rest.label ? ` · ${t.rest.label}` : ''}</Txt>
           <Txt style={{ fontFamily: F.display, fontSize: 34, fontVariant: ['tabular-nums'], color: p.ink }}>{clock(Math.ceil(t.left))}</Txt>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="15 seconds less" onPress={() => t.add(-15)} style={btn}><Txt v="smallBold" color={p.ink}>−15</Txt></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="15 seconds more" onPress={() => t.add(15)} style={btn}><Txt v="smallBold" color={p.ink}>+15</Txt></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={paused ? 'Resume rest' : 'Pause rest'} onPress={paused ? t.resume : t.pause} style={btn}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={resumeBlocked ? 'Pause Lapis to resume rest' : paused ? 'Resume rest' : 'Pause rest'} disabled={resumeBlocked} onPress={paused ? t.resume : t.pause} style={[btn, resumeBlocked && { opacity: 0.4 }]}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" onPress={t.skip} style={[btn, { backgroundColor: p.fill }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
       </View>
     </View>
@@ -112,9 +121,25 @@ export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
  * Mini Lapis timer for a timed set, sitting where the time box goes. With a target it counts down ("Go", bell,
  * 3-2-1, bell); without one it's a stopwatch. When it ends it hands back the seconds done.
  */
-export function SetTimer({ target, onDone, label, compact, go: autoGo }: { target: number | null; onDone: (seconds: number) => void; label: string; compact?: boolean; go?: number }) {
+export function SetTimer({ target, onDone, label, compact, go: autoGo, blocked = false, onRunningChange }: {
+  target: number | null;
+  onDone: (seconds: number) => void;
+  label: string;
+  compact?: boolean;
+  go?: number;
+  blocked?: boolean;
+  onRunningChange?: (running: boolean) => void;
+}) {
   const p = usePalette();
   const [started, setStarted] = useState<number | null>(null);
+  const runningRef = useRef(false);
+  const reportRunning = (value: boolean) => {
+    if (runningRef.current !== value) {
+      runningRef.current = value;
+      onRunningChange?.(value);
+    }
+  };
+  useEffect(() => () => { if (runningRef.current) onRunningChange?.(false); }, []);
   const [now, setNow] = useState(Date.now());
   const fired = useRef(new Set<string>());
   useEffect(() => { if (started == null) return; const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t); }, [started]);
@@ -125,17 +150,23 @@ export function SetTimer({ target, onDone, label, compact, go: autoGo }: { targe
     const pr = getPrefs(), f = fired.current, s = Math.ceil(left);
     if (pr.halfway && target >= 20 && left <= target / 2 && !f.has('half')) { f.add('half'); void say('Halfway'); }
     if (pr.countdown) for (const n of [3, 2, 1]) if (s === n && target > n && !f.has(String(n))) { f.add(String(n)); buzz(); void say(String(n)); }
-    if (left <= 0 && !f.has('end')) { f.add('end'); void bell(); setStarted(null); onDone(target); }
+    if (left <= 0 && !f.has('end')) { f.add('end'); void bell(); setStarted(null); reportRunning(false); onDone(target); }
   }, [started, left, target]); // eslint-disable-line react-hooks/exhaustive-deps
-  const go = () => { fired.current = new Set(); setStarted(Date.now()); void bell().then(() => say('Go')); };
+  const go = () => {
+    if (blocked) return;
+    fired.current = new Set();
+    reportRunning(true);
+    setStarted(Date.now());
+    void bell().then(() => say('Go'));
+  };
   // Started for you: the next set of a timed exercise after its rest, or the left side after the right
-  useEffect(() => { if (autoGo && started == null) go(); }, [autoGo]); // eslint-disable-line react-hooks/exhaustive-deps
-  const stop = () => { const secs = Math.round(elapsed); setStarted(null); if (secs > 0) { void bell(); onDone(secs); } };
+  useEffect(() => { if (autoGo && started == null && !blocked) go(); }, [autoGo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stop = () => { const secs = Math.round(elapsed); setStarted(null); reportRunning(false); if (secs > 0) { void bell(); onDone(secs); } };
   const running = started != null;
   const frac = target ? 1 - left / target : 0;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={running ? `Stop ${label} timer` : `Start ${label} timer`} onPress={running ? stop : go}
-      style={{ flex: 1, minWidth: compact ? 64 : 96, height: 44, borderRadius: R.sm, overflow: 'hidden', borderWidth: 1.5, borderColor: running ? p.focus : p.line, backgroundColor: p.surface, justifyContent: 'center' }}>
+    <Pressable accessibilityRole="button" accessibilityLabel={running ? `Stop ${label} timer` : blocked ? `Pause the linked Lapis timer to start ${label}` : `Start ${label} timer`} disabled={!running && blocked} onPress={running ? stop : go}
+      style={{ flex: 1, minWidth: compact ? 64 : 96, height: 44, borderRadius: R.sm, overflow: 'hidden', borderWidth: 1.5, borderColor: running ? p.focus : p.line, backgroundColor: p.surface, justifyContent: 'center', opacity: !running && blocked ? 0.45 : 1 }}>
       {running && target ? <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${frac * 100}%`, backgroundColor: p.glow }} /> : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
         <Icon name={running ? 'stop' : 'play_arrow'} size={18} color={p.focus} />
