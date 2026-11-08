@@ -56,7 +56,7 @@ export function Initials({ name, size = 40 }: { name: string; size?: number }) {
   const p = usePalette();
   const letters = name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('') || '?';
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: p.focus, alignItems: 'center', justifyContent: 'center' }}>
+    <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: p.fill, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ fontFamily: F.display, fontSize: size * 0.38, color: p.onAccent }}>{letters}</Text>
     </View>
   );

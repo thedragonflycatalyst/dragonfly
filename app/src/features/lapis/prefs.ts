@@ -3,6 +3,7 @@
 // Rest-timer extras (say "Rest", countdown, bell, default rest...) belong to Dragonfly and stay on this device.
 import { useEffect, useSyncExternalStore } from 'react';
 import { recall, sb, store } from '@/lib/supabase';
+import { selectChangedPrefs, SHARED_PREF_KEYS } from './prefs-patch';
 
 export type MusicMode = 'mix' | 'duck' | 'pause';
 export type BellStyle = 'ring2' | 'ring1' | 'ring3';
@@ -36,7 +37,12 @@ export const DEFAULTS: LapisPrefs = {
   voice: 'en-IE-ConnorNeural', music: 'duck', voiceLevel: 1, voiceSpeed: 1, haptics: true, bell: 'ring2',
   voiceOn: true, sayRest: true, countdown: true, bellOn: true, halfway: false, autoRest: true, defaultRest: 60, keepAwake: true,
 };
-const SHARED = ['voice', 'music', 'voiceLevel', 'voiceSpeed', 'haptics', 'bell'] as const;
+const SHARED = SHARED_PREF_KEYS;
+
+/** Build a narrow patch: never copy stale unrelated settings into Lapis's sync document. */
+export function sharedPatch(patch: Partial<LapisPrefs>, next: LapisPrefs): Record<string, unknown> {
+  return selectChangedPrefs(patch, toLapis(next));
+}
 
 const clamp = (n: unknown, lo: number, hi: number, d: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d);
 /** Lapis's saved settings (its own JSON shape) → ours; anything missing or broken keeps what we had */
@@ -67,33 +73,76 @@ let uid: string | null = null;
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 const KEY = (u: string) => `lapis.prefs.${u}`;
+const PENDING_KEY = (u: string) => `lapis.prefs.pending.${u}`;
 
 export const getPrefs = () => current;
 
 /** Load this person's settings: this device first, then whatever Lapis has on their account */
 export async function loadPrefs(userId: string) {
-  if (uid !== userId) { uid = userId; current = { ...DEFAULTS, ...recall<Partial<LapisPrefs>>(KEY(userId), {}) }; emit(); }
+  if (uid !== userId) {
+    uid = userId;
+    const pending = recall<Partial<LapisPrefs>>(PENDING_KEY(userId), {});
+    if (Object.keys(pending).length) pendingByUser.set(userId, pending);
+    current = { ...DEFAULTS, ...recall<Partial<LapisPrefs>>(KEY(userId), {}), ...pending };
+    emit();
+  }
   try {
     const { data } = await sb.from('lapis_sync').select('doc').eq('user_id', userId).maybeSingle();
     const prefs = (data?.doc as { prefs?: { data?: Record<string, unknown> } } | undefined)?.prefs?.data;
-    if (prefs && uid === userId) { current = fromLapis(prefs, current); store(KEY(userId), current); emit(); }
+    if (prefs && uid === userId) {
+      const remote = fromLapis(prefs, current);
+      current = { ...remote, ...pendingByUser.get(userId) };
+      store(KEY(userId), current); emit();
+    }
+    if (uid === userId && pendingByUser.has(userId)) void flushShared(userId);
   } catch { /* offline: this device's copy is fine */ }
 }
 
-/** Change settings here; shared ones are written back to the account so Lapis picks them up too */
+/** Shared changes are applied atomically on the server without replacing timers/sessions/history.
+ * Offline or failed writes are retained locally and retried the next time the account loads.
+ */
+const pendingByUser = new Map<string, Partial<LapisPrefs>>();
+const flushByUser = new Map<string, Promise<void>>();
+
+async function flushShared(userId: string) {
+  const active = flushByUser.get(userId);
+  if (active) return active;
+  const task = (async () => {
+    while (pendingByUser.has(userId)) {
+      const patch = pendingByUser.get(userId)!;
+      pendingByUser.delete(userId);
+      const snapshot = userId === uid ? current : { ...DEFAULTS, ...recall<Partial<LapisPrefs>>(KEY(userId), {}) };
+      try {
+        const { data, error } = await sb.rpc('coach_patch_lapis_prefs', { p_patch: sharedPatch(patch, snapshot) });
+        if (error) throw error;
+        if (data == null) throw new Error('Lapis sync document not yet available');
+        if (pendingByUser.has(userId)) store(PENDING_KEY(userId), pendingByUser.get(userId));
+        else store(PENDING_KEY(userId), {});
+      } catch {
+        // Keep only values not superseded by edits made while the request was running.
+        pendingByUser.set(userId, { ...patch, ...pendingByUser.get(userId) });
+        store(PENDING_KEY(userId), pendingByUser.get(userId));
+        break;
+      }
+    }
+  })();
+  flushByUser.set(userId, task);
+  try { await task; } finally { flushByUser.delete(userId); }
+}
+
+/** Change a setting locally immediately; sync just the changed keys safely. */
 export async function setPrefs(patch: Partial<LapisPrefs>) {
   current = { ...current, ...patch };
   emit();
   if (!uid) return;
-  store(KEY(uid), current);
-  if (!SHARED.some((k) => k in patch)) return;
-  try {
-    const { data } = await sb.from('lapis_sync').select('doc').eq('user_id', uid).maybeSingle();
-    if (!data) return; // Not using the Lapis app yet: nothing to keep in step
-    const doc = (data.doc ?? {}) as { prefs?: { data?: Record<string, unknown> } };
-    const next = { ...doc, prefs: { at: new Date().toISOString(), data: { ...(doc.prefs?.data ?? {}), ...toLapis(current) } } };
-    await sb.from('lapis_sync').update({ doc: next, updated_at: new Date().toISOString() }).eq('user_id', uid);
-  } catch { /* kept on this device; tries again next change */ }
+  const userId = uid;
+  store(KEY(userId), current);
+  const shared = Object.fromEntries(SHARED.filter((k) => Object.prototype.hasOwnProperty.call(patch, k))
+    .map((k) => [k, patch[k]])) as Partial<LapisPrefs>;
+  if (!Object.keys(shared).length) return;
+  pendingByUser.set(userId, { ...pendingByUser.get(userId), ...shared });
+  store(PENDING_KEY(userId), pendingByUser.get(userId));
+  await flushShared(userId);
 }
 
 export function useLapisPrefs(userId?: string | null): LapisPrefs {
