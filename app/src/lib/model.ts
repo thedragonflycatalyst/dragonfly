@@ -18,7 +18,7 @@ export type Client = {
   started_on: string | null; frozen_at: string | null; frozen_reason: 'manual' | 'inactive' | null;
   last_session_at: string | null; onboarded_at: string | null; created_at: string; updated_at: string;
   contact_via?: 'app' | 'sms' | 'whatsapp';
-};
+} & import('./client-away').AwayFields;
 export const STATUS_LABEL: Record<ClientStatus, string> = { lead: 'In client pool', invited: 'Invited', active: 'Active', frozen: 'Frozen', archived: 'Archived' };
 
 export type Group = { id: string; trainer_id: string; name: string; created_at: string };
