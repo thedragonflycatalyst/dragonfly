@@ -29,12 +29,12 @@ select t.ok(public.coach_reschedule_session((select id from public.coach_booking
 select t.ok(t.refused($$select public.coach_reschedule_push()$$), 'the push trigger function isn''t callable directly');
 -- Follow-ups: only for trainers with a ClubAutomation calendar; stay until marked done
 select t.as_user('trainer');
-select t.ok((select count(*) from public.coach_followups) = 0, 'no ClubAutomation calendar, no follow-up');
+select t.ok((select count(*) from public.coach_followups) = 0, 'only the app (no outside calendar): no follow-up');
 select t.as_admin();
 insert into public.coach_calendar_feeds (trainer_id, label, source, url) select v, 'ClubAutomation', 'clubautomation', 'https://example.clubautomation.com/cal.ics' from t.ids where k = 'trainer';
 select t.as_user('trainer');
 select public.coach_reschedule_decide((select id from public.coach_reschedule_requests where status = 'pending'), true);
-select t.ok((select count(*) from public.coach_followups where status = 'open') = 1, 'an approved move makes a ClubAutomation follow-up');
+select t.ok((select count(*) from public.coach_followups where status = 'open') = 1, 'an approved move makes a follow-up to update the outside calendar');
 select t.ok((select title from public.coach_followups) ~ '^Reschedule Ana.* in ClubAutomation from .* to ', 'it says who, from and to');
 select t.as_user('other');
 select t.ok((select count(*) from public.coach_followups) = 0, 'nobody else sees it');
@@ -43,4 +43,14 @@ select t.as_user('trainer');
 select t.ok(t.refused($$update public.coach_followups set status = 'done'$$) or (select status from public.coach_followups) = 'open', 'it can''t be closed by editing the row');
 select public.coach_followup_done((select id from public.coach_followups limit 1));
 select t.ok((select status from public.coach_followups) = 'done', 'the trainer marks it done');
+-- Cancelling a client's upcoming session also needs removing from the outside calendar
+insert into public.coach_bookings (trainer_id, client_id, title, starts_at, duration_min, repeat) select (select v from t.ids where k = 'trainer'), v, 'Weekly', ((current_date + 2) + time '07:00') at time zone 'America/New_York', 60, 'weekly' from t.ids where k = 'c_ana';
+update public.coach_bookings set skipped = array[current_date + 9] where title = 'Weekly';
+select t.ok((select count(*) from public.coach_followups where kind = 'calendar_cancel' and status = 'open') = 1, 'a cancelled date becomes a follow-up');
+-- Moving one date of a weekly session: one move follow-up, no extra cancel
+select public.coach_reschedule_session((select id from public.coach_bookings where title = 'Weekly' and repeat = 'weekly'), current_date + 2, ((current_date + 2) + time '11:00') at time zone 'America/New_York');
+select t.ok((select count(*) from public.coach_followups where kind = 'calendar_move' and status = 'open') = 1 and (select count(*) from public.coach_followups where kind = 'calendar_cancel') = 1, 'moving a weekly date: one move to-do, no extra cancel');
+-- The trainer dragging a one-off in their calendar
+update public.coach_bookings set starts_at = starts_at + interval '1 hour' where title = 'S';
+select t.ok((select count(*) from public.coach_followups where kind = 'calendar_move' and status = 'open') = 2, 'moving a session in the calendar makes one too');
 select 'ALL PUSH TESTS PASSED';

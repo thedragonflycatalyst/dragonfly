@@ -1,4 +1,4 @@
-// Open follow-ups (e.g. "Reschedule Susan in ClubAutomation …") nag the trainer's phone every hour, 8 AM–9 PM their
+// Open follow-ups (e.g. "Reschedule Susan in ClubAutomation …", any outside calendar) nag the trainer's phone every hour, 8 AM–9 PM their
 // time, until they mark them done in the app.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
 import { FOLLOWUP_TITLE, followupBody, followupDue, pushConfigured, sendUrgent } from '../_shared/push.ts';

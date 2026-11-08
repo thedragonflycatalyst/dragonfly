@@ -1,13 +1,15 @@
 -- Follow-ups that stay until the trainer says they're done (owner 2026-11-07): when a session moves, the trainer has to
--- make the same change in ClubAutomation ("if we forget to put the change in club auto we're cooked"). Created for
--- trainers who have a ClubAutomation calendar linked. A phone alert goes out at once and repeats every hour (8 AM–9 PM,
+-- make the same change in their outside calendar ("if we forget to put the change in club auto we're cooked"). Created
+-- for every trainer with an outside calendar linked (ClubAutomation, Outlook, Google, …); trainers who only use the app
+-- get none. A phone alert goes out at once and repeats every hour (8 AM–9 PM,
 -- the trainer's time) until it's marked done; the app shows a red bar on every screen until then.
 create table public.coach_followups (
   id uuid primary key default gen_random_uuid(),
   trainer_id uuid not null references public.coach_trainers(user_id) on delete cascade,
   client_id uuid references public.coach_clients(id) on delete set null,
   booking_id uuid references public.coach_bookings(id) on delete set null,
-  kind text not null default 'clubautomation_move' check (kind in ('clubautomation_move')),
+  kind text not null default 'calendar_move' check (kind in ('calendar_move', 'calendar_cancel')),
+  calendars text check (char_length(calendars) <= 200),    -- which outside calendars to update
   title text not null check (char_length(title) between 1 and 300),
   old_start timestamptz,
   new_start timestamptz,
@@ -25,17 +27,58 @@ create policy coach_followups_own on public.coach_followups for select to authen
 
 create function public.coach_followup_move(p_trainer uuid, p_client uuid, p_booking uuid, p_old timestamptz, p_new timestamptz) returns void
 language plpgsql security definer set search_path = '' as $$
-declare tz text; nm text; f text := 'Dy, Mon FMDD FMHH12:MI AM';
+declare tz text; nm text; cals text; f text := 'Dy, Mon FMDD FMHH12:MI AM';
 begin
-  if not exists (select 1 from public.coach_calendar_feeds where trainer_id = p_trainer and source = 'clubautomation') then return; end if;
+  select string_agg(distinct label, ' and ' order by label) into cals from public.coach_calendar_feeds where trainer_id = p_trainer;
+  if cals is null then return; end if;
   select coalesce(timezone, 'America/New_York') into tz from public.coach_trainers where user_id = p_trainer;
   select name into nm from public.coach_clients where id = p_client;
-  insert into public.coach_followups (trainer_id, client_id, booking_id, title, old_start, new_start)
-  values (p_trainer, p_client, p_booking,
-          'Reschedule ' || coalesce(nm, 'client') || ' in ClubAutomation from ' || to_char(p_old at time zone tz, f) || ' to ' || to_char(p_new at time zone tz, f),
+  insert into public.coach_followups (trainer_id, client_id, booking_id, calendars, title, old_start, new_start)
+  values (p_trainer, p_client, p_booking, cals,
+          'Reschedule ' || coalesce(nm, 'client') || ' in ' || cals || ' from ' || to_char(p_old at time zone tz, f) || ' to ' || to_char(p_new at time zone tz, f),
           p_old, p_new);
 end $$;
 revoke execute on function public.coach_followup_move(uuid, uuid, uuid, timestamptz, timestamptz) from public, anon, authenticated;
+
+create function public.coach_followup_cancel(p_trainer uuid, p_client uuid, p_start timestamptz) returns void
+language plpgsql security definer set search_path = '' as $$
+declare tz text; nm text; cals text;
+begin
+  select string_agg(distinct label, ' and ' order by label) into cals from public.coach_calendar_feeds where trainer_id = p_trainer;
+  if cals is null then return; end if;
+  select coalesce(timezone, 'America/New_York') into tz from public.coach_trainers where user_id = p_trainer;
+  select name into nm from public.coach_clients where id = p_client;
+  insert into public.coach_followups (trainer_id, client_id, kind, calendars, title, old_start)
+  values (p_trainer, p_client, 'calendar_cancel', cals,
+          'Cancel ' || coalesce(nm, 'client') || '''s session in ' || cals || ' on ' || to_char(p_start at time zone tz, 'Dy, Mon FMDD FMHH12:MI AM'), p_start);
+end $$;
+revoke execute on function public.coach_followup_cancel(uuid, uuid, timestamptz) from public, anon, authenticated;
+
+-- Any change to an upcoming client session, however it was made (client request, trainer's calendar, text reply):
+-- moved one-offs and cancelled dates become follow-ups. Moves made by coach_reschedule_session on a repeating
+-- booking skip the date, so cancels are not added while coach.rescheduling is on (the move follow-up covers it).
+create function public.coach_booking_followups() returns trigger language plpgsql security definer set search_path = '' as $$
+declare tz text; d date; r tstzrange; moving boolean := coalesce(current_setting('coach.rescheduling', true) = 'on', false);
+begin
+  if coalesce(old.client_id, new.client_id) is null or coalesce(old.kind, new.kind) not in ('session', 'consult') then return null; end if;
+  if tg_op = 'DELETE' then
+    if not moving and old.repeat = 'none' and old.starts_at > now() then perform public.coach_followup_cancel(old.trainer_id, old.client_id, old.starts_at); end if;
+    return null;
+  end if;
+  if new.repeat = 'none' and new.starts_at is distinct from old.starts_at and old.starts_at > now() then
+    perform public.coach_followup_move(new.trainer_id, new.client_id, new.id, old.starts_at, new.starts_at);
+  end if;
+  if not moving then
+    select coalesce(timezone, 'UTC') into tz from public.coach_trainers where user_id = new.trainer_id;
+    for d in select x from unnest(new.skipped) x where not (x = any (old.skipped)) loop
+      r := public.coach_booking_on(old, d, tz);
+      if r is not null and lower(r) > now() then perform public.coach_followup_cancel(new.trainer_id, new.client_id, lower(r)); end if;
+    end loop;
+  end if;
+  return null;
+end $$;
+create trigger coach_booking_followups after update of starts_at, skipped or delete on public.coach_bookings for each row execute function public.coach_booking_followups();
+revoke execute on function public.coach_booking_followups() from public, anon, authenticated;
 
 create function public.coach_followup_done(p_id uuid) returns void
 language plpgsql security definer set search_path = '' as $$

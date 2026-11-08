@@ -1,4 +1,4 @@
-// Trainer to-dos that stay until marked done (e.g. "Reschedule Susan in ClubAutomation from … to …"): a red bar on
+// Trainer to-dos that stay until marked done (e.g. "Reschedule Susan in ClubAutomation from … to …"; any outside calendar): a red bar on
 // every screen, and on Android a notification that can't be swiped away until it's done. The server also sends a
 // phone alert every hour (8 AM–9 PM) while any is open.
 import { router } from 'expo-router';
@@ -20,7 +20,7 @@ async function stickyNotes(open: Followup[]) {
     for (const f of open) {
       if (shown.some((n) => n.request.identifier === `followup-${f.id}`)) continue;
       await N.scheduleNotificationAsync({ identifier: `followup-${f.id}`,
-        content: { title: '📋 Update ClubAutomation', body: `${f.title}. Tap Done in Dragonfly when it's changed.`, sticky: true, autoDismiss: false, data: { kind: 'followup', path: '/followups' } },
+        content: { title: '📋 Update your calendar', body: `${f.title}. Tap Done in Dragonfly when it's changed.`, sticky: true, autoDismiss: false, data: { kind: 'followup', path: '/followups' } },
         trigger: { channelId: 'approvals' } });
     }
   } catch { /* the bar still shows */ }
@@ -52,11 +52,11 @@ export function FollowupBar() {
   const [open] = useFollowups();
   if (!open.length) return null;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${open.length} ClubAutomation change${open.length === 1 ? '' : 's'} to make. Open.`} onPress={() => router.push('/followups')}
+    <Pressable accessibilityRole="button" accessibilityLabel={`${open.length} calendar change${open.length === 1 ? '' : 's'} to make. Open.`} onPress={() => router.push('/followups')}
       style={{ backgroundColor: '#c23a3a', paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <Txt style={{ fontSize: 20 }}>📋</Txt>
       <View style={{ flex: 1 }}>
-        <Txt v="bold" color="#ffffff" style={{ fontSize: 16 }}>{open.length === 1 ? 'Update ClubAutomation' : `Update ClubAutomation (${open.length})`}</Txt>
+        <Txt v="bold" color="#ffffff" style={{ fontSize: 16 }}>{open.length === 1 ? 'Update your calendar' : `Update your calendar (${open.length})`}</Txt>
         <Txt color="#ffffff" numberOfLines={1}>{open[0].title}</Txt>
       </View>
       <View style={{ backgroundColor: '#ffffff', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6 }}><Txt v="bold" color="#c23a3a">Open</Txt></View>
