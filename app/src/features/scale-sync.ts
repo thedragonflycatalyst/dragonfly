@@ -17,6 +17,7 @@ export type ScaleSyncState = {
   lastError?: string | null;
   historyImportedAt?: string | null;
 };
+/** On when weigh-in sync was switched on here, or Health Connect was connected on the Connected apps screen */
 export const healthSync = (uid: string): ScaleSyncState =>
   recall<ScaleSyncState | null>(KEY(uid), null) ?? { on: deviceSync(uid).on, last: null };
 export const setHealthSync = (uid: string, s: ScaleSyncState) => store(KEY(uid), s);

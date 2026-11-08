@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { artCover, artFor } from './art-match';
+import { artCover, artFor, exerciseArt } from './art-match';
 
 test('artFor picks a picture from the routine name', () => {
   assert.equal(artFor('Leg Day'), 'legs');
@@ -43,4 +43,14 @@ test('upper body and hinges', () => {
   assert.equal(artFor('RDL day'), 'fullbody');
   assert.equal(artFor('Deadlift focus'), 'fullbody');
   assert.equal(artFor('Leg Day'), 'legs');
+});
+
+test('exercises without a demo get a placeholder that fits', () => {
+  assert.equal(exerciseArt({ name: 'Leg Press', category: 'Machine', primary: ['Quads', 'Glutes'] }), 'legs');
+  assert.equal(exerciseArt({ name: 'Hip Thrust', category: 'Barbell', primary: ['Glutes'] }), 'glutes');
+  assert.equal(exerciseArt({ name: 'TRX Row', category: 'Suspension (TRX)', primary: ['Upper back'] }), 'suspension');
+  assert.equal(exerciseArt({ name: 'Reformer Hundred', category: 'Pilates', primary: ['Abs'] }), 'yoga');
+  assert.equal(exerciseArt({ name: 'Water Walking', category: 'Aquatics', primary: ['Full body'] }), 'swimming');
+  assert.equal(exerciseArt({ name: 'Cable Curl', category: 'Cable', primary: ['Biceps'] }), 'arms');
+  assert.equal(exerciseArt({ name: 'Mystery Move' }), 'fullbody');
 });

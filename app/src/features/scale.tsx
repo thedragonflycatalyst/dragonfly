@@ -1,10 +1,12 @@
 import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Share, Text, View } from 'react-native';
 import { Segmented, SectionLabel } from '@/components/bits';
 import { ChangeBars, Gauge, LineChart, type Series } from '@/components/charts';
 import { DateField } from '@/components/date-field';
+import { WeightRuler } from '@/components/weight-ruler';
 import { Fab, time12, TimeField, Toggle } from '@/components/pickers';
 import { connectScaleHealth, healthStatus, openHealthSettings, requestScaleHistoryAccess, scalePermissions, type HealthStatus } from './health-connect';
 import { healthSync, setHealthSync, syncHealth } from './scale-sync';
@@ -13,9 +15,10 @@ import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
+import { progressShareText, scaleProgress } from '@/lib/scale-report';
 import { errText } from '@/lib/model';
 import {
-  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
+  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
   kcalPerDay, metricLabel, monthlyChange, parseCsv, PERIODS, RANGES, ratePerWeek, READINGS, signed, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
   type MetricKey, type ReadingKey, type ScaleSettings, type Weighin,
 } from '@/lib/scale';
@@ -99,6 +102,20 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
   range: number | null; setRange: (r: number | null) => void; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; height: number | null;
 }) {
   const p = usePalette();
+  const toast = useToast();
+  const report = useMemo(() => scaleProgress(list, range, settings.goal_kg == null ? null : Number(settings.goal_kg)), [list, range, settings.goal_kg]);
+  const shareProgress = async () => {
+    if (!report) return;
+    const message = progressShareText(report, unit, fmt);
+    try {
+      if (Platform.OS === 'web') {
+        await Clipboard.setStringAsync(message);
+        toast('Progress summary copied. Paste it wherever you want to share.');
+      } else {
+        await Share.share({ message, title: 'Dragonfly Coach · Weight progress' });
+      }
+    } catch (error) { toast(errText(error), false); }
+  };
   const tr = useMemo(() => trend(list), [list]);
   const last = tr[tr.length - 1];
   const rate = ratePerWeek(tr);
@@ -137,7 +154,9 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
     <>
       <Card style={{ paddingHorizontal: 6, paddingVertical: 10 }}>
         <LineChart series={series} from={from} to={to} goal={goalShown} projection={projection} height={320}
-          fmtY={(v) => fmtNum(v, Math.abs(v) < 20 ? 1 : 0, fmt)} label={`${sel.map(metricLabel).join(', ')} over time`} />
+          fmtY={(v) => fmtNum(v, Math.abs(v) < 20 ? 1 : 0, fmt)}
+          fmtPoint={(v) => `${fmtNum(v, 1, fmt)}${massMode ? ` ${unitLabel(unit)}` : ""}`}
+          label={`${sel.map(metricLabel).join(', ')} over time`} />
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 4 }}>
           {RANGES.map(([l, d]) => <Chip key={l} label={l} selected={range === d} onPress={() => setRange(d)} />)}
         </View>
@@ -145,6 +164,22 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {chartable.map((k) => <Chip key={k} label={metricLabel(k)} selected={sel.includes(k)} color={colorFor(k, 0)} onPress={() => toggle(k)} />)}
       </View>
+      {report && (
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <Txt v="bold">Progress summary</Txt>
+            <Txt v="small">{report.count} weigh-in{report.count === 1 ? '' : 's'} in period</Txt>
+          </View>
+          <Txt v="small">{new Date(report.start).toLocaleDateString()} – {new Date(report.end).toLocaleDateString()}</Txt>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <View><Txt v="small">First</Txt><Txt v="bold">{fmtMass(report.startKg, unit, fmt)}</Txt></View>
+            <View><Txt v="small">Latest</Txt><Txt v="bold">{fmtMass(report.endKg, unit, fmt)}</Txt></View>
+            <View><Txt v="small">Change</Txt><Txt v="bold">{report.count < 2 ? '—' : `${signed(fromKg(report.changeKg, unit), 1, fmt)} ${unitLabel(unit)}`}</Txt></View>
+          </View>
+          <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and optional goal information; review before sharing.</Txt>
+          <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+        </Card>
+      )}
       {last && (
         <Card style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <View style={{ gap: 2, minWidth: 130 }}>
@@ -315,7 +350,7 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
     } catch (e) { toast(errText(e), false); } finally { setImporting(false); }
   };
   const exportCsv = () => {
-    const keys = enterable(metrics);
+    const keys = (Object.keys(READINGS) as ReadingKey[]).filter((k) => list.some((w) => w.metrics?.[k] != null));
     const lines = [['date', `weight (${unitLabel(unit)})`, ...keys.map((k) => READINGS[k].label + (READINGS[k].unit === 'mass' ? ` (${unitLabel(unit)})` : READINGS[k].unit ? ` (${READINGS[k].unit})` : ''))].join(',')];
     for (const w of [...list].reverse()) lines.push([w.measured_at, fromKg(w.weight_kg, unit).toFixed(1), ...keys.map((k) => (w.metrics[k] == null ? '' : READINGS[k].unit === 'mass' ? fromKg(w.metrics[k]!, unit).toFixed(1) : String(w.metrics[k])))].join(','));
     const a = document.createElement('a');
@@ -494,6 +529,7 @@ function LogSheet({ entry, onClose, metrics, unit, onSaved, last }: {
 }) {
   const toast = useToast();
   const p = usePalette();
+  const app = useApp();
   const editing = entry && entry !== 'new' ? entry : null;
   const [day, setDay] = useState<string | null>(null);
   const [time, setTime] = useState('');
@@ -516,13 +552,15 @@ function LogSheet({ entry, onClose, metrics, unit, onSaved, last }: {
     if (w == null) return toast('Enter your weight', false);
     const kg = Math.round(toKgFrom(w, unit) * 100) / 100;
     if (kg < 20 || kg > 400) return toast('That weight doesn’t look right', false);
-    const m: Partial<Record<ReadingKey, number>> = {};
-    for (const k of enterable(metrics)) {
-      const x = num(vals[k]); if (x == null) continue;
+    const edits: Partial<Record<ReadingKey, number | null>> = {};
+    const visible = enterable(metrics);
+    for (const k of visible) {
+      const x = num(vals[k]); if (x == null) { edits[k] = null; continue; }
       const v = READINGS[k].unit === 'mass' ? Math.round(toKgFrom(x, unit) * 100) / 100 : x;
       if (v < 0 || v > READINGS[k].max * (READINGS[k].unit === 'mass' ? 2.3 : 1)) return toast(`${READINGS[k].label} doesn’t look right`, false);
-      m[k] = v;
+      edits[k] = v;
     }
+    const m = editedMetrics(editing?.metrics, visible, edits);
     const when = new Date(`${day}T${time || '12:00'}:00`);
     if (Number.isNaN(when.getTime()) || when.getTime() > Date.now() + 3_600_000) return toast('Check the date and time', false);
     setBusy(true);
@@ -541,7 +579,8 @@ function LogSheet({ entry, onClose, metrics, unit, onSaved, last }: {
   const fields = enterable(metrics);
   return (
     <Sheet visible={!!entry} onClose={onClose} title={editing ? 'Edit weigh-in' : 'Log weigh-in'}>
-      <Field label={`Weight (${unitLabel(unit)})`} value={weight} onChangeText={setWeight} keyboardType="decimal-pad" autoFocus={!editing}
+      <WeightRuler value={weight} fallbackKg={editing?.weight_kg ?? last?.weight_kg} unit={unit} format={app.prefs.number} onChange={setWeight} />
+      <Field label={`Weight (${unitLabel(unit)})`} value={weight} onChangeText={setWeight} keyboardType="decimal-pad"
         placeholder={last ? String(Math.round(fromKg(last.weight_kg, unit) * 10) / 10) : ''} />
       {fields.length > 0 && <>
         <Txt v="smallBold" color={p.muted} style={{ marginBottom: 8 }}>From your scale (optional)</Txt>

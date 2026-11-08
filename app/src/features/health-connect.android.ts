@@ -28,7 +28,7 @@ export async function scalePermissions(): Promise<{ weight: boolean; history: 'u
 }
 export async function connectScaleHealth(): Promise<boolean> {
   if (!(await initialize())) return false;
-  await requestPermission(['Weight', 'Height', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate']
+  await requestPermission((['Weight', 'Height', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate'] as const)
     .map((recordType) => ({ accessType: 'read' as const, recordType })));
   return (await scalePermissions()).weight;
 }
