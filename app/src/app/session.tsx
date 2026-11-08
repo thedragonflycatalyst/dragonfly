@@ -10,9 +10,9 @@ import { ExerciseInfo, ExerciseThumb, useMyExercises } from '@/features/exercise
 import { CUE_LINES, hush, say } from '@/features/lapis/audio';
 import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
-import { RestBar, SetTimer, useRest, clearOtherWorkoutRestReminders } from '@/features/lapis/timers';
+import { RestBar, SetTimer, useRest, clearOtherWorkoutRestReminders, clearWorkoutRestReminder } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
-import { lapisReminderKey, activateLapisReminderSession, releaseLapisReminderSession } from '@/features/lapis/background';
+import { lapisReminderKey, activateLapisReminderSession, releaseLapisReminderSession, clearWorkoutLinkedReminders } from '@/features/lapis/background';
 import { claimWorkoutSession, isWorkoutSessionOwner, releaseWorkoutSession } from '@/features/lapis/workout-session-lease';
 import { patchDraftClock, patchDraftTimedSetClock, patchDraftRestClock } from '@/features/lapis/navigation-recovery';
 import type { RestClock } from '@/features/lapis/rest-clock';
@@ -23,6 +23,7 @@ import { matchesPendingAssignment } from '@/features/lapis/integration-guards';
 import { recoverLinkedClocks, recoverTimedSetClocks } from '@/features/lapis/session-recovery';
 import { canResumeRest, canStartLinkedTimer, canStartTimedSet } from '@/features/lapis/timer-ownership';
 import { activeWorkoutTimers, clearTimerCompletion, recordTimerCompletion, shouldAcceptTimedSetCompletion } from '@/features/lapis/completion-integrity';
+import { canMutateWorkoutTimer } from '@/features/lapis/save-finalization';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { useHidden } from '@/features/library-extras';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
@@ -108,15 +109,17 @@ export default function Session() {
   const [manualTime, setManualTime] = useState<Record<string, boolean>>({});
   const [autoGo, setAutoGo] = useState<{ key: string; n: number } | null>(null);
   const [restSnapshot, setRestSnapshot] = useState<RestClock | null>(null);
+  const saveLocked = useRef(false);
   const rest = useRest(sessionId,
     (nextSetKey) => {
-      if (currentRouteKey.current !== key) return;
+      if (!canMutateWorkoutTimer(key, currentRouteKey.current, saveLocked.current, saved.current)) return;
       // A rest that expired while another screen or the OS was foregrounded
       // must not surprise-start a timed exercise on return.
       if (activeScreen && AppState.currentState === 'active')
         setAutoGo({ key: nextSetKey, n: Date.now() });
     },
     (snapshot) => {
+      if (saved.current || currentRouteKey.current !== key) return;
       setRestSnapshot(snapshot);
       try {
         const serialized = patchDraftRestClock(
@@ -142,6 +145,7 @@ export default function Session() {
     setReadyKey(null);
     setSrc(undefined);
     saved.current = false;
+    saveLocked.current = false;
     completedSetEvents.current.clear();
     setActiveSetTimerKey(null);
     setAutoGo(null);
@@ -292,7 +296,7 @@ export default function Session() {
   const done = setsDone(log), total = setsTotal(log);
   /** Tick a set off: mark it done and start the Lapis rest from its rest box */
   const tick = (bi: number, si: number, s: SetLog, patch: Partial<SetLog>) => {
-    if (!activeScreen) return;
+    if (!activeScreen || !canMutateWorkoutTimer(key, currentRouteKey.current, saveLocked.current, saved.current)) return;
     setSet(bi, si, { ...patch, done: true });
     if (!lapis.autoRest || activeTimerId !== null) return;
     const e = log[bi];
@@ -305,12 +309,16 @@ export default function Session() {
   const clearDraft = () => { try { clearMatchingDraft(storage, workoutDraftSlot(key), key); } catch { /* nothing to clear */ } };
   const timersActive = activeWorkoutTimers(runnerClocks, timedSetClocks, activeTimerId, activeSetTimerKey);
   const save = async () => {
-    if (saveInFlight.current || !app.user || !activeScreen) return;
+    if (saveInFlight.current || saved.current || !app.user || !activeScreen || currentRouteKey.current !== key) return;
     if (activeWorkoutTimers(runnerClocks, timedSetClocks, activeTimerId, activeSetTimerKey))
       return toast('Pause or finish all active timers before saving the workout', false);
     if (!done && !timerResults.length) return toast('Complete an exercise set or Lapis timer first', false);
     if (isTrainer && !clientId) return toast('Choose who you’re training', false);
     saveInFlight.current = true;
+    saveLocked.current = true;
+    rest.pause(); // Freeze automatic rest-to-set transitions during the save.
+    setAutoGo(null);
+    hush();
     setBusy(true);
     try {
       let assignmentId = src.assignment?.id ?? pendingAssignmentId;
@@ -371,6 +379,10 @@ export default function Session() {
       saved.current = true;
       rest.skip();
       hush();
+      // Cleanup is scoped to this workout. Late native notifications must
+      // not fire after its draft has been finalized.
+      void clearWorkoutRestReminder(sessionId);
+      void clearWorkoutLinkedReminders(sessionId, Object.keys(linkedTimers));
       clearDraft();
       toast('Workout saved. Nice work!');
       router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId!, done: '1' } });
@@ -378,6 +390,7 @@ export default function Session() {
       toast(errText(error), false);
     } finally {
       saveInFlight.current = false;
+      saveLocked.current = false;
       setBusy(false);
     }
   };
@@ -404,11 +417,12 @@ export default function Session() {
             const savedTimer = linkedTimers[b.id] ?? null;
             return savedTimer
               ? <LinkedLapisRunner key={b.id} timer={savedTimer} reminderKey={lapisReminderKey(sessionId, b.id)}
-                  screenFocused={activeScreen}
+                  screenFocused={activeScreen && !busy && !finishing}
                   canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                   initialClock={runnerClocks[b.id]}
                   blocked={!canStartLinkedTimer({ linked: activeTimerId, timedSet: activeSetTimerKey }, b.id)}
                   onClockChange={(clock) => {
+                    if (saved.current || saveLocked.current) return;
                     if (!activeScreen || currentRouteKey.current !== key) {
                       try {
                         const serialized = patchDraftClock(
@@ -421,15 +435,15 @@ export default function Session() {
                       setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
                   }}
                   onStart={(freshRun) => {
-                    if (saved.current || currentRouteKey.current !== key) return;
+                    if (!canMutateWorkoutTimer(key, currentRouteKey.current, saveLocked.current, saved.current)) return;
                     rest.pause();
                     setActiveTimerId(b.id);
                     if (freshRun) setTimerResults((prior) => clearTimerCompletion(prior, b.id));
                   }}
-                  onPause={() => { if (currentRouteKey.current === key) setActiveTimerId((current) => current === b.id ? null : current); }}
-                  onReset={() => { if (currentRouteKey.current === key) setTimerResults((prior) => clearTimerCompletion(prior, b.id)); }}
+                  onPause={() => { if (canMutateWorkoutTimer(key, currentRouteKey.current, saveLocked.current, saved.current)) setActiveTimerId((current) => current === b.id ? null : current); }}
+                  onReset={() => { if (canMutateWorkoutTimer(key, currentRouteKey.current, saveLocked.current, saved.current)) setTimerResults((prior) => clearTimerCompletion(prior, b.id)); }}
                   onComplete={(actualSeconds) => {
-                    if (saved.current || currentRouteKey.current !== key) return;
+                    if (!canMutateWorkoutTimer(key, currentRouteKey.current, saveLocked.current, saved.current)) return;
                     setActiveTimerId((current) => current === b.id ? null : current);
                     const result: LapisTimerResult = {
                       block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
@@ -498,10 +512,11 @@ export default function Session() {
                         const k = `${bi}:${si}:${side ?? '-'}`;
                         return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
                           blocked={!canStartTimedSet({ linked: activeTimerId, timedSet: activeSetTimerKey }, k)}
-                          screenFocused={activeScreen}
+                          screenFocused={activeScreen && !busy && !finishing}
                           canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                           initialClock={timedSetClocks[k]}
                           onClockChange={(next) => {
+                            if (saved.current || saveLocked.current) return;
                             if (!activeScreen || currentRouteKey.current !== key) {
                               try {
                                 const serialized = patchDraftTimedSetClock(
@@ -514,12 +529,12 @@ export default function Session() {
                               setTimedSetClocks((prior) => ({ ...prior, [k]: next }));
                           }}
                           onRunningChange={(running) => {
-                            if (currentRouteKey.current !== key) return;
+                            if (!canMutateWorkoutTimer(key, currentRouteKey.current, saveLocked.current, saved.current)) return;
                             if (running) rest.pause();
                             setActiveSetTimerKey((current) => running ? k : current === k ? null : current);
                           }}
                           onDone={(sec) => {
-                            if (saved.current || currentRouteKey.current !== key) return;
+                            if (!canMutateWorkoutTimer(key, currentRouteKey.current, saveLocked.current, saved.current)) return;
                             const completionKey = `${k}:${started}`;
                             if (s.done || completedSetEvents.current.has(completionKey) ||
                                 !shouldAcceptTimedSetCompletion(false, sec)) return;
@@ -576,7 +591,17 @@ export default function Session() {
           })}
           <Button kind="quiet" title="Discard workout" style={{ alignSelf: 'center' }} onPress={() => ask('Discard this workout?', 'Nothing you ticked off will be saved.', [
             { text: 'Keep going', style: 'cancel' },
-            { text: 'Discard', style: 'destructive', onPress: () => { saved.current = true; clearDraft(); router.back(); } }])} />
+            { text: 'Discard', style: 'destructive', onPress: () => {
+              if (saveInFlight.current) return;
+              saved.current = true;
+              saveLocked.current = true;
+              rest.skip();
+              hush();
+              void clearWorkoutRestReminder(sessionId);
+              void clearWorkoutLinkedReminders(sessionId, Object.keys(linkedTimers));
+              clearDraft();
+              router.back();
+            } }])} />
         </View>
       </ScrollView>
 
@@ -585,7 +610,11 @@ export default function Session() {
         <Button kind="accent" title="Finish workout" icon="check" onPress={() => {
           if (!activeScreen) return;
           if (timersActive) return toast('Pause or finish active timers before completing this workout', false);
-          if (done || timerResults.length) setFinishing(true);
+          if (done || timerResults.length) {
+            rest.pause(); // A pending rest cannot auto-start a set under the finish sheet.
+            setAutoGo(null);
+            setFinishing(true);
+          }
           else toast('Complete an exercise set or Lapis timer first', false);
         }} />
       </View>
