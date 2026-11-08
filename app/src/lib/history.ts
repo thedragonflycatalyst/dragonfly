@@ -41,3 +41,17 @@ export function setLine(s: SetLog, unit?: string): string {
   const gap = gapL ? (gapL > 0 ? ` (left ${gapL} short)` : ` (right ${-gapL} short)`) : '';
   return [s.weight != null && `${s.weight} ${unit ?? ''}`.trim(), what, s.distance].filter(Boolean).join(' × ') + gap;
 }
+
+/** What this person has swapped an exercise for before, most often first (by reference; older logs by name) */
+export function pastSwaps(past: PastLog[], fromRef: string, fromName: string): { ref: string; name: string; uses: number }[] {
+  const n = new Map<string, { ref: string; name: string; uses: number }>();
+  for (const l of past) for (const e of l.entries) {
+    if (!e.ex) continue;
+    const hit = e.swapped_from_ref ? e.swapped_from_ref === fromRef : !!e.swapped_from && e.swapped_from.toLowerCase() === fromName.toLowerCase();
+    const ref = `${e.ex.src}:${e.ex.id}`;
+    if (!hit || ref === fromRef) continue;
+    const c = n.get(ref) ?? { ref, name: e.ex.name, uses: 0 };
+    c.uses++; n.set(ref, c);
+  }
+  return [...n.values()].sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name));
+}

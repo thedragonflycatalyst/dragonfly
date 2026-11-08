@@ -25,27 +25,27 @@ let cache: Template[] | null = null;
 function build(): Template[] {
   return [
     { key: 'full-a', name: 'Full Body A (beginner)', cover: 'preset:0', description: 'Three days a week, alternating with Full Body B. Start light and learn the movements.', blocks: make([
-      ['Goblet_Squat', 3, '10', 90], ['Dumbbell_Bench_Press', 3, '10', 90], ['Bent_Over_Two-Dumbbell_Row', 3, '10', 90],
-      ['Butt_Lift_Bridge', 3, '12', 60], ['Plank', 3, 30, 30]]) },
+      ['c-goblet-squat', 3, '10', 90], ['c-dumbbell-bench-press', 3, '10', 90], ['c-bent-over-dumbbell-row', 3, '10', 90],
+      ['c-glute-bridge', 3, '12', 60], ['c-forearm-plank', 3, 30, 30]]) },
     { key: 'full-b', name: 'Full Body B (beginner)', cover: 'preset:1', description: 'Pairs with Full Body A.', blocks: make([
-      ['Dumbbell_Lunges', 3, '8 each leg', 90], ['Dumbbell_Shoulder_Press', 3, '10', 90], ['Wide-Grip_Lat_Pulldown', 3, '10', 90],
-      ['Romanian_Deadlift', 3, '10', 90], ['Dead_Bug', 3, '10 each side', 45]]) },
+      ['c-dumbbell-forward-lunge', 3, '8 each leg', 90], ['c-seated-dumbbell-shoulder-press', 3, '10', 90], ['c-lat-pulldown', 3, '10', 90],
+      ['c-romanian-deadlift', 3, '10', 90], ['c-dead-bug', 3, '10 each side', 45]]) },
     { key: 'upper', name: 'Upper Body', cover: 'preset:2', description: 'Push and pull with two supersets to save time.', blocks: make([
-      ['Incline_Dumbbell_Press', 4, '8-10', 90], ['Seated_Cable_Rows', 4, '8-10', 90],
-      [['Dumbbell_Shoulder_Press', 3, '10', 30], ['Face_Pull', 3, '12-15', 75]],
-      [['Dumbbell_Bicep_Curl', 3, '12', 30], ['Triceps_Pushdown', 3, '12', 60]]]) },
+      ['c-incline-dumbbell-bench-press', 4, '8-10', 90], ['c-seated-cable-row', 4, '8-10', 90],
+      [['c-seated-dumbbell-shoulder-press', 3, '10', 30], ['c-cable-face-pull', 3, '12-15', 75]],
+      [['c-dumbbell-biceps-curl', 3, '12', 30], ['c-straight-bar-triceps-pushdown', 3, '12', 60]]]) },
     { key: 'lower', name: 'Lower Body', cover: 'preset:3', description: 'Squat, hinge and single-leg work.', blocks: make([
-      ['Barbell_Squat', 4, '6-8', 120], ['Romanian_Deadlift', 3, '8-10', 90], ['Leg_Press', 3, '12', 90],
-      [['Lying_Leg_Curls', 3, '12', 30], ['Leg_Extensions', 3, '12', 60]], ['Standing_Calf_Raises', 3, '15', 45]]) },
+      ['c-barbell-high-bar-back-squat', 4, '6-8', 120], ['c-romanian-deadlift', 3, '8-10', 90], ['c-leg-press', 3, '12', 90],
+      [['c-lying-leg-curl', 3, '12', 30], ['c-leg-extension', 3, '12', 60]], ['c-standing-calf-raise', 3, '15', 45]]) },
     { key: 'trx', name: 'Suspension Full Body', cover: 'preset:4', description: 'A full-body session on the suspension trainer. Step closer or farther from the anchor to scale.', blocks: make([
-      ['trx_squat', 3, '15', 45], ['trx_row', 3, '12', 45], ['trx_chest_press', 3, '12', 45], ['trx_lunge', 3, '10 each leg', 45],
-      [['trx_y_fly', 3, '12', 15], ['trx_biceps_curl', 3, '12', 45]], ['trx_hamstring_curl', 3, '12', 45], ['trx_plank', 3, 30, 30]]) },
+      ['c-trx-squat', 3, '15', 45], ['c-trx-mid-row', 3, '12', 45], ['c-trx-chest-press', 3, '12', 45], ['c-trx-lunge', 3, '10 each leg', 45],
+      [['c-trx-y-fly', 3, '12', 15], ['c-trx-biceps-curl', 3, '12', 45]], ['c-trx-hamstring-curl', 3, '12', 45], ['c-trx-plank', 3, 30, 30]]) },
     { key: 'core', name: 'Core 15', cover: 'preset:5', description: 'A short core finisher.', blocks: make([
-      ['Plank', 3, 40, 20], ['Side_Bridge', 3, 30, 20, 'Each side'], ['Dead_Bug', 3, '10 each side', 30], ['Crunches', 3, '15', 30],
-      ['Mountain_Climbers', 3, 30, 30]]) },
+      ['c-forearm-plank', 3, 40, 20], ['c-side-plank', 3, 30, 20, 'Each side'], ['c-dead-bug', 3, '10 each side', 30], ['c-crunch', 3, '15', 30],
+      ['c-mountain-climber', 3, 30, 30]]) },
     { key: 'conditioning', name: 'Bodyweight Conditioning', cover: 'preset:6', description: 'No equipment. Move quickly between exercises in each pair.', blocks: make([
-      [['Bodyweight_Squat', 4, 40, 0], ['Pushups', 4, 40, 40]], [['Mountain_Climbers', 4, 30, 0], ['Butt_Lift_Bridge', 4, 40, 40]],
-      ['Air_Bike', 3, 30, 30]]) },
+      [['c-bodyweight-squat', 4, 40, 0], ['c-push-up', 4, 40, 40]], [['c-mountain-climber', 4, 30, 0], ['c-glute-bridge', 4, 40, 40]],
+      ['c-air-bike', 3, 30, 30]]) },
   ];
 }
 export const TEMPLATES: Template[] = new Proxy([] as Template[], { get: (_t, k) => Reflect.get((cache ??= build()), k) });
