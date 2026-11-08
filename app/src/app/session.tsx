@@ -32,6 +32,7 @@ import { exKey, ghostSet, historyOf, notesOf, pastSwaps, setLine, type PastLog }
 import { clock, doneOnly, DRAFT_KEY, readDraft, type Draft } from '@/lib/session';
 import { weakSide } from '@/lib/sides';
 import { storage } from '@/lib/storage';
+import { beginWorkoutDraft, writeDraftCore, writeDraftPatch, clearMatchingDraft } from '@/lib/draft-integrity';
 import { sb } from '@/lib/supabase';
 import { weightUnit } from '@/lib/units';
 import { fmtSeconds, parseSeconds, refOf, setsDone, setsTotal, startLog, swapBlock, volume } from '@/lib/workouts';
@@ -49,6 +50,7 @@ export default function Session() {
   const key = aid ? `a:${aid}` : `w:${workout}`;
   const unit = weightUnit(app.units);
   const [src, setSrc] = useState<Source | null | undefined>(undefined);
+  const [readyKey, setReadyKey] = useState<string | null>(null);
   // Parse snapshots once when the assigned workout changes, rather than on
   // every 200 ms runner tick or every exercise-set update.
   const linkedTimers = useMemo(() => {
@@ -106,19 +108,26 @@ export default function Session() {
 
   // Load the workout (or assignment) and any unfinished draft of it
   useEffect(() => {
+    let cancelled = false;
+    setReadyKey(null);
+    setSrc(undefined);
     (async () => {
       let s: Source | null = null;
       if (aid) {
         const { data } = await sb.from('coach_assignments').select('*').eq('id', aid).maybeSingle();
+        if (cancelled) return;
         const a = data as Assignment | null;
         if (a) { s = { title: a.title, blocks: a.snapshot, assignment: a, workoutId: a.workout_id }; setClientId(a.client_id); }
       } else if (workout) {
         const { data } = await sb.from('coach_workouts').select('id, name, blocks').eq('id', workout).maybeSingle();
+        if (cancelled) return;
         if (data) s = { title: data.name, blocks: data.blocks as WorkoutBlock[], assignment: null, workoutId: data.id };
         const c = await sb.from('coach_clients').select('*').eq('status', 'active').order('last_name');
+        if (cancelled) return;
         setClients((c.data as Client[]) ?? []);
       }
-      if (s?.assignment?.status === 'done') { setSrc(s); return; }
+      if (cancelled) return;
+      if (s?.assignment?.status === 'done') { setSrc(s); setReadyKey(key); return; }
       const d = readDraft((k) => storage.getItem(k));
       if (s && d?.key === key) { rest.restore(d.restClock ?? null); setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setTimedSetClocks(d.timedSetClocks ?? {});
         setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
@@ -134,16 +143,36 @@ export default function Session() {
         setPendingAssignmentId(null);
         setStarted(Date.now());
       }
+      if (cancelled) return;
+      if (s) {
+        // Once the new route is resolved, explicitly transfer ownership of
+        // the single local draft slot. Earlier screen callbacks are key-guarded.
+        const initial: Draft = {
+          key, title: s.title, params: aid ? { aid } : { workout: workout! },
+          client_id: d?.key === key ? d.client_id : (s.assignment?.client_id ?? null),
+          started: d?.key === key ? d.started : Date.now(),
+          log: d?.key === key ? d.log : startLog(s.blocks, unit),
+          timerResults: d?.key === key ? d.timerResults ?? [] : [],
+          runnerClocks: d?.key === key ? d.runnerClocks ?? {} : {},
+          timedSetClocks: d?.key === key ? d.timedSetClocks ?? {} : {},
+          restClock: d?.key === key ? d.restClock ?? null : null,
+          pendingAssignmentId: d?.key === key ? d.pendingAssignmentId ?? null : null,
+        };
+        try { beginWorkoutDraft(storage, DRAFT_KEY, initial); }
+        catch { /* retain progress in memory if storage is unavailable */ }
+      }
       setSrc(s);
+      setReadyKey(key);
     })();
+    return () => { cancelled = true; };
   }, [aid, workout, key, unit]);
 
   // Keep the draft on the device after every change
   useEffect(() => {
-    if (!src || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
+    if (!src || readyKey !== key || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
     const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, restClock: restSnapshot, pendingAssignmentId };
-    try { storage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch { /* storage full or blocked: keep going without a draft */ }
-  }, [log, timerResults, runnerClocks, timedSetClocks, restSnapshot, pendingAssignmentId, clientId, src, key, aid, workout, started]);
+    try { writeDraftCore(storage, DRAFT_KEY, d); } catch { /* storage full or blocked: keep going without a draft */ }
+  }, [log, timerResults, runnerClocks, timedSetClocks, restSnapshot, pendingAssignmentId, clientId, src, readyKey, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
@@ -215,7 +244,7 @@ export default function Session() {
     rest.start(s.rest ?? lapis.defaultRest, next, timed ? `${bi}:${si + 1}:${e.sides ? 'r' : '-'}` : null);
   };
 
-  const clearDraft = () => { try { if (readDraft((k) => storage.getItem(k))?.key === key) storage.removeItem(DRAFT_KEY); } catch { /* nothing to clear */ } };
+  const clearDraft = () => { try { clearMatchingDraft(storage, DRAFT_KEY, key); } catch { /* nothing to clear */ } };
   const timersActive = activeWorkoutTimers(runnerClocks, timedSetClocks, activeTimerId, activeSetTimerKey);
   const save = async () => {
     if (saveInFlight.current || !app.user) return;
@@ -238,7 +267,9 @@ export default function Session() {
         };
         // Fail closed: without a persisted ID we cannot safely retry after
         // an unknown network outcome.
-        storage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        if (!writeDraftCore(storage, DRAFT_KEY, draft) ||
+            !writeDraftPatch(storage, DRAFT_KEY, key, { pendingAssignmentId: assignmentId }))
+          throw new Error('Cannot safely checkpoint this workout before saving');
         setPendingAssignmentId(assignmentId);
       }
       if (!src.assignment) {
