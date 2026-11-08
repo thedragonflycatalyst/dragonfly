@@ -6,6 +6,7 @@ import { Bars } from '@/components/charts';
 import { DateField } from '@/components/date-field';
 import { ClientPicker, Fab, matches, SearchBox, useClientList } from '@/components/pickers';
 import { Badge } from '@/components/shell';
+import { AdjustPayment, sendAdjustmentNotice, type AdjustKind } from '@/features/payment-adjust';
 import { ActionMenu, Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui';
 import { confirm } from '@/lib/ask';
@@ -68,15 +69,7 @@ export default function Financials() {
   const Stat = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (
     <Card style={{ flexGrow: 1, flexBasis: 150, gap: 2 }}><Txt v="small">{label}</Txt><Txt v="h2">{value}</Txt>{sub ? <Txt v="small">{sub}</Txt> : null}</Card>
   );
-  const refund = async (x: Payment) => {
-    if (!(await confirm(`Refund ${fmtMoney(x.amount_cents, x.currency)}?`, `${name(x.client_id)} gets the money back on their card. Credits they bought aren’t removed automatically.`, 'Refund', true))) return;
-    try { await callFn('coach-pay', { action: 'refund', payment_id: x.id }); toast('Refunded'); load(); } catch (e) { toast(fnText(e), false); }
-  };
-  const remove = async (x: Payment) => {
-    if (!(await confirm('Delete this payment record?', undefined, 'Delete', true))) return;
-    const { error } = await sb.from('coach_payments').delete().eq('id', x.id);
-    if (error) toast(errText(error), false); else load();
-  };
+  const [adjust, setAdjust] = useState<{ p: Payment; kind: AdjustKind } | null>(null);
   const cancelSub = async (s: Sub) => {
     if (!(await confirm('Cancel this subscription?', `${name(s.client_id)} keeps access until the end of the period they’ve paid for, then it stops renewing.`, 'Cancel subscription', true))) return;
     try { await callFn('coach-pay', { action: 'cancel_subscription', subscription_id: s.id }); toast('Won’t renew'); loadStripe(); } catch (e) { toast(fnText(e), false); }
@@ -111,9 +104,10 @@ export default function Financials() {
                     <View style={{ flex: 1, gap: 2 }}>
                       <Txt v="bold">{x.description}</Txt>
                       <Txt v="small">{name(x.client_id)} · {new Date(x.paid_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} · {x.method === 'stripe' ? 'Card (Stripe)' : x.method}</Txt>
+                      {x.status_reason ? <Txt v="small">{x.status === 'void' ? 'Voided' : x.status === 'refunded' ? 'Refunded' : 'Note'}: {x.status_reason}</Txt> : null}
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                      <Txt v="h3" color={x.status === 'refunded' ? p.muted : p.ink} style={x.status === 'refunded' ? { textDecorationLine: 'line-through' } : undefined}>{fmtMoney(x.amount_cents, x.currency)}</Txt>
+                      <Txt v="h3" color={x.status === 'refunded' || x.status === 'void' ? p.muted : p.ink} style={x.status === 'refunded' || x.status === 'void' ? { textDecorationLine: 'line-through' } : undefined}>{fmtMoney(x.amount_cents, x.currency)}</Txt>
                       {x.status !== 'paid' && <Badge text={x.status} color={x.status === 'failed' ? p.danger : p.muted} />}
                     </View>
                   </Pressable>
@@ -159,9 +153,12 @@ export default function Financials() {
       {(tab === 'payments' || tab === 'analytics') && <Fab title="Record a payment" onPress={() => setRecording(true)} />}
       <RecordSheet visible={recording} onClose={() => setRecording(false)} trainerId={app.trainer?.user_id ?? ''} onSaved={() => { setRecording(false); load(); }} />
       <ActionMenu visible={!!menu} onClose={() => setMenu(null)} title={menu ? `${menu.description} · ${fmtMoney(menu.amount_cents, menu.currency)}` : ''} items={menu ? [
-        { label: 'Refund to their card', icon: 'undo', onPress: () => refund(menu), hidden: menu.method !== 'stripe' || menu.status !== 'paid' },
-        { label: 'Delete record', icon: 'delete', danger: true, onPress: () => remove(menu), hidden: menu.method === 'stripe' },
+        { label: menu.method === 'stripe' ? 'Refund to their card' : 'Record a refund', icon: 'undo', onPress: () => setAdjust({ p: menu, kind: 'refund' }), hidden: menu.status !== 'paid' },
+        { label: 'Void (recorded by mistake)', icon: 'block', danger: true, onPress: () => setAdjust({ p: menu, kind: 'void' }), hidden: menu.status !== 'paid' && menu.status !== 'pending' },
+        { label: 'Email the receipt again', icon: 'mail', onPress: () => { void sendAdjustmentNotice(menu.id).then((m) => toast(m)); }, hidden: menu.status !== 'refunded' && menu.status !== 'void' },
       ] : []} />
+      <AdjustPayment payment={adjust?.p ?? null} kind={adjust?.kind ?? 'refund'} clientName={adjust ? name(adjust.p.client_id) : ''}
+        onClose={() => setAdjust(null)} onDone={() => { setAdjust(null); load(); }} />
     </View>
   );
 }
