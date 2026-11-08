@@ -11,6 +11,7 @@ import { useApp } from '@/lib/app-state';
 import { callFn } from '@/lib/fn';
 import { errText } from '@/lib/model';
 import { recall, sb, store } from '@/lib/supabase';
+import { startPush } from './push';
 
 type Req = { id: string; client_id: string; booking_id: string; old_start: string; new_start: string; created_at: string; coach_clients: { name: string } | null };
 
@@ -58,6 +59,8 @@ export function RescheduleAlerts() {
       void phoneAlert(fresh.length, fresh[0].coach_clients?.name ?? 'A client');
     }
   }, [on]);
+  // Register this phone for push (alerts even when the app is closed)
+  useEffect(() => { if (on) void startPush(); }, [on]);
   useEffect(() => {
     if (!on) return;
     void load();

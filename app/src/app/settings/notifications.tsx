@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Switch, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
 import { TimeField, Toggle } from '@/components/pickers';
-import { Button, Card, Txt } from '@/components/ui';
+import { Button, Card, Txt, useToast } from '@/components/ui';
+import { startPush } from '@/features/push';
 import { Page, useTrainerSave } from '@/features/settings-page';
 import { useApp } from '@/lib/app-state';
+import { callFn, fnText } from '@/lib/fn';
 import { NOTIFY_KEYS, notifyPrefs } from '@/lib/prefs';
 import { usePalette } from '@/lib/theme';
 
@@ -42,7 +44,29 @@ export default function Notifications() {
         </View>}
       </Card>
       <Txt v="small">Push notifications reach you through the Dragonfly app on your phone. Until then, everything shows under the bell at the top of your Hub.</Txt>
+      <PushTest />
       <Button title="Save" icon="check" busy={busy} style={{ alignSelf: 'center', minWidth: 200 }} onPress={async () => { setBusy(true); await save({ notify: n }, 'Notification settings saved'); setBusy(false); }} />
     </Page>
+  );
+}
+
+/** Phone alerts for reschedule requests: register this phone and send a test */
+function PushTest() {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Card style={{ gap: 8 }}>
+      <Txt v="bold">Phone alerts for reschedule requests</Txt>
+      <Txt v="small">An urgent alert on this phone the moment a client asks to move a session, even when Dragonfly is closed.</Txt>
+      <Button small title="Send a test alert to this phone" icon="notifications_active" busy={busy} style={{ alignSelf: 'flex-start' }} onPress={async () => {
+        setBusy(true);
+        const st = await startPush();
+        if (st === 'denied') { setBusy(false); return toast('Allow notifications for Dragonfly in your phone’s settings', false); }
+        if (st === 'unavailable') { setBusy(false); return toast('Phone alerts need the Dragonfly app on your phone (they’re being switched on)', false); }
+        try { const r = await callFn<{ sent: number }>('coach-push', { action: 'test' }); toast(r.sent ? 'Sent. It should go off now.' : 'This phone isn’t registered yet', !!r.sent); }
+        catch (e) { toast(/not_configured/.test(String(e)) ? 'Phone alerts are almost ready: they switch on once Firebase is set up' : fnText(e), false); }
+        setBusy(false);
+      }} />
+    </Card>
   );
 }
