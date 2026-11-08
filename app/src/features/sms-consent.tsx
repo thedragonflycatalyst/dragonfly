@@ -5,7 +5,7 @@ import { Icon, Txt } from '@/components/ui';
 import { usePalette } from '@/lib/theme';
 
 export const SMS_TERMS_URL = 'https://thedragonflycatalyst.org/sms-terms';
-export const PRIVACY_URL = 'https://thedragonflycatalyst.org/privacy';
+export const PRIVACY_URL = 'https://thedragonflycatalyst.org/sms-terms#your-privacy';
 
 export function smsConsentText(trainer: string) {
   return `Text me session reminders, booking updates and open-spot offers from ${trainer} (The Dragonfly Catalyst) at the number above. ` +
