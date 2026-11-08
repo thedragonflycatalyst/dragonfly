@@ -8,18 +8,18 @@ import { ChangeBars, Gauge, LineChart, type Series } from '@/components/charts';
 import { DateField } from '@/components/date-field';
 import { WeightRuler } from '@/components/weight-ruler';
 import { Fab, time12, TimeField, Toggle } from '@/components/pickers';
-import { connectHealth, healthStatus, openHealthSettings, type HealthStatus } from './health-connect';
+import { connectScaleHealth, healthStatus, openHealthSettings, requestScaleHistoryAccess, scalePermissions, type HealthStatus } from './health-connect';
 import { healthSync, setHealthSync, syncHealth } from './scale-sync';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui';
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
-import { progressShareText, scaleProgress } from '@/lib/scale-report';
+import { canShareProgress, progressShareText, scaleProgress } from '@/lib/scale-report';
 import { errText } from '@/lib/model';
 import {
-  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, GROUPS, isMassChart,
-  kcalPerDay, metricLabel, monthlyChange, parseCsv, PERIODS, RANGES, ratePerWeek, READINGS, signed, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
+  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, getSmoothing, goalEta, goalSchedule, GROUPS, isMassChart,
+  kcalPerDay, metricLabel, monthlyChange, parseCsv, planCsvImport, PERIODS, RANGES, ratePerWeek, READINGS, signed, SMOOTHING_OPTIONS, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
   type MetricKey, type ReadingKey, type ScaleSettings, type Weighin,
 } from '@/lib/scale';
 import { sb } from '@/lib/supabase';
@@ -82,11 +82,11 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
           body={readOnly ? 'When they log weigh-ins in their Scale tab, you’ll see their trend here.' : 'Add your weight and any readings your scale gives (body fat, muscle…). You can also import a CSV from Libra or RENPHO in Settings.'}
           action={readOnly ? undefined : <Button title="Log weigh-in" icon="add" onPress={() => setEditing('new')} />} />
       ) : tab === 'chart' ? (
-        <ChartTab list={list} settings={settings} metrics={metrics} chosen={chosen} setChosen={setChosen} range={range} setRange={setRange} unit={unit} fmt={fmt} height={height} />
+        <ChartTab readOnly={readOnly} list={list} settings={settings} metrics={metrics} chosen={chosen} setChosen={setChosen} range={range} setRange={setRange} unit={unit} fmt={fmt} height={height} />
       ) : tab === 'history' ? (
-        <History list={list} metrics={metrics} unit={unit} fmt={fmt} onOpen={readOnly ? undefined : setEditing} />
+        <History list={list} metrics={metrics} unit={unit} fmt={fmt} smoothing={getSmoothing(settings.trend_smoothing)} onOpen={readOnly ? undefined : setEditing} />
       ) : tab === 'stats' ? (
-        <Stats list={list} unit={unit} fmt={fmt} />
+        <Stats list={list} unit={unit} fmt={fmt} smoothing={getSmoothing(settings.trend_smoothing)} />
       ) : (
         <SettingsTab settings={settings} save={saveSettings} unit={unit} heightUnit={app.prefs.height} reload={load} count={list.length} list={list} />
       )}
@@ -97,16 +97,18 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
 }
 
 /* ---------------- chart ---------------- */
-function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange, unit, fmt, height }: {
+function ChartTab({ readOnly, list, settings, metrics, chosen, setChosen, range, setRange, unit, fmt, height }: {
+  readOnly?: boolean;
   list: Weighin[]; settings: ScaleSettings; metrics: MetricKey[]; chosen: MetricKey[]; setChosen: (m: MetricKey[]) => void;
   range: number | null; setRange: (r: number | null) => void; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; height: number | null;
 }) {
   const p = usePalette();
   const toast = useToast();
   const report = useMemo(() => scaleProgress(list, range, settings.goal_kg == null ? null : Number(settings.goal_kg)), [list, range, settings.goal_kg]);
+  const [withGoal, setWithGoal] = useState(false);
   const shareProgress = async () => {
-    if (!report) return;
-    const message = progressShareText(report, unit, fmt);
+    if (!canShareProgress(readOnly, report)) return;
+    const message = progressShareText(report, unit, fmt, withGoal);
     try {
       if (Platform.OS === 'web') {
         await Clipboard.setStringAsync(message);
@@ -116,11 +118,13 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
       }
     } catch (error) { toast(errText(error), false); }
   };
-  const tr = useMemo(() => trend(list), [list]);
+  const smoothing = getSmoothing(settings.trend_smoothing);
+  const tr = useMemo(() => trend(list, smoothing), [list, smoothing]);
   const last = tr[tr.length - 1];
   const rate = ratePerWeek(tr);
   const goal = settings.goal_kg != null ? Number(settings.goal_kg) : null;
   const eta = goal != null && last ? goalEta(last.trend, goal, rate) : null;
+  const schedule = goal != null && last ? goalSchedule(last.trend, goal, rate, settings.goal_date) : null;
   const chartable = metrics.filter((k) => list.some((w) => chartValue(w, k, height) != null));
   const sel = chosen.filter((k) => chartable.includes(k)).length ? chosen.filter((k) => chartable.includes(k)) : ['weight' as MetricKey];
   const massMode = sel.every(isMassChart);
@@ -135,7 +139,7 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
   const from = range ? now - range * 86_400_000 : first - 86_400_000;
   const series: Series[] = sel.map((k, i) => {
     const pts = list.map((w) => ({ w, v: chartValue(w, k, height) })).filter((x) => x.v != null) as { w: Weighin; v: number }[];
-    const sm = trend(pts.map((x) => ({ measured_at: x.w.measured_at, weight_kg: x.v })));
+    const sm = trend(pts.map((x) => ({ measured_at: x.w.measured_at, weight_kg: x.v })), smoothing);
     const conv = (v: number) => (massMode ? fromKg(v, unit) : v);
     const latest = pts.sort((a, b) => b.w.measured_at.localeCompare(a.w.measured_at))[0];
     const shown = k === 'body_fat_pct' || k === 'muscle_pct' || k === 'skeletal_muscle_pct' ? valueOf(latest.w, k)! : latest.v;
@@ -176,8 +180,11 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
             <View><Txt v="small">Latest</Txt><Txt v="bold">{fmtMass(report.endKg, unit, fmt)}</Txt></View>
             <View><Txt v="small">Change</Txt><Txt v="bold">{report.count < 2 ? '—' : `${signed(fromKg(report.changeKg, unit), 1, fmt)} ${unitLabel(unit)}`}</Txt></View>
           </View>
-          <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and optional goal information; review before sharing.</Txt>
-          <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+          {canShareProgress(readOnly, report) && <>
+            <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and, if you include it, your goal; review before sharing.</Txt>
+            {report.goalKg != null && <Toggle label="Include goal" sub="Add your goal weight and how far you are from it" value={withGoal} onChange={setWithGoal} />}
+            <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+          </>}
         </Card>
       )}
       {last && (
@@ -194,6 +201,15 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
               <Txt v="bold">Goal: {fmtMass(goal, unit, fmt)}</Txt>
               <Txt>Δ {signed(fromKg(goal - last.trend, unit), 1, fmt)} {unitLabel(unit)}</Txt>
               <Txt v="small">{eta ? (Math.abs(goal - last.trend) < 0.05 ? 'Reached 🎉' : `Around ${eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`) : 'Not at this rate'}</Txt>
+              {settings.goal_date && <Txt v="small">Target: {new Date(settings.goal_date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</Txt>}
+              {schedule && <>
+                <Txt v="smallBold" color={schedule.status === 'behind' || schedule.status === 'overdue' ? p.gold : schedule.status === 'ahead' || schedule.status === 'reached' ? p.good : p.ink}>
+                  {{ ahead: 'Ahead of schedule', on_track: 'On track', behind: 'Behind target date', reached: 'Goal reached', overdue: 'Target date passed', insufficient: 'Not projected at current pace' }[schedule.status]}
+                </Txt>
+                {schedule.requiredKgPerWeek != null && schedule.status !== 'reached' && <Txt v="small">Needed: {signed(fromKg(schedule.requiredKgPerWeek, unit), 1, fmt)} {unitLabel(unit)}/week</Txt>}
+                {schedule.daysDifference != null && <Txt v="small">{Math.abs(schedule.daysDifference)} day{Math.abs(schedule.daysDifference) === 1 ? '' : 's'} {schedule.daysDifference < 0 ? 'early' : schedule.daysDifference > 0 ? 'late' : 'on target'}</Txt>}
+              </>}
+
             </> : <Txt v="small" style={{ textAlign: 'right' }}>Set a goal weight in Settings to see when you’ll get there.</Txt>}
           </View>
         </Card>
@@ -203,25 +219,45 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
 }
 
 /* ---------------- history ---------------- */
-function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metrics: MetricKey[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; onOpen?: (w: Weighin) => void }) {
+function History({ list, metrics, unit, fmt, smoothing, onOpen }: { list: Weighin[]; metrics: MetricKey[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; smoothing: number; onOpen?: (w: Weighin) => void }) {
   const p = usePalette();
-  const groups = useMemo(() => byMonth(list), [list]);
+  const groups = useMemo(() => byMonth(list, smoothing), [list, smoothing]);
   const [shown, setShown] = useState(6);
+  const [year, setYear] = useState<string | null>(null);
+  const [month, setMonth] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const years = [...new Set(groups.map((g) => g.month.slice(0, 4)))];
+  const availableMonths = groups.filter((g) => !year || g.month.startsWith(year));
+  const visible = month ? groups.filter((g) => g.month === month) : year ? availableMonths : groups.slice(0, shown);
   const tags = enterable(metrics);
   return (
     <>
+      <Card style={{ gap: 8 }}>
+        <Txt v="smallBold">Jump to a month</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <Chip label="Recent" selected={!year && !month} onPress={() => { setYear(null); setMonth(null); setShown(6); setExpanded(null); }} />
+          {years.map((y) => <Chip key={y} label={y} selected={year === y} onPress={() => { setYear(y); setMonth(null); setExpanded(null); }} />)}
+        </View>
+        {year && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <Chip label="All months" selected={!month} onPress={() => { setMonth(null); setExpanded(null); }} />
+          {availableMonths.map((g) => <Chip key={g.month}
+            label={new Date(`${g.month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'short' })}
+            selected={month === g.month} onPress={() => { setMonth(g.month); setExpanded(null); }} />)}
+        </View>}
+      </Card>
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        {groups.slice(0, shown).map((g) => (
+        {visible.map((g) => (
           <View key={g.month}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: p.soft }}>
               <Txt v="bold">{new Date(`${g.month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Txt>
-              <Txt v="smallBold">{signed(fromKg(g.change ?? 0, unit), 1, fmt)} {unitLabel(unit)} ({fmtNum(Math.abs(g.pct ?? 0), 1, fmt)}%)</Txt>
+              <Txt v="smallBold">{g.change == null || g.pct == null ? '—' : `${signed(fromKg(g.change, unit), 1, fmt)} ${unitLabel(unit)} (${signed(g.pct, 1, fmt)}%)`}</Txt>
             </View>
             {g.items.map((w) => {
               const d = new Date(w.measured_at);
               return (
-                <Pressable key={w.id} disabled={!onOpen} onPress={() => onOpen?.(w)} accessibilityRole={onOpen ? 'button' : undefined}
-                  accessibilityLabel={`${d.toDateString()}, ${fmtMass(w.weight_kg, unit, fmt)}`}
+                <View key={w.id}>
+                <Pressable onPress={() => setExpanded((id) => id === w.id ? null : w.id)} accessibilityRole="button"
+                  accessibilityLabel={`${d.toDateString()}, ${fmtMass(w.weight_kg, unit, fmt)}, view reading details`}
                   style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: p.line, opacity: pressed ? 0.7 : 1 })}>
                   <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
                     <Txt v="bold" style={{ lineHeight: 19 }}>{d.getDate()}</Txt>
@@ -239,21 +275,34 @@ function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metric
                     </View>
                   </View>
                 </Pressable>
+                {expanded === w.id && <View style={{ padding: 14, backgroundColor: p.soft, gap: 7 }}>
+                  <Txt v="smallBold">Recorded {d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</Txt>
+                  <Txt v="small">Source: {w.source === 'health_connect' ? 'Health Connect' : w.source === 'import' ? 'Imported' : 'Manual'}</Txt>
+                  {(Object.keys(READINGS) as ReadingKey[]).filter((key) => w.metrics?.[key] != null).map((key) => (
+                    <View key={key} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                      <Txt v="small">{READINGS[key].label}</Txt>
+                      <Txt v="smallBold">{fmtMetric(key, w.metrics[key]!, unit, fmt)}</Txt>
+                    </View>
+                  ))}
+                  {w.note && <Txt v="small">Note: {w.note}</Txt>}
+                  {onOpen && <Button title="Edit weigh-in" icon="edit" kind="ghost" small onPress={() => onOpen(w)} style={{ alignSelf: 'flex-start' }} />}
+                </View>}
+                </View>
               );
             })}
           </View>
         ))}
       </Card>
-      {groups.length > shown && <Button kind="ghost" title="Show earlier months" onPress={() => setShown((s) => s + 12)} />}
+      {!year && !month && groups.length > shown && <Button kind="ghost" title="Show earlier months" onPress={() => setShown((s) => s + 12)} />}
       <Txt v="small" center>{list.length} entr{list.length === 1 ? 'y' : 'ies'}{list.length > 1 ? ` · ${spanText(list)}` : ''}</Txt>
     </>
   );
 }
 
 /* ---------------- stats ---------------- */
-function Stats({ list, unit, fmt }: { list: Weighin[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma' }) {
+function Stats({ list, unit, fmt, smoothing }: { list: Weighin[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; smoothing: number }) {
   const p = usePalette();
-  const tr = useMemo(() => trend(list), [list]);
+  const tr = useMemo(() => trend(list, smoothing), [list, smoothing]);
   const ex = extremes(list)!;
   const [pct, setPct] = useState(false);
   const months = monthlyChange(tr);
@@ -336,17 +385,48 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
       const text = Platform.OS === 'web' ? await (await fetch(res.assets[0].uri)).text() : await new (await import('expo-file-system')).File(res.assets[0].uri).text();
       const { rows, skipped } = parseCsv(text, unit);
       if (!rows.length) return toast('No weigh-ins found. Export a CSV from Libra (Settings → Export) or the RENPHO app and try again.', false);
-      const ok = await confirm(`Import ${rows.length} weigh-ins?`, `${skipped ? `${skipped} rows couldn’t be read and will be skipped. ` : ''}Any you already have at the same date and time are updated.`, 'Import');
-      if (!ok) return;
-      for (let i = 0; i < rows.length; i += 500) {
-        const { error } = await sb.from('coach_weighins').upsert(rows.slice(i, i + 500).map((r) => ({ ...r, user_id: settings.user_id, source: 'import' })), { onConflict: 'user_id,measured_at' });
+      // Fetch all timestamp collisions from the database, not just the first 5000
+      // records currently loaded into the Scale view.
+      const dates = [...new Set(rows.map((r) => r.measured_at))];
+      const existing: Pick<Weighin, 'id' | 'measured_at' | 'weight_kg' | 'metrics'>[] = [];
+      for (let i = 0; i < dates.length; i += 100) {
+        const { data, error } = await sb.from('coach_weighins')
+          .select('id,measured_at,weight_kg,metrics').eq('user_id', settings.user_id)
+          .in('measured_at', dates.slice(i, i + 100));
+        if (error) throw error;
+        existing.push(...((data ?? []) as typeof existing));
+      }
+      const plan = planCsvImport(rows, existing);
+      const changes = plan.inserts.length + plan.enrichments.length;
+      if (!changes) {
+        toast(`Already up to date: ${plan.unchanged} existing weigh-ins. No changes made.`);
+        return;
+      }
+      const preview = [
+        `${plan.inserts.length} new weigh-ins`,
+        `${plan.enrichments.length} existing weigh-ins will gain missing measurements`,
+        `${plan.unchanged} unchanged`,
+        ...(plan.conflictingWeights ? [`${plan.conflictingWeights} different weights at matching timestamps will be kept as already recorded`] : []),
+        ...(plan.duplicateRows ? [`${plan.duplicateRows} repeated file rows combined`] : []),
+        ...(skipped ? [`${skipped} unreadable rows skipped`] : []),
+        'Existing weights, manually entered measurements and notes will never be replaced.',
+      ].join('\n');
+      if (!(await confirm('Review CSV import', preview, 'Import safely'))) return;
+      for (let i = 0; i < plan.inserts.length; i += 200) {
+        const { error } = await sb.from('coach_weighins').upsert(
+          plan.inserts.slice(i, i + 200).map((r) => ({ ...r, user_id: settings.user_id, source: 'import' })),
+          { onConflict: 'user_id,measured_at', ignoreDuplicates: true });
         if (error) throw error;
       }
-      // Show any readings the file had
+      for (const entry of plan.enrichments) {
+        const { error } = await sb.from('coach_weighins')
+          .update({ metrics: entry.metrics }).eq('user_id', settings.user_id).eq('id', entry.id);
+        if (error) throw error;
+      }
       const seen = new Set(rows.flatMap((r) => Object.keys(r.metrics))) as Set<ReadingKey>;
       const add = [...seen].filter((k) => !metrics.includes(k));
       if (add.length) await save({ metrics: [...metrics, ...add] });
-      toast(`Imported ${rows.length} weigh-ins`); reload();
+      toast(`Imported ${plan.inserts.length} new; enriched ${plan.enrichments.length}`); reload();
     } catch (e) { toast(errText(e), false); } finally { setImporting(false); }
   };
   const exportCsv = () => {
@@ -403,6 +483,18 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
         <Txt v="small">Lean mass and fat mass are worked out from body fat; BMI from your height.</Txt>
       </Card>
 
+      <SectionLabel>Weight trend</SectionLabel>
+      <Card style={{ gap: 10 }}>
+        <Txt v="small">Choose how quickly the smoothed trend follows daily weigh-ins. This changes charts, projections and monthly changes, but never your recorded measurements.</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {SMOOTHING_OPTIONS.map((value) => <Chip key={value}
+            label={({ 0.05: 'Very smooth', 0.1: 'Balanced', 0.2: 'Responsive', 0.35: 'Very responsive' } as Record<number, string>)[value]}
+            selected={getSmoothing(settings.trend_smoothing) === value}
+            onPress={() => save({ trend_smoothing: value })} />)}
+        </View>
+        <Txt v="small">Balanced is the default. A smoother line reacts more slowly; a responsive line follows new readings sooner.</Txt>
+      </Card>
+
       <SectionLabel>Reminder</SectionLabel>
       <Card>
         <Toggle label="Daily weigh-in reminder" sub="Same time each day works best" value={settings.reminder_on} onChange={(v) => reminder(v)} />
@@ -429,43 +521,96 @@ function HealthCard({ userId, list, reload }: { userId: string; list: Weighin[];
   const toast = useToast();
   const p = usePalette();
   const [status, setStatus] = useState<HealthStatus | null>(null);
-  const [on, setOn] = useState(() => healthSync(userId).on);
-  const [busy, setBusy] = useState<'connect' | 'history' | null>(null);
-  useEffect(() => { healthStatus().then(setStatus); }, []);
-  const last = healthSync(userId).last;
-  const run = async (kind: 'connect' | 'history') => {
+  const [state, setState] = useState(() => healthSync(userId));
+  const [weightAllowed, setWeightAllowed] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState<'connect' | 'history' | 'sync' | null>(null);
+  const refresh = useCallback(async () => {
+    setState(healthSync(userId));
+    if (Platform.OS === 'android' && await healthStatus() === 'ready') {
+      try { setWeightAllowed((await scalePermissions()).weight); }
+      catch { setWeightAllowed(false); }
+    }
+  }, [userId]);
+  useEffect(() => {
+    let active = true;
+    healthStatus().then((result) => { if (active) setStatus(result); });
+    refresh().catch(() => {});
+    return () => { active = false; };
+  }, [refresh]);
+  const run = async (kind: 'connect' | 'history' | 'sync') => {
     setBusy(kind);
     try {
-      if (kind === 'connect' && !(await connectHealth())) return toast('Allow Dragonfly to read your weight in Health Connect to sync', false);
-      const n = await syncHealth(userId, list, kind === 'history' ? new Date(Date.now() - 10 * 365 * 86_400_000) : undefined);
-      setOn(true); reload();
-      if (n) toast(`Added ${n} weigh-in${n === 1 ? '' : 's'}`);
-      else toast(list.length ? 'All caught up' : 'No weigh-ins in Health Connect yet. In the RENPHO app, turn on sharing Weight to Health Connect, weigh in, then Sync now.', !!list.length);
-    } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
+      if (kind === 'connect' && !(await connectScaleHealth())) {
+        toast('Allow Dragonfly access to Weight in Health Connect, then try again.', false);
+        return;
+      }
+      if (kind === 'history') {
+        if (!(await scalePermissions()).weight) {
+          toast('First connect Weight permission in Health Connect.', false);
+          return;
+        }
+        // Health Connect requires a separate, optional permission to read older data.
+        // The installed native library may not report history permission reliably;
+        // a successful historical read is the only confirmation in the app.
+        await requestScaleHistoryAccess();
+      }
+      const added = await syncHealth(userId, list, kind === 'history'
+        ? new Date(Date.now() - 10 * 365 * 86_400_000) : undefined);
+      await refresh();
+      reload();
+      toast(added ? `Added ${added} weigh-in${added === 1 ? '' : 's'}` : 'Sync complete — no new readings.');
+    } catch (error) {
+      await refresh();
+      toast(kind === 'history'
+        ? 'Historical sync failed or older-data access was not granted. Check Health Connect permissions and try again.'
+        : errText(error), false);
+    } finally { setBusy(null); }
   };
-  if (status === null) return null;
+  if (status === null) return <Card><Txt v="small">Checking Health Connect availability…</Txt></Card>;
   if (status === 'unsupported') return (
-    <Card><Txt v="small">Automatic sync uses Health Connect, so it works in the Dragonfly app on Android. Turn it on there and weigh-ins from your RENPHO, Libra, Samsung Health, Fitbit or Withings show up here too.</Txt></Card>
+    <Card style={{ gap: 8 }}>
+      <Txt v="bold">Automatic scale syncing is available on Android</Txt>
+      <Txt v="small">Use the Dragonfly Coach Android app to connect Health Connect. For iPhone or web, use manual weight entry or import a compatible CSV file.</Txt>
+    </Card>
   );
   if (status !== 'ready') return (
-    <Card style={{ gap: 10 }}>
-      <Txt>{status === 'update_needed' ? 'Health Connect needs an update before Dragonfly can use it.' : 'Install Health Connect (free from Google) to sync weigh-ins from your scale’s app.'}</Txt>
+    <Card style={{ gap: 8 }}>
+      <Txt v="bold">{status === 'update_needed' ? 'Update Health Connect' : 'Health Connect is not available'}</Txt>
+      <Txt v="small">Install or update Health Connect, then reopen this screen to set up automatic measurements.</Txt>
       <Button kind="ghost" icon="open_in_new" title="Open Health Connect" onPress={openHealthSettings} style={{ alignSelf: 'flex-start' }} />
     </Card>
   );
   return (
-    <Card style={{ gap: 10 }}>
-      <Txt v="small">Your RENPHO app (or Libra, Samsung Health, Fitbit, Withings…) shares each weigh-in with Health Connect, and Dragonfly picks it up whenever you open the Scale: weight, body fat, bone mass, body water and BMR. In the RENPHO app, switch on sharing to Health Connect (in its settings, under connected apps or integrations).</Txt>
-      {on ? <>
-        {list.length === 0 && <Txt v="small" color={p.gold}>Nothing has come in yet. Open the RENPHO app → Me → Health Connect (or Settings → Connected apps), allow it to write Weight, Body fat and the rest, then tap Sync now.</Txt>}
-        <Txt v="bold">✓ Syncing{last ? ` · last checked ${new Date(last).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}</Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <Button kind="ghost" icon="sync" title="Sync now" busy={busy === 'connect'} onPress={() => run('connect')} />
-          <Button kind="ghost" icon="download" title="Bring in all history" busy={busy === 'history'} onPress={() => run('history')} />
-          <Button kind="quiet" title="Turn off" onPress={() => { setHealthSync(userId, { on: false, last }); setOn(false); }} />
-        </View>
-        <Txt v="small">Muscle mass, visceral fat, metabolic age and the arm/leg/trunk readings aren’t shared through Health Connect; add those with a RENPHO CSV export now and then.</Txt>
-      </> : <Button title="Connect Health Connect" icon="monitor_weight" busy={busy === 'connect'} onPress={() => run('connect')} style={{ alignSelf: 'flex-start' }} />}
+    <Card style={{ gap: 12 }}>
+      <Txt v="bold">Connect your scale data</Txt>
+      <Txt v="small">1. In your scale's app (RENPHO, Libra, or another supported app), enable sharing weight to Health Connect.</Txt>
+      <Txt v="small">2. Allow that app to write measurements to Health Connect. Then let Dragonfly read Weight and any body-composition fields you want to share.</Txt>
+      <Txt v="small">3. Tap Connect, then Sync now. After setup, Dragonfly checks for new readings when you open Scale.</Txt>
+      <View style={{ gap: 3, padding: 10, backgroundColor: p.soft, borderRadius: 10 }}>
+        <Txt v="smallBold">Connection: {weightAllowed === null ? 'Checking permissions…' : !weightAllowed ? 'Weight permission needed' : state.on ? 'Automatic sync on' : 'Weight allowed · sync off'}</Txt>
+        <Txt v="small">Last successful check: {state.last ? new Date(state.last).toLocaleString() : 'Not yet'}</Txt>
+        {state.last != null && <Txt v="small">Last check: {state.lastAdded ?? 0} new · {state.lastSkipped ?? 0} already recorded or duplicate</Txt>}
+        {!!state.sources?.length && <Txt v="small">Detected weight sources: {state.sources.join(', ')}</Txt>}
+        {state.last && !state.sources?.length && <Txt v="small">No scale app has shared identifiable weight data in the most recent check.</Txt>}
+        {state.lastError && <Txt v="small" color={p.danger}>Last sync issue: {state.lastError}</Txt>}
+        {!!state.historyImportedAt && <Txt v="small">Historical import checked: {new Date(state.historyImportedAt).toLocaleDateString()}</Txt>}
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Button title={weightAllowed ? state.on ? 'Reconnect' : 'Enable syncing' : 'Connect Health Connect'}
+          icon="monitor_weight" busy={busy === 'connect'} disabled={busy !== null && busy !== 'connect'}
+          onPress={() => run('connect')} />
+        {state.on && <>
+          <Button kind="ghost" icon="sync" title="Sync now" busy={busy === 'sync'}
+            disabled={busy !== null && busy !== 'sync'} onPress={() => run('sync')} />
+          <Button kind="ghost" icon="download" title="Import older history" busy={busy === 'history'}
+            disabled={busy !== null && busy !== 'history'} onPress={() => run('history')} />
+          <Button kind="quiet" title="Turn off" disabled={busy !== null}
+            onPress={() => { const updated = { ...state, on: false }; setHealthSync(userId, updated); setState(updated); }} />
+        </>}
+        <Button kind="quiet" icon="open_in_new" title="Manage permissions" onPress={openHealthSettings} />
+      </View>
+      {state.on && <Txt v="small">Older history requires additional Health Connect access, and can only include readings your other apps already shared there. If access is unavailable, recent readings can still sync normally.</Txt>}
+      <Txt v="small">Sources are identified from Health Connect's records, not from apps installed on your phone. Detailed segmental muscle and fat measurements may still require the manufacturer's export file.</Txt>
     </Card>
   );
 }

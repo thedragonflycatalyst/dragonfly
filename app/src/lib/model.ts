@@ -14,6 +14,7 @@ export type Client = {
   id: string; trainer_id: string; user_id: string | null; name: string; first_name: string; last_name: string;
   email: string; phone: string | null; sex: Sex | null; date_of_birth: string | null; height_cm: number | null;
   status: ClientStatus; goals: string | null; interests: string[]; source: string | null;
+  frequency_tier?: import('./client-pool').Tier; short_notice_ok?: boolean; short_notice_at?: string | null; client_of?: 'private' | 'ca' | 'other';
   started_on: string | null; frozen_at: string | null; frozen_reason: 'manual' | 'inactive' | null;
   last_session_at: string | null; onboarded_at: string | null; created_at: string; updated_at: string;
   contact_via?: 'app' | 'sms' | 'whatsapp';

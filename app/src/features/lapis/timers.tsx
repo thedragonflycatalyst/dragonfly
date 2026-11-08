@@ -111,7 +111,7 @@ export function RestBar({ t, blocked = false }: { t: ReturnType<typeof useRest>;
         <Pressable accessibilityRole="button" accessibilityLabel="15 seconds less" onPress={() => t.add(-15)} style={btn}><Txt v="smallBold" color={p.ink}>−15</Txt></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="15 seconds more" onPress={() => t.add(15)} style={btn}><Txt v="smallBold" color={p.ink}>+15</Txt></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={resumeBlocked ? 'Pause Lapis to resume rest' : paused ? 'Resume rest' : 'Pause rest'} disabled={resumeBlocked} onPress={paused ? t.resume : t.pause} style={[btn, resumeBlocked && { opacity: 0.4 }]}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" onPress={t.skip} style={[btn, { backgroundColor: p.focus }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" onPress={t.skip} style={[btn, { backgroundColor: p.fill }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
       </View>
     </View>
   );

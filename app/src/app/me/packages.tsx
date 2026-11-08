@@ -5,6 +5,7 @@ import { ActivityIndicator, Platform, ScrollView, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
 import { Cover } from '@/components/cover';
 import { Badge } from '@/components/shell';
+import { RefundPolicyNote } from '@/features/refund-policy-note';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Empty, Field, Txt, useToast } from '@/components/ui';
 import { useApp } from '@/lib/app-state';
@@ -106,6 +107,7 @@ export default function MyPackages() {
           {buying.description ? <Txt style={{ marginBottom: 12 }}>{buying.description}</Txt> : null}
           <Field label="Voucher code" hint="(optional)" value={code} onChangeText={(t) => setCode(t.toUpperCase())} autoCapitalize="characters" />
           <Button title="Pay by card" icon="payments" busy={busy} onPress={buy} />
+          <RefundPolicyNote trainerId={buying.trainer_id} packageId={buying.id} currency={buying.currency} />
           <Txt v="small" style={{ marginTop: 10 }}>Secure checkout by Stripe. {buying.billing !== 'once' ? `Renews every ${buying.billing} until you or your trainer cancel.` : ''}</Txt>
         </>}
       </Sheet>

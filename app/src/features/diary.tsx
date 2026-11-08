@@ -11,6 +11,7 @@ import { errText, type Client } from '@/lib/model';
 import { defaultItem, describe, type MealItem, type Nutr, type NutritionPlan } from '@/lib/nutrition';
 import { sb } from '@/lib/supabase';
 import { R, usePalette } from '@/lib/theme';
+import { useAiPhotoConsent } from './ai-photo-consent';
 import { BarcodeScanner } from './barcode';
 import { AmountEditor, FoodPicker, kcalOf } from './food-picker';
 import { TotalsBars } from './nutrition-view';
@@ -110,7 +111,7 @@ export function Diary({ client, imperial, asClient }: { client: Client; imperial
                 {ls.map((l) => (
                   <Pressable key={l.id} accessibilityRole="button" accessibilityLabel={`Edit ${l.name}`} onPress={() => setEditing(l)}
                     style={({ pressed }) => ({ flexDirection: 'row', gap: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: p.line, paddingTop: 10, opacity: pressed ? 0.6 : 1 })}>
-                    {l.photo_path ? <Image source={photos[l.photo_path] ? { uri: photos[l.photo_path] } : null} style={{ width: 44, height: 44, borderRadius: R.sm, backgroundColor: p.line }} contentFit="cover" /> : null}
+                    {l.photo_path ? <Image source={photos[l.photo_path] ? { uri: photos[l.photo_path] } : null} style={{ width: 44, height: 44, borderRadius: R.sm, backgroundColor: p.line }} contentFit="cover" accessibilityLabel="" accessible={false} /> : null}
                     <View style={{ flex: 1 }}>
                       <Txt numberOfLines={2}>{l.name}</Txt>
                       <Txt v="small">{[l.qty && l.portion ? describe({ id: '', food: l.food!, qty: Number(l.qty), portion: l.portion }) : null, SOURCE[l.source]].filter(Boolean).join(' · ')}</Txt>
@@ -290,7 +291,9 @@ function FromPhoto({ client, onAdd }: { client: Client; onAdd: (items: NewLogIte
     if (error) throw error;
     return path;
   };
+  const consent = useAiPhotoConsent();
   const estimate = async () => {
+    if (!(await consent.ask())) return;
     setBusy('ai');
     try {
       const { data, error } = await sb.functions.invoke('coach-food-photo', { body: { image: await toBase64(uri!), hint } });
@@ -357,6 +360,7 @@ function FromPhoto({ client, onAdd }: { client: Client; onAdd: (items: NewLogIte
           </View>
         </>
       )}
+      {consent.sheet}
     </View>
   );
 }

@@ -246,7 +246,7 @@ export default function Session() {
       saved.current = true;
       clearDraft();
       toast('Workout saved. Nice work!');
-      router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId! } });
+      router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId!, done: '1' } });
     } catch (error) {
       toast(errText(error), false);
     } finally {

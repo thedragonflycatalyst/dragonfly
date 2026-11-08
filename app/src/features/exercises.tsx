@@ -19,7 +19,10 @@ import { findMachines, machineMatches, type MachineRead } from '@/lib/machine-ma
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
 import { escalateSuggestion, REPORT_KINDS, reportExercise, reviewText, suggestExercise, useHidden, type ReportKind, type Review } from './library-extras';
+import { useAiPhotoConsent } from './ai-photo-consent';
 import { MachineScanner, scanMachinePhoto } from './machine-scan';
+import { hush, readAloud } from './lapis/audio';
+import { clips, spokenText } from '@/lib/read-aloud';
 
 const MEDIA = 'coach-media';
 
@@ -54,8 +57,8 @@ export function ExerciseThumb({ img, video, size = 64, ex }: {
   const src = img?.startsWith('media:') ? stored : img ?? youTubeThumb(video);
   return (
     <View style={{ width: size, height: size, borderRadius: R.sm, overflow: 'hidden', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-      {src ? <Image source={{ uri: src }} style={{ width: size, height: size }} contentFit="cover" transition={120} accessibilityIgnoresInvertColors />
-        : ex ? <Image source={WORKOUT_IMAGES[exerciseArt(ex)]} style={{ width: size, height: size, opacity: 0.85 }} contentFit="cover" accessibilityIgnoresInvertColors />
+      {src ? <Image source={{ uri: src }} style={{ width: size, height: size }} contentFit="cover" transition={120} accessibilityIgnoresInvertColors accessibilityLabel="" accessible={false} />
+        : ex ? <Image source={WORKOUT_IMAGES[exerciseArt(ex)]} style={{ width: size, height: size, opacity: 0.85 }} contentFit="cover" accessibilityIgnoresInvertColors accessibilityLabel="" accessible={false} />
         : <Icon name="fitness_center" size={size * 0.42} color={p.muted} />}
       {video ? (
         <View style={{ position: 'absolute', width: size * 0.4, height: size * 0.4, borderRadius: size, backgroundColor: '#000a', alignItems: 'center', justifyContent: 'center' }}>
@@ -110,6 +113,7 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
       )}
       {full?.secondary.length ? <Txt v="small" style={{ marginBottom: 8 }}>Also works: {full.secondary.map(titleCase).join(', ')}</Txt> : null}
       {full?.pattern ? <Txt v="small" style={{ marginBottom: 8 }}>{[full.category, full.kind, full.pattern].filter(Boolean).join(' · ')}</Txt> : null}
+      {full && <ReadAloud key={full.ref} ex={full} />}
       {full?.how && ([['Setup', full.how.setup], ['Movement and return', full.how.move], ['Key cues', full.how.cues]] as const).filter(([, s]) => s).map(([h, s]) => (
         <View key={h} style={{ marginTop: 8 }}>
           <Txt v="bold" style={{ fontSize: 15, marginBottom: 4 }}>{h}</Txt>
@@ -119,6 +123,27 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
       {(full?.steps ?? []).map((s, i) => <Txt key={i} style={{ marginBottom: 8 }}>{full?.mine ? s : `${i + 1}. ${s}`}</Txt>)}
       {ex?.ref?.startsWith('lib:') && <LibraryActions refId={ex.ref} name={ex.name} />}
     </Sheet>
+  );
+}
+
+/** Speaker button before the how-to: the Lapis voice (Connor by default) reads the form cues over the person's music */
+function ReadAloud({ ex }: { ex: LibExercise }) {
+  const p = usePalette();
+  const pieces = useMemo(() => clips(spokenText(ex)), [ex]);
+  const [on, setOn] = useState(false);
+  useEffect(() => () => hush(), []);
+  if (!pieces.length) return null;
+  const toggle = () => {
+    if (on) { hush(); setOn(false); return; }
+    setOn(true);
+    void readAloud(pieces).finally(() => setOn(false));
+  };
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={on ? 'Stop reading' : `Read the ${ex.name} instructions aloud`} onPress={toggle} hitSlop={8}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 8, paddingVertical: 4 }}>
+      <Icon name={on ? 'stop_circle' : 'volume_up'} size={22} color={p.focus} />
+      <Txt v="small" style={{ color: p.focus }}>{on ? 'Stop' : 'Listen'}</Txt>
+    </Pressable>
   );
 }
 
@@ -298,7 +323,9 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   };
   const showFilterChips = !scanned && ((tab === 'part' && !part) || (tab === 'equipment' && !equip));
   /** Scan a machine: the live scanner on phones, a photo on the web */
+  const consent = useAiPhotoConsent();
   const scan = async () => {
+    if (!(await consent.ask())) return;
     if (Platform.OS !== 'web') { setScanning(true); return; }
     const r = await scanMachinePhoto(toast);
     if (r) setScanned(r);
@@ -398,6 +425,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
       <ExerciseInfo ex={info ? { name: info.name, ref: info.ref, img: info.images[0], video: info.video } : null} onClose={() => setInfo(null)} />
       <MyExerciseEditor visible={creating} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />
       <MachineScanner visible={scanning} onClose={() => setScanning(false)} onFound={setScanned} />
+      {consent.sheet}
     </Sheet>
   );
 }

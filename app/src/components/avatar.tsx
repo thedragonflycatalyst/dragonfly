@@ -9,7 +9,7 @@ export function Avatar({ size = 40 }: { size?: number }) {
   const { avatar, username } = useApp();
   return (
     <View style={{ width: size, height: size, borderRadius: size / 2, overflow: 'hidden', backgroundColor: p.ink, alignItems: 'center', justifyContent: 'center' }}>
-      {avatar ? <Image source={{ uri: avatar }} style={{ width: size, height: size }} contentFit="cover" transition={150} accessibilityIgnoresInvertColors />
+      {avatar ? <Image source={{ uri: avatar }} style={{ width: size, height: size }} contentFit="cover" transition={150} accessibilityIgnoresInvertColors accessibilityLabel="" accessible={false} />
         : <Text style={{ fontFamily: F.display, fontSize: size * 0.42, color: p.bg }}>{(username ?? '?').replace(/^@/, '').charAt(0).toUpperCase()}</Text>}
     </View>
   );
