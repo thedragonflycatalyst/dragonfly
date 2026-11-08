@@ -2,7 +2,7 @@ import { router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Crypto from 'expo-crypto';
-import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Toggle } from '@/components/pickers';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
@@ -13,7 +13,8 @@ import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
 import { lapisReminderKey } from '@/features/lapis/background';
-import { patchDraftClock, patchDraftTimedSetClock } from '@/features/lapis/navigation-recovery';
+import { patchDraftClock, patchDraftTimedSetClock, patchDraftRestClock } from '@/features/lapis/navigation-recovery';
+import type { RestClock } from '@/features/lapis/rest-clock';
 import type { TimedSetClock } from '@/features/lapis/timed-set-clock';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
@@ -69,12 +70,28 @@ export default function Session() {
   const [clients, setClients] = useState<Client[]>([]);
   const [now, setNow] = useState(Date.now());
   const lapis = useLapisPrefs(app.user?.id);
-  const rest = useRest();
   const [past, setPast] = useState<PastLog[]>([]);
   const [historyFor, setHistoryFor] = useState<number | null>(null);
   const [noteIdx, setNoteIdx] = useState<Record<string, number>>({});
   const [manualTime, setManualTime] = useState<Record<string, boolean>>({});
   const [autoGo, setAutoGo] = useState<{ key: string; n: number } | null>(null);
+  const [restSnapshot, setRestSnapshot] = useState<RestClock | null>(null);
+  const rest = useRest(
+    (nextSetKey) => {
+      // A rest that expired while another screen or the OS was foregrounded
+      // must not surprise-start a timed exercise on return.
+      if (screenFocused && AppState.currentState === 'active')
+        setAutoGo({ key: nextSetKey, n: Date.now() });
+    },
+    (snapshot) => {
+      setRestSnapshot(snapshot);
+      try {
+        const serialized = patchDraftRestClock(
+          readDraft((storageKey) => storage.getItem(storageKey)), key, snapshot);
+        if (serialized) storage.setItem(DRAFT_KEY, serialized);
+      } catch { /* keep in-memory rest state */ }
+    },
+  );
   const [finishing, setFinishing] = useState(false);
   const [rpe, setRpe] = useState<number | null>(null);
   const [note, setNote] = useState('');
@@ -101,10 +118,11 @@ export default function Session() {
       }
       if (s?.assignment?.status === 'done') { setSrc(s); return; }
       const d = readDraft((k) => storage.getItem(k));
-      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setTimedSetClocks(d.timedSetClocks ?? {});
+      if (s && d?.key === key) { rest.restore(d.restClock ?? null); setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setTimedSetClocks(d.timedSetClocks ?? {});
         setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
         setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
       else if (s) {
+        rest.restore(null);
         setLog(startLog(s.blocks, unit));
         setTimerResults([]);
         setRunnerClocks({});
@@ -121,9 +139,9 @@ export default function Session() {
   // Keep the draft on the device after every change
   useEffect(() => {
     if (!src || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
-    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, pendingAssignmentId };
+    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, restClock: restSnapshot, pendingAssignmentId };
     try { storage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch { /* storage full or blocked: keep going without a draft */ }
-  }, [log, timerResults, runnerClocks, timedSetClocks, pendingAssignmentId, clientId, src, key, aid, workout, started]);
+  }, [log, timerResults, runnerClocks, timedSetClocks, restSnapshot, pendingAssignmentId, clientId, src, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
@@ -192,7 +210,7 @@ export default function Session() {
     const next = si + 1 < e.sets.length ? `Next: set ${si + 2}` : log[bi + 1]?.ex ? `Next: ${log[bi + 1].ex?.name}` : 'Last set done';
     // Timed exercises run like a Lapis session: work, rest, then the next set starts by itself
     const timed = blocks.find((x) => x.id === e.block_id)?.metric === 'time' && !manualTime[e.block_id] && si + 1 < e.sets.length;
-    rest.start(s.rest ?? lapis.defaultRest, next, timed ? () => setAutoGo({ key: `${bi}:${si + 1}:${e.sides ? 'r' : '-'}`, n: Date.now() }) : undefined);
+    rest.start(s.rest ?? lapis.defaultRest, next, timed ? `${bi}:${si + 1}:${e.sides ? 'r' : '-'}` : null);
   };
 
   const clearDraft = () => { try { if (readDraft((k) => storage.getItem(k))?.key === key) storage.removeItem(DRAFT_KEY); } catch { /* nothing to clear */ } };
@@ -210,7 +228,7 @@ export default function Session() {
         assignmentId = Crypto.randomUUID();
         const draft: Draft = {
           key, title: src.title, params: aid ? { aid } : { workout: workout! },
-          client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks,
+          client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, restClock: restSnapshot,
           pendingAssignmentId: assignmentId,
         };
         // Fail closed: without a persisted ID we cannot safely retry after
