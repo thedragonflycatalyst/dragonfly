@@ -63,7 +63,7 @@ function PushTest() {
         const st = await startPush();
         if (st === 'denied') { setBusy(false); return toast('Allow notifications for Dragonfly in your phone’s settings', false); }
         if (st === 'unavailable') { setBusy(false); return toast('Phone alerts need the Dragonfly app on your phone (they’re being switched on)', false); }
-        try { const r = await callFn<{ sent: number }>('coach-push', { action: 'test' }); toast(r.sent ? 'Sent. It should go off now.' : 'This phone isn’t registered yet', !!r.sent); }
+        try { const r = await callFn<{ sent: number }>('dragonfly-push', { action: 'test' }); toast(r.sent ? 'Sent. It should go off now.' : 'This phone isn’t registered yet', !!r.sent); }
         catch (e) { toast(/not_configured/.test(String(e)) ? 'Phone alerts are almost ready: they switch on once Firebase is set up' : fnText(e), false); }
         setBusy(false);
       }} />

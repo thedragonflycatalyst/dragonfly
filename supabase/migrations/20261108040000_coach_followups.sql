@@ -92,9 +92,9 @@ grant execute on function public.coach_followup_done(uuid) to authenticated;
 -- Phone alert right away (repeats come from coach-outbox every 15 minutes, at most hourly)
 create function public.coach_followup_push() returns trigger language plpgsql security definer set search_path = '' as $$
 begin
-  if exists (select 1 from public.coach_push_tokens where user_id = new.trainer_id) then
+  if exists (select 1 from public.dragonfly_push_tokens where user_id = new.trainer_id and app = 'coach') then
     perform net.http_post(
-      url := 'https://fkksaivdznqbfsfsagsj.supabase.co/functions/v1/coach-push',
+      url := 'https://fkksaivdznqbfsfsagsj.supabase.co/functions/v1/dragonfly-push',
       headers := jsonb_build_object('content-type', 'application/json',
         'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'calendar_cron_secret')),
       body := jsonb_build_object('action', 'followup', 'followup_id', new.id),

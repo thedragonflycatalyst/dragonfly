@@ -19,7 +19,7 @@ export async function startPush(): Promise<'on' | 'denied' | 'unavailable'> {
     if (!perm.granted) return 'denied';
     const tok = await N.getDevicePushTokenAsync();
     if (typeof tok.data !== 'string' || !tok.data) return 'unavailable';
-    await sb.rpc('coach_push_register', { p_token: tok.data, p_platform: Platform.OS === 'ios' ? 'ios' : 'android' });
+    await sb.rpc('dragonfly_push_register', { p_token: tok.data, p_platform: Platform.OS === 'ios' ? 'ios' : 'android', p_app: 'coach' });
     if (!started) {
       started = true;
       // Tapping the alert opens that request: Approve / Decline
