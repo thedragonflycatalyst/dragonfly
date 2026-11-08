@@ -49,6 +49,14 @@ jobs:
           node -e "const f='app.json';const j=require('./'+f);j.expo.version='1.0.${{ github.run_number }}';j.expo.android.versionCode=${{ github.run_number }};require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
           echo "APP_VERSION=1.0.${{ github.run_number }}" >> "$GITHUB_ENV"
 
+      - name: Push notifications config (Firebase)
+        # The owner's Firebase file, stored as the GOOGLE_SERVICES_JSON repository secret. Without it the app builds
+        # without push (the in-app alert bar still works).
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json; echo "push: on"; else echo "push: off (no GOOGLE_SERVICES_JSON secret)"; fi
+
       - name: Generate native project
         run: npx expo prebuild --platform android --no-install
         env:

@@ -110,15 +110,71 @@ export function timeText(start: Date, tz: string, now: Date): string {
   return `${day} at ${t}`;
 }
 
-/** Session reminder. By text, it says how to reply; in chat, the client can just answer. */
-export function reminderText(o: { first: string; trainer: string; start: Date; tz: string; now: Date; sms: boolean; location?: string | null }): string {
+/** "Tue, Nov 10 at 7:00 AM" in the trainer's time zone */
+export function dateTimeText(start: Date, tz: string): string {
+  const d = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(start);
+  const t = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(start);
+  return `${d} at ${t}`;
+}
+const clock = (start: Date, tz: string) => new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(start);
+
+// Reminder plan (owner 2026-11-07, from the evidence on reminders): a note when it's booked; the main reminder about
+// 48 hours ahead in the morning, asking for a reply (before the 24-hour cancellation window, so moving to another day
+// is still free); a 24-hour check only if they haven't confirmed; a short see-you-today the morning of.
+// No confirmation simply means unconfirmed: the trainer isn't alerted (owner 2026-11-08). Signed with
+// the business name, never a personal name; no emoji (an emoji makes a text cost two). Under 160 characters.
+export type Stage = 'booked' | 'main' | 'nudge' | 'dayof';
+export function reminderText(o: { stage: Stage; first: string; brand: string; start: Date; tz: string; now: Date; sms: boolean; location?: string | null }): string {
   const where = o.location ? ` at ${o.location}` : '';
-  const base = `Hi ${o.first}, reminder: training with ${o.trainer} ${timeText(o.start, o.tz, o.now)}${where}.`;
-  return o.sms ? `${base} Reply C to confirm or R to reschedule. Reply STOP to opt out.` : `${base} See you there!`;
+  const stop = o.sms ? ' Reply STOP to opt out.' : '';
+  switch (o.stage) {
+    case 'booked': return `Hi ${o.first}, you're booked with ${o.brand} for ${dateTimeText(o.start, o.tz)}${where}. See you then!${stop}`;
+    case 'main': return o.sms
+      ? `Hi ${o.first}, this is ${o.brand}. Your session is ${dateTimeText(o.start, o.tz)}${where}. Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT.${stop}`
+      : `Hi ${o.first}, this is ${o.brand}. Your session is ${dateTimeText(o.start, o.tz)}${where}. See you there!`;
+    case 'nudge': return `Hi ${o.first}, just checking you're still set for ${timeText(o.start, o.tz, o.now)}. Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT.`;
+    case 'dayof': return `See you today at ${clock(o.start, o.tz)}, ${o.first}! - ${o.brand}`;
+  }
+}
+
+/** When each stage goes out (null = skip). Morning sends at 8 AM local; nothing lands after the session starts. */
+export function reminderAt(stage: Stage, start: Date, tz: string, bookedAt?: Date): Date | null {
+  const local = wall(start, tz);
+  const at8 = (daysBefore: number) => {
+    const d = new Date(Date.UTC(local.y, local.m - 1, local.d - daysBefore));   // calendar date, month/year rollover safe
+    return zoned(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 8, 0, tz);
+  };
+  const h = (n: number) => new Date(start.getTime() - n * 3600_000);
+  switch (stage) {
+    case 'booked': return bookedAt ?? null;
+    case 'main': {
+      // 8 AM two days before (about 48 hours); never inside the 24-hour window
+      const t = at8(2);
+      return t.getTime() <= h(25).getTime() ? t : h(30);
+    }
+    case 'nudge': return h(24);
+    case 'dayof': {
+      // 8 AM on the day, if the session is at least 2 hours after that (early sessions are covered by the day before)
+      const t = at8(0);
+      return t.getTime() <= h(2).getTime() ? t : null;
+    }
+  }
+}
+
+/** One courtesy reply (at most daily) when a client texts something the system can't act on (it goes to the app chat) */
+export const relayText = (first: string, inChat: boolean) => inChat
+  ? `Thanks, ${first}! This number is automated, so your message was sent to your trainer in the app's chat.`
+  : `Thanks, ${first}! This number is automated, so your message was passed to your trainer.`;
+
+/** Reply after RESCHEDULE: today-only wording inside 24 hours */
+export function rescheduleText(link: string, within24h: boolean): string {
+  return within24h
+    ? `No problem! Click here to see what time slots are left for today: ${link} If you can't make it today, reply CANCEL APPOINTMENT instead.`
+    : `No problem! Pick a new time here: ${link}`;
 }
 
 export type Reply =
-  | { kind: 'stop' } | { kind: 'start' } | { kind: 'help' } | { kind: 'confirm' } | { kind: 'reschedule' }
+  | { kind: 'stop' } | { kind: 'start' } | { kind: 'help' } | { kind: 'confirm' } | { kind: 'reschedule' } | { kind: 'cancel_session' }
   | { kind: 'yes' } | { kind: 'no' } | { kind: 'rating'; value: number } | { kind: 'in' } | { kind: 'other' };
 
 /** What a text reply means. Carrier keywords (STOP, START, HELP) always win. */
@@ -128,13 +184,29 @@ export function parseReply(text: string): Reply {
   if (/^(START|UNSTOP|SUBSCRIBE|OPTIN|OPT IN)$/.test(t)) return { kind: 'start' };
   if (/^(HELP|INFO)$/.test(t)) return { kind: 'help' };
   if (/^(C|CONFIRM|CONFIRMED|👍)$/.test(t)) return { kind: 'confirm' };
-  if (/^(R|RESCHEDULE)$/.test(t)) return { kind: 'reschedule' };
+  if (/^(R|RESCHEDULE|MOVE( IT| MY SESSION)?)$/.test(t)) return { kind: 'reschedule' };
+  if (/^CANCEL (MY |THE |THIS )?(SESSION|APPOINTMENT|APPT|TRAINING)$/.test(t)) return { kind: 'cancel_session' };
   if (/^(Y|YES|YEP|YEAH|SURE|I'?LL TAKE IT)$/.test(t)) return { kind: 'yes' };
   if (/^(N|NO|NOPE|NOT THIS TIME)$/.test(t)) return { kind: 'no' };
   if (/^IN$/.test(t)) return { kind: 'in' };
   const n = /^([1-5])(\s*\/\s*5)?$/.exec(t);
   if (n) return { kind: 'rating', value: Number(n[1]) };
   return { kind: 'other' };
+}
+
+// Replies in the owner's own voice (owner 2026-11-07)
+export const CONFIRM_REPLY = 'Perfect! See you then 😁';
+
+/** Replies to CANCEL APPOINTMENT. A late cancellation is still cancelled (the time goes to the waitlist) but counts as a session. */
+export function cancelReplyText(o: { status: 'cancelled' | 'late_cancelled' | 'not_allowed' | 'no_session'; hours: number; link: string; trainer: string }): string {
+  const sorry = 'That’s too bad, I hope everything is okay!';
+  const h = `${o.hours} hour${o.hours === 1 ? '' : 's'}`;
+  switch (o.status) {
+    case 'cancelled': return `${sorry} You’re all set, your session is cancelled. Whenever you’re ready, you can book a new time here: ${o.link}`;
+    case 'late_cancelled': return `${sorry} Your session is cancelled. Just a gentle heads-up: with less than ${h}’ notice it still counts as a session under my ${o.hours}-hour cancellation policy, since that time was held for you. Book your next one whenever you’re ready: ${o.link}`;
+    case 'not_allowed': return `${sorry} Send me a message and we’ll sort out your session together.`;
+    default: return `${sorry} I couldn’t find an upcoming session to cancel. Your sessions are here: ${o.link}`;
+  }
 }
 
 /** Normalize a US-style phone number to E.164 (+1XXXXXXXXXX); other countries must already include + */

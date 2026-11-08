@@ -1,48 +1,75 @@
 // coach-outbox: plans and delivers automatic messages.
 //
-// POST { action: 'send_now' } + trainer session  delivers that trainer's due messages right away
+// POST { action: 'send_now' } + trainer session  delivers that trainer's due messages right away (and reschedule decisions)
 // POST { action: 'run' } + x-cron-secret   pg_cron every 15 minutes: plan reminders (and, when switched on, surveys,
 //                                          testimonial and referral asks), then deliver queued messages that are due.
 // Delivery rules, checked again at send time: the client's consent for that purpose and channel, the trainer's quiet
 // hours (in the trainer's time zone), a weekly cap on non-essential messages, and no health details in the text.
 // Channels (the client picks; default text): 'sms' (texting service, only when the owner has switched it on and it's
 // configured), 'manual' (a text that waits in the trainer's "To send" list), 'email' (when configured), 'app' (chat).
+// Also each run: session billing (attach packages / single-session charges, charge cards on file; see billing.ts).
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { healthWord, nextSendable, occurrences, reminderText, type BookingRow } from '../_shared/messaging.ts';
+import { healthWord, nextSendable, occurrences, reminderAt, reminderText, type BookingRow, type Stage } from '../_shared/messaging.ts';
 import { allowed, ESSENTIAL, pickChannel, skipCa, type ClientRow, type Settings } from './common.ts';
 import { planEngagement } from './engagement.ts';
 import { processOpenSlots } from './waitlist.ts';
+import { processCharges } from './billing.ts';
+import { processReschedules } from './reschedule.ts';
+import { processFollowups } from './followups.ts';
 import { deliverEmail } from './email.ts';
 import { deliverSms, smsConfigured } from './sms.ts';
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 
-async function planReminders(admin: SupabaseClient, s: Settings, tz: string, trainerName: string, now: Date): Promise<number> {
-  if (!s.reminders_on || !s.reminder_hours.length) return 0;
-  const horizon = new Date(now.getTime() + (Math.max(...s.reminder_hours) + 1) * 3600_000);
-  const { data: bookings } = await admin.from('coach_bookings').select('id, starts_at, duration_min, repeat, repeat_until, skipped, client_id, title, kind, location')
+// Reminder plan (see reminderText): 'booked' note, 'main' ~48 h ask (8 AM), 'nudge' at 24 h only if not confirmed,
+// 'dayof' 8 AM see-you-today. Trainer settings reminder_hours switch them: 48 = main, 24 = nudge, 2 = morning-of.
+const STAGE_HOURS: Record<Exclude<Stage, 'booked'>, number> = { main: 48, nudge: 24, dayof: 2 };
+async function planReminders(admin: SupabaseClient, s: Settings, tz: string, brand: string, now: Date): Promise<number> {
+  if (!s.reminders_on) return 0;
+  const horizon = new Date(now.getTime() + 3 * 86_400_000);
+  const { data: bookings } = await admin.from('coach_bookings').select('id, starts_at, duration_min, repeat, repeat_until, skipped, client_id, title, kind, location, created_at')
     .eq('trainer_id', s.trainer_id).not('client_id', 'is', null).in('kind', ['session', 'consult']);
   const ids = [...new Set((bookings ?? []).map((b: BookingRow) => b.client_id!))];
   if (!ids.length) return 0;
-  const { data: clients } = await admin.from('coach_clients').select('*').in('id', ids);
+  const [{ data: clients }, { data: confirms }] = await Promise.all([
+    admin.from('coach_clients').select('*').in('id', ids),
+    admin.from('coach_inbox').select('parsed').eq('trainer_id', s.trainer_id).eq('parsed->>kind', 'confirm').gte('received_at', new Date(now.getTime() - 4 * 86_400_000).toISOString()),
+  ]);
+  const confirmed = new Set(((confirms ?? []) as { parsed: { booking_id?: string; day?: string } }[]).map((r) => `${r.parsed.booking_id}:${r.parsed.day}`));
   const byId = new Map(((clients ?? []) as ClientRow[]).map((c) => [c.id, c]));
+  const inWindow = (at: Date) => at.getTime() >= now.getTime() - 20 * 60_000 && at.getTime() <= now.getTime() + 15 * 60_000;
   let n = 0;
-  for (const b of (bookings ?? []) as BookingRow[]) {
+  for (const b of (bookings ?? []) as (BookingRow & { created_at: string })[]) {
     const c = byId.get(b.client_id!);
     if (!c || c.status !== 'active' && c.status !== 'invited' || skipCa(s, c)) continue;
-    for (const o of occurrences(b, now, horizon, tz)) {
-      for (const h of s.reminder_hours) {
-        const at = new Date(o.start.getTime() - h * 3600_000);
-        // Due within this run's window (runs are 15 minutes apart; allow a little overlap, dedupe_key prevents repeats)
-        if (at.getTime() < now.getTime() - 20 * 60_000 || at.getTime() > now.getTime() + 15 * 60_000) continue;
-        const channel = await pickChannel(admin, s, c, 'reminders');
-        if (!channel) continue;
-        const body = reminderText({ first: c.first_name, trainer: trainerName, start: o.start, tz, now, sms: channel === 'sms', location: b.location });
-        const { error } = await admin.from('coach_outbox').insert({
-          trainer_id: s.trainer_id, client_id: c.id, purpose: 'reminders', kind: 'reminder', channel, body: body.slice(0, 480),
-          send_after: at.toISOString(), dedupe_key: `rem:${b.id}:${o.day}:${h}`, related: { booking_id: b.id, day: o.day, hours: h },
-        });
-        if (!error) n++;
+    const created = new Date(b.created_at);
+    const occ = occurrences(b, now, horizon, tz);
+    const queue = async (stage: Stage, o: { start: Date; day: string }, at: Date, key: string) => {
+      const channel = await pickChannel(admin, s, c, 'reminders');
+      if (!channel) return;
+      if (stage === 'nudge' && channel !== 'sms') return;   // only a text can be answered with CONFIRM
+      const body = reminderText({ stage, first: c.first_name, brand, start: o.start, tz, now, sms: channel === 'sms', location: b.location });
+      const { error } = await admin.from('coach_outbox').insert({
+        trainer_id: s.trainer_id, client_id: c.id, purpose: 'reminders', kind: 'reminder', channel, body: body.slice(0, 480),
+        send_after: (at > now ? at : now).toISOString(), dedupe_key: key, related: { booking_id: b.id, day: o.day, stage, starts: o.start.toISOString() },
+      });
+      if (!error) n++;
+    };
+    // Just booked: one note for the first upcoming session (only for bookings made in the last 6 hours)
+    if (occ[0] && now.getTime() - created.getTime() < 6 * 3600_000 && occ[0].start.getTime() - now.getTime() > 2 * 3600_000) {
+      await queue('booked', occ[0], now, `booked:${b.id}`);
+    }
+    for (const o of occ) {
+      const isConfirmed = confirmed.has(`${b.id}:${o.day}`);
+      for (const stage of ['main', 'nudge', 'dayof'] as const) {
+        if (!s.reminder_hours.includes(STAGE_HOURS[stage])) continue;
+        if (stage === 'nudge' && isConfirmed) continue;
+        const at = reminderAt(stage, o.start, tz);
+        if (!at) continue;
+        // A session booked after its main-reminder time (but still over 25 hours out) gets the main reminder now
+        const late = stage === 'main' && at < now && created > at && o.start.getTime() - now.getTime() > 25 * 3600_000;
+        if (!inWindow(at) && !late) continue;
+        await queue(stage, o, at, `rem:${b.id}:${o.day}:${stage}`);
       }
     }
   }
@@ -116,6 +143,9 @@ Deno.serve(async (req) => {
     if (!me?.user) return json(401, { error: 'sign_in_required' });
     const { data: tr } = await admin.from('coach_trainers').select('user_id').eq('user_id', me.user.id).maybeSingle();
     if (!tr) return json(403, { error: 'trainers_only' });
+    // A just-decided reschedule request is told to the client right away
+    const { data: mine } = await admin.from('coach_message_settings').select('*').eq('trainer_id', me.user.id);
+    try { await processReschedules(admin, (mine ?? []) as Settings[], new Date(), me.user.id); } catch (e) { console.error('reschedule', e instanceof Error ? e.message : e); }
     return json(200, { delivered: await deliver(admin, new Date(), me.user.id) });
   }
   if (body.action !== 'run') return json(400, { error: 'bad_request' });
@@ -126,15 +156,21 @@ Deno.serve(async (req) => {
   const { data: all } = await admin.from('coach_message_settings').select('*');
   const planned: Record<string, number> = {};
   for (const s of (all ?? []) as Settings[]) {
-    const { data: t } = await admin.from('coach_trainers').select('display_name, timezone').eq('user_id', s.trainer_id).maybeSingle();
+    const { data: t } = await admin.from('coach_trainers').select('display_name, business_name, timezone').eq('user_id', s.trainer_id).maybeSingle();
     if (!t) continue;
     const tz = t.timezone || 'America/New_York';
-    const name = (t.display_name || 'your trainer').split(' ')[0];
+    // Texts are signed with the business, never a personal name (owner 2026-11-07)
+    const brand = (t.business_name || t.display_name || 'your trainer').trim();
+    const name = brand;
     try {
-      planned[s.trainer_id] = await planReminders(admin, s, tz, name, now) + await planEngagement(admin, s, tz, name, now);
+      planned[s.trainer_id] = await planReminders(admin, s, tz, brand, now) + await planEngagement(admin, s, tz, name, now);
     } catch (e) { console.error('plan', s.trainer_id, e instanceof Error ? e.message : e); }
   }
   try { planned.waitlist = await processOpenSlots(admin, (all ?? []) as Settings[], now); } catch (e) { console.error('waitlist', e instanceof Error ? e.message : e); }
+  try { planned.reschedules = (await processReschedules(admin, (all ?? []) as Settings[], now)).told; } catch (e) { console.error('reschedule', e instanceof Error ? e.message : e); }
+  try { planned.followups = await processFollowups(admin, now); } catch (e) { console.error('followups', e instanceof Error ? e.message : e); }
+  let billing: Record<string, number> = {};
+  try { billing = await processCharges(admin, now); } catch (e) { console.error('billing', e instanceof Error ? e.message : e); }
   const delivered = await deliver(admin, now);
-  return json(200, { planned, delivered });
+  return json(200, { planned, delivered, billing });
 });

@@ -1,17 +1,20 @@
 // Reviews: client testimonials (published to the website only after the client approves), survey answers and referrals.
+import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Share, ScrollView, View } from 'react-native';
+import { QrCode } from '@/components/qr';
+import { confirm } from '@/lib/ask';
 import { Segmented } from '@/components/bits';
 import { Button, Card, Field, Txt, useToast } from '@/components/ui';
 import { errText } from '@/lib/model';
-import { sb } from '@/lib/supabase';
+import { sb, WEB_URL } from '@/lib/supabase';
 import { MAX_W, usePalette } from '@/lib/theme';
 
 type T = { id: string; body: string | null; display_name: string | null; status: string; hidden_reason: string | null; created_at: string; published_at: string | null; coach_clients: { name: string } | null; coach_testimonial_shares: { platform: string }[] };
 type L = { id: string; platform: string; label: string | null; url: string };
 const PLATFORMS: [string, string][] = [['google', 'Google'], ['facebook', 'Facebook'], ['yelp', 'Yelp'], ['trustpilot', 'Trustpilot'], ['thumbtack', 'Thumbtack'], ['nextdoor', 'Nextdoor'], ['other', 'Other']];
-type S = { id: string; rating: number | null; comment: string | null; created_at: string; coach_clients: { name: string } | null };
+type S = { id: string; rating: number | null; comment: string | null; created_at: string; source?: string; name?: string | null; coach_clients: { name: string } | null };
 type R = { id: string; name: string; email: string | null; phone: string | null; message: string | null; status: string; created_at: string; coach_referrals: { coach_clients: { name: string } | null } | null };
 const STATUS: Record<string, string> = { draft: 'Waiting for the client', published: 'On your website', withdrawn: 'Withdrawn by the client', hidden: 'Hidden by you' };
 
@@ -29,7 +32,7 @@ export default function Reviews() {
   const load = useCallback(async () => {
     const [a, b, c] = await Promise.all([
       sb.from('coach_testimonials').select('id, body, display_name, status, hidden_reason, created_at, published_at, coach_clients(name), coach_testimonial_shares(platform)').order('created_at', { ascending: false }).limit(200),
-      sb.from('coach_survey_responses').select('id, rating, comment, created_at, coach_clients(name)').order('created_at', { ascending: false }).limit(200),
+      sb.from('coach_survey_responses').select('id, rating, comment, created_at, source, name, coach_clients(name)').order('created_at', { ascending: false }).limit(200),
       sb.from('coach_referral_signups').select('id, name, email, phone, message, status, created_at, coach_referrals(coach_clients(name))').order('created_at', { ascending: false }).limit(200),
     ]);
     const l = await sb.from('coach_review_links').select('id, platform, label, url').eq('active', true).order('sort');
@@ -96,10 +99,11 @@ export default function Reviews() {
           ))}
         </>)}
         {tab === 'surveys' && (<>
+          <SurveyLink />
           <Txt v="small">{avg ? `Average ${avg} out of 5 from ${rated.length} answer${rated.length === 1 ? '' : 's'}.` : 'No answers yet.'}</Txt>
           {ss.map((s) => (
             <Card key={s.id} style={{ gap: 4 }}>
-              <Txt v="bold">{s.rating ? `${s.rating}/5` : 'No rating'} · {s.coach_clients?.name ?? ''} · {new Date(s.created_at).toLocaleDateString()}</Txt>
+              <Txt v="bold">{s.rating ? `${s.rating}/5` : 'No rating'} · {s.coach_clients?.name ?? (s.name ? `${s.name} (not signed in)` : 'Not signed in')}{s.source === 'open' ? ' · survey link' : ''} · {new Date(s.created_at).toLocaleDateString()}</Txt>
               {s.comment ? <Txt>“{s.comment}”</Txt> : null}
             </Card>
           ))}
@@ -119,5 +123,48 @@ export default function Reviews() {
         </>)}
       </View>
     </ScrollView>
+  );
+}
+
+/** The trainer's open survey: a link and QR code to hand out whenever they like (e.g. at the end of a class) */
+function SurveyLink() {
+  const toast = useToast();
+  const p = usePalette();
+  const [code, setCode] = useState<string | null>(null);
+  const [question, setQuestion] = useState('');
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    void sb.rpc('coach_survey_link').then(async ({ data, error }) => {
+      if (error) return toast(errText(error), false);
+      setCode(data as string);
+      const { data: l } = await sb.from('coach_survey_links').select('question').maybeSingle();
+      setQuestion((l as { question?: string } | null)?.question ?? '');
+    });
+  }, [toast]);
+  if (!code) return <ActivityIndicator color={p.ink} />;
+  const link = `${WEB_URL}s/q/${code}`;
+  const saveQuestion = async () => {
+    const { error } = await sb.from('coach_survey_links').update({ question: question.trim() }).eq('code', code);
+    if (error) toast(errText(error), false); else toast('Saved');
+  };
+  const renew = async () => {
+    if (!(await confirm('Make a new survey link?', 'The old link and QR code stop working.', 'New link', true))) return;
+    const { data, error } = await sb.rpc('coach_survey_link', { p_new: true });
+    if (error) toast(errText(error), false); else setCode(data as string);
+  };
+  return (
+    <Card style={{ gap: 8 }}>
+      <Txt v="bold">Survey link and QR code</Txt>
+      <Txt v="small">Share it any time, or show the QR code at the end of a session or class. Clients who are signed in answer as themselves; anyone else answers anonymously.</Txt>
+      {show && <View style={{ alignItems: 'center' }}><QrCode value={link} size={240} label="Survey QR code" /></View>}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Button small icon="qr_code" title={show ? 'Hide QR code' : 'Show QR code'} onPress={() => setShow(!show)} />
+        <Button small kind="ghost" icon="content_copy" title="Copy link" onPress={async () => { await Clipboard.setStringAsync(link); toast('Copied'); }} />
+        <Button small kind="ghost" icon="share" title="Share" onPress={() => Share.share({ message: `Quick question: how was your training? ${link}` }).catch(() => {})} />
+        <Button small kind="quiet" title="New link" onPress={renew} />
+      </View>
+      <Field label="Question" value={question} onChangeText={setQuestion} maxLength={200} />
+      <Button small kind="ghost" title="Save question" onPress={saveQuestion} style={{ alignSelf: 'flex-start' }} />
+    </Card>
   );
 }

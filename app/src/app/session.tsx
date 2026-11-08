@@ -169,7 +169,7 @@ export default function Session() {
     if (error) return toast(errText(error), false);
     saved.current = true; clearDraft();
     toast('Workout saved. Nice work!');
-    router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId! } });
+    router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId!, done: '1' } });
   };
 
   return (

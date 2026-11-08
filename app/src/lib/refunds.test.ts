@@ -3,11 +3,12 @@ import { test } from 'node:test';
 import { DEFAULT_TERMS, policyText, quoteText, toCentsInput } from './refunds';
 
 test('policy wording says what is and isn’t refundable', () => {
-  const t = policyText({ ...DEFAULT_TERMS, fee_cents: 500 });
+  const t = policyText({ ...DEFAULT_TERMS, mode: 'prorated', fee_cents: 500 });
   assert.match(t[0], /within 30 days of purchase for the sessions you haven’t used/);
   assert.match(t[0], /\$5 processing fee/);
   assert.match(t[1], /Not refundable: sessions already used.*expired packages/);
-  assert.deepEqual(policyText({ ...DEFAULT_TERMS, mode: 'none' }), ['All sales are final: this purchase can’t be refunded.']);
+  assert.deepEqual(policyText({ ...DEFAULT_TERMS, mode: 'none' }), ['All sales are final: refunds aren’t given, except in exceptional circumstances at your trainer’s discretion.', 'If your trainer cancels a session, it’s credited back to you.']);
+  assert.equal(DEFAULT_TERMS.mode, 'none');
   assert.match(policyText({ ...DEFAULT_TERMS, mode: 'unused_only', window_days: 0 })[0], /in full on the day of purchase only if no sessions have been used/);
 });
 

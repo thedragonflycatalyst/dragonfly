@@ -162,3 +162,58 @@ export function prText(p: Pr): string {
 
 /** Display a kg volume in the person's unit */
 export const volumeIn = (kg: number, unit: 'lb' | 'kg') => Math.round(unit === 'lb' ? kg / LB_TO_KG : kg);
+
+/**
+ * How each exercise compares with the last time it was done: top weight and the reps done at it.
+ * Tone is never negative (owner rule 2026-11-07): heavier is progress even with fewer reps, so the reps aren't
+ * flagged; same weight with more reps is progress; anything else is shown plainly, without red or "down".
+ */
+export type Change = {
+  key: string; name: string; unit?: 'lb' | 'kg';
+  now: { weight: number; reps: number }; prev: { weight: number; reps: number } | null;
+  tone: 'up' | 'plain'; text: string;
+};
+function topSet(sets: SetLog[], unit?: 'lb' | 'kg') {
+  let best: { kg: number; weight: number; reps: number } | null = null;
+  for (const s of sets) {
+    if (s.done === false) continue;
+    const r = repsOf(s) ?? 0;
+    const w = s.weight != null && s.weight > 0 ? s.weight : 0;
+    if (!r && !w) continue;
+    const kg = toKg(w, unit);
+    if (!best || kg > best.kg + 0.01 || (Math.abs(kg - best.kg) <= 0.01 && r > best.reps)) best = { kg, weight: w, reps: r };
+  }
+  return best;
+}
+const fmtSet = (w: number, r: number, unit?: string) => (w > 0 ? `${w}${unit ? ` ${unit}` : ''} × ${r}` : `${r} reps`);
+
+export function changes(current: PastLog, earlier: PastLog[]): Change[] {
+  const before = earlier.filter((l) => l.performed_at < current.performed_at).sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+  const out: Change[] = [];
+  for (const e of current.entries ?? []) {
+    const key = exKey(e.ex);
+    const now = topSet(e.sets ?? [], e.unit);
+    if (!key || !now) continue;
+    const name = e.ex?.name ?? 'Exercise';
+    let last: { kg: number; weight: number; reps: number } | null = null, lastUnit: 'lb' | 'kg' | undefined;
+    for (const l of before) {
+      const pe = (l.entries ?? []).find((x) => exKey(x.ex) === key);
+      if (pe) { last = topSet(pe.sets ?? [], pe.unit); lastUnit = pe.unit; if (last) break; }
+    }
+    const shown = fmtSet(now.weight, now.reps, e.unit);
+    if (!last) { out.push({ key, name, unit: e.unit, now, prev: null, tone: 'plain', text: `${shown} · first time logged` }); continue; }
+    const prevW = Math.round((last.kg / (e.unit === 'lb' ? LB_TO_KG : 1)) * 10) / 10;
+    const prev = { weight: lastUnit === e.unit ? last.weight : prevW, reps: last.reps };
+    const was = `last time ${fmtSet(prev.weight, prev.reps, e.unit)}`;
+    if (now.kg > last.kg + 0.01) {
+      const up = Math.round((now.weight - prev.weight) * 10) / 10;
+      out.push({ key, name, unit: e.unit, now, prev, tone: 'up', text: `Up ${up}${e.unit ? ` ${e.unit}` : ''}: ${shown} (${was})` });
+    } else if (Math.abs(now.kg - last.kg) <= 0.01 && now.reps > last.reps) {
+      const more = now.reps - last.reps;
+      out.push({ key, name, unit: e.unit, now, prev, tone: 'up', text: `${more} more rep${more === 1 ? '' : 's'}: ${shown} (${was})` });
+    } else {
+      out.push({ key, name, unit: e.unit, now, prev, tone: 'plain', text: `${shown} (${was})` });
+    }
+  }
+  return out;
+}

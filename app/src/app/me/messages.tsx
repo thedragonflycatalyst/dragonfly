@@ -4,19 +4,20 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Card, Chip, Txt, useToast } from '@/components/ui';
 import { Page } from '@/features/settings-page';
+import { smsConsentText } from '@/features/sms-consent';
 import { useApp } from '@/lib/app-state';
 import { errText } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 
 type Purpose = 'reminders' | 'offers' | 'surveys' | 'marketing';
 const ROWS: { purpose: Purpose; title: string; body: string }[] = [
-  { purpose: 'reminders', title: 'Session reminders', body: 'A reminder before each session. Reply C to confirm or R to reschedule.' },
+  { purpose: 'reminders', title: 'Session reminders', body: 'A reminder the day before each session. Reply CONFIRM, RESCHEDULE or CANCEL APPOINTMENT.' },
   { purpose: 'offers', title: 'Open spots', body: 'When someone cancels and a time you’re free opens up.' },
   { purpose: 'surveys', title: 'Quick feedback', body: 'Now and then, one question about how training is going.' },
   { purpose: 'marketing', title: 'Testimonials, referrals and group classes', body: 'Occasional asks to share your experience, refer a friend or join a group session.' },
 ];
 /** Bump when the consent wording above changes */
-const TEXT_VERSION = 2;
+const TEXT_VERSION = 4;
 type Channel = 'sms' | 'email' | 'app';
 const CH: [Channel, string][] = [['sms', 'By text'], ['email', 'By email'], ['app', 'In the app']];
 
@@ -44,8 +45,11 @@ export default function MyMessages() {
   const toggle = async (purpose: Purpose, channel: Channel) => {
     if (!me) return;
     const k = `${purpose}:${channel}`, granted = !state[k];
-    const { error } = await sb.from('coach_contact_consents').insert({ client_id: me.id, purpose, channel, granted, text_version: TEXT_VERSION, source: 'client' });
-    if (error) return toast(errText(error), false);
+    // A yes to texts goes through the opt-in (records it and sends the confirmation text with HELP/STOP)
+    const { error } = channel === 'sms' && granted
+      ? await sb.rpc('coach_sms_opt_in', { p_client: me.id, p_purposes: [purpose], p_text_version: TEXT_VERSION })
+      : await sb.from('coach_contact_consents').insert({ client_id: me.id, purpose, channel, granted, text_version: TEXT_VERSION, source: 'client' });
+    if (error) return toast(/add_phone/.test(error.message) ? 'Add your mobile number in your profile first' : errText(error), false);
     setState({ ...state, [k]: granted });
   };
   return (
@@ -60,7 +64,7 @@ export default function MyMessages() {
             </View>
             <Txt v="small">Text is the default because it’s the hardest to miss. If we can’t reach you that way, we try the next one you allow.</Txt>
           </Card>
-          <Txt v="small">Choose what you’d like and how. Texts go to {me.phone || 'your mobile number'} and emails to {me.email}. Reply STOP to any text to stop them all. Message and data rates may apply.</Txt>
+          <Txt v="small">Choose what you’d like and how. Texts go to {me.phone || 'your mobile number'} and emails to {me.email}. Texts are off until you turn them on. {smsConsentText(app.myTrainer?.display_name ?? 'your trainer')}</Txt>
           {ROWS.map((r) => (
             <Card key={r.purpose} style={{ gap: 6 }}>
               <Txt v="bold">{r.title}</Txt>

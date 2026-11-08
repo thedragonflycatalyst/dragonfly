@@ -1,15 +1,18 @@
 // coach-sms-inbound: replies to Dragonfly texts (Twilio webhook, form-encoded). Verifies Twilio's signature, finds the
 // client by phone number and the message they're answering, then acts:
-//   STOP / START / HELP   consent changes (carrier keywords always win)
-//   C / R                 confirm or ask to reschedule the session in the latest reminder (goes to the trainer)
+//   STOP / START / HELP   consent changes; Twilio Advanced Opt-Out sends the confirmation and HELP texts
+//   CONFIRM / RESCHEDULE  confirm, or get the link to move the session in the latest reminder (the trainer is told)
+//   CANCEL APPOINTMENT    cancel that session (inside the notice period it still counts as a session) and reply with the policy
 //   YES / NO              take or pass on the latest slot offer
 //   1–5                   answer the latest survey
 //   IN                    join the group session in the latest invite
-//   anything else         lands in the trainer's replies for them to answer
+//   anything else         goes to the app chat, pushes to the trainer's phone, one courtesy reply a day
 // Webhook URL (owner sets it in Twilio): https://<project>.supabase.co/functions/v1/coach-sms-inbound
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { e164, parseReply } from '../_shared/messaging.ts';
+import { cancelReplyText, CONFIRM_REPLY, e164, parseReply, relayText, rescheduleText } from '../_shared/messaging.ts';
 import { safeEqual, twilioSignature } from '../_shared/twilio.ts';
+
+const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.github.io/dragonfly/').replace(/\/?$/, '/');
 
 const twiml = (msg?: string) => new Response(
   `<?xml version="1.0" encoding="UTF-8"?><Response>${msg ? `<Message>${msg.replace(/[<&>]/g, (c) => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;' }[c]!))}</Message>` : ''}</Response>`,
@@ -58,14 +61,35 @@ Deno.serve(async (req) => {
     return twiml();
   }
   if (reply.kind === 'help') {
-    const { data: t } = await admin.from('coach_trainers').select('display_name').eq('user_id', clients[0].trainer_id).maybeSingle();
-    return twiml(`Training messages from ${t?.display_name ?? 'your trainer'} (Dragonfly). Reply STOP to opt out, START to opt back in. Msg & data rates may apply.`);
+    // Twilio Advanced Opt-Out (Dragonfly messaging service) sends the registered HELP text; don't send a second one
+    for (const c of clients) await log({ kind: 'help', handled: true }, c);
+    return twiml();
   }
   if (reply.kind === 'confirm' || reply.kind === 'reschedule') {
     const m = await latest(admin, ids, ['reminder']);
     const c = clients.find((x) => x.id === m?.client_id) ?? clients[0];
     await log({ kind: reply.kind, booking_id: m?.related?.booking_id ?? null, day: m?.related?.day ?? null, handled: reply.kind === 'confirm' }, c, m?.id);
-    return twiml(reply.kind === 'confirm' ? 'Thanks, you’re confirmed. See you then!' : 'Thanks, your trainer will be in touch to find a new time.');
+    // Rescheduling is done in the app: another free time, and within 24 hours of the session only the same day
+    // The link opens the scheduler with this session ready to move (same day when it's within 24 hours)
+    const move = m?.related?.booking_id && m.related.day ? `${WEB}calendar?move=${m.related.booking_id}&day=${m.related.day}` : `${WEB}calendar`;
+    // Inside 24 hours the move is same-day only; further out, any open time
+    const within24h = !m?.related?.starts || new Date(m.related.starts).getTime() - Date.now() < 24 * 3600_000;
+    return twiml(reply.kind === 'confirm' ? CONFIRM_REPLY : rescheduleText(move, within24h));
+  }
+  if (reply.kind === 'cancel_session') {
+    const m = await latest(admin, ids, ['reminder']);
+    const c = clients.find((x) => x.id === m?.client_id) ?? clients[0];
+    const { data: t } = await admin.from('coach_trainers').select('display_name, business_name, cancel_hours').eq('user_id', c.trainer_id).maybeSingle();
+    const hours = t?.cancel_hours ?? 24, trainer = (t?.business_name || t?.display_name || 'your trainer').trim();
+    type Cancel = 'cancelled' | 'late_cancelled' | 'not_allowed' | 'no_session';
+    let status = 'no_session' as Cancel;
+    if (m?.related?.booking_id && m.related.day) {
+      const { data: r, error } = await admin.rpc('coach_cancel_by_text', { p_booking: m.related.booking_id, p_on: m.related.day, p_client: c.id });
+      const res = (r ?? {}) as { status?: Cancel; starts_at?: string };
+      if (!error && res.status) status = res.status;
+    }
+    await log({ kind: reply.kind, booking_id: m?.related?.booking_id ?? null, day: m?.related?.day ?? null, result: status, handled: status === 'cancelled' || status === 'late_cancelled' }, c, m?.id);
+    return twiml(cancelReplyText({ status, hours, link: `${WEB}calendar`, trainer }));
   }
   if (reply.kind === 'yes' || reply.kind === 'no') {
     const m = await latest(admin, ids, ['slot_offer']);
@@ -98,8 +122,20 @@ Deno.serve(async (req) => {
       return twiml('Thank you! Reply with a comment anytime if you’d like to say more.');
     }
   }
-  // Anything else goes to the trainer of the most recent conversation
+  // Anything else (a message meant for the trainer): posted into the client's app chat with the trainer (and kept in the
+  // replies list), pushed to the trainer's phone, and one courtesy reply a day says the number is automated (owner 2026-11-08)
   const m = await latest(admin, ids, ['reminder', 'slot_offer', 'survey', 'testimonial_ask', 'referral_ask', 'group_invite', 'note']);
-  await log({ kind: reply.kind }, clients.find((x) => x.id === m?.client_id) ?? clients[0], m?.id ?? null);
-  return twiml();
+  const c = clients.find((x) => x.id === m?.client_id) ?? clients[0];
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const { count: recent } = await admin.from('coach_inbox').select('id', { count: 'exact', head: true }).eq('client_id', c.id).eq('channel', 'sms').contains('parsed', { relayed: true }).gte('received_at', since);
+  await log({ kind: reply.kind, relayed: true }, c, m?.id ?? null);
+  const { data: inChat } = await admin.rpc('coach_sms_to_chat', { p_client: c.id, p_body: text });
+  const { data: full } = await admin.from('coach_clients').select('name').eq('id', c.id).maybeSingle();
+  try {
+    await fetch(`${url}/functions/v1/dragonfly-push`, {
+      method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'send', user_id: c.trainer_id, app: 'coach', kind: 'reply', title: `💬 Text from ${full?.name || c.first_name}`, body: text.slice(0, 200) || '(empty)', url: `${WEB}chat` }),
+    });
+  } catch { /* the message is still in the app */ }
+  return twiml(recent ? undefined : relayText(c.first_name, inChat === true));
 });

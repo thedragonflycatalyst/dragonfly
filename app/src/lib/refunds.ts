@@ -7,13 +7,17 @@ export type RefundQuote = {
   refundable: boolean; reason: string | null; max_cents: number; suggested_cents: number;
   credits_total?: number | null; credits_unused?: number | null; fee_cents?: number; terms?: RefundTerms;
 };
-export const DEFAULT_TERMS: RefundTerms = { mode: 'prorated', window_days: 30, fee_cents: 0, expired_refundable: false, event_cutoff_hours: 24, extra_terms: null };
+// Owner decision 2026-11-07: no refunds by default; the account owner can override for exceptional circumstances (with a reason)
+export const DEFAULT_TERMS: RefundTerms = { mode: 'none', window_days: 30, fee_cents: 0, expired_refundable: false, event_cutoff_hours: 24, extra_terms: null };
 
 /** The policy as clients read it before they buy (and on receipts) */
 export function policyText(t: RefundTerms, currency = 'usd'): string[] {
   const fee = t.fee_cents ? ` A ${fmtMoney(t.fee_cents, currency)} processing fee is kept from any refund.` : '';
   const lines: string[] = [];
-  if (t.mode === 'none') lines.push('All sales are final: this purchase can’t be refunded.');
+  if (t.mode === 'none') {
+    lines.push('All sales are final: refunds aren’t given, except in exceptional circumstances at your trainer’s discretion.');
+    lines.push('If your trainer cancels a session, it’s credited back to you.');
+  }
   else {
     const window = t.window_days === 0 ? 'on the day of purchase only' : `within ${t.window_days} days of purchase`;
     lines.push(t.mode === 'prorated'

@@ -45,6 +45,14 @@ export default function Me() {
       .catch((e) => toast(fnText(e), false));
   }, [paid, toast]);
 
+  // Reviews are always open (owner rule 2026-11-07), not only when asked
+  const review = async () => {
+    if (!c) return;
+    const { data, error } = await sb.rpc('coach_my_testimonial', { p_trainer: c.trainer_id });
+    if (error || !data) return toast(errText(error), false);
+    router.push({ pathname: '/t/[token]', params: { token: data as string } });
+  };
+
   if (!app.user) return <Redirect href="/sign-in" />;
   if (!c) return <Redirect href="/" />;
   const coach = app.myTrainer?.display_name;
@@ -97,6 +105,8 @@ export default function Me() {
             <Row icon="chat_bubble" title="Messages" sub={`Chat with ${coach ?? 'your trainer'}`} onPress={() => router.push('/chat')} />
             <Row icon="event" title="Sessions" sub="Your bookings, and booking a session" onPress={() => router.push('/calendar')} />
             <Row icon="redeem" title="Packages and credits" sub="Session packs, memberships and payments" onPress={() => router.push('/me/packages')} />
+            <Row icon="credit_card" title="Session payments" sub="Card on file, what you owe, what pays for each session" onPress={() => router.push('/me/billing')} />
+            <Row icon="star" title="Leave a review" sub={`Say how training with ${coach ?? 'your trainer'} is going`} onPress={review} />
             <Row icon="groups" title="Social" sub="Workout groups, posts and challenges" last onPress={() => router.push('/communities')} />
           </Card>
           <SectionLabel>My progress</SectionLabel>

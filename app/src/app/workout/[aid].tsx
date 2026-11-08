@@ -29,7 +29,8 @@ export default function AssignmentScreen() {
   const p = usePalette();
   const toast = useToast();
   const app = useApp();
-  const { aid } = useLocalSearchParams<{ aid: string }>();
+  const { aid, done: justDone } = useLocalSearchParams<{ aid: string; done?: string }>();
+  const [popup, setPopup] = useState(justDone === '1');
   const [a, setA] = useState<Assignment | null | undefined>(undefined);
   const [log, setLog] = useState<WorkoutLog | null>(null);
   const [busy, setBusy] = useState(false);
@@ -89,6 +90,7 @@ export default function AssignmentScreen() {
           )}
 
           {log && <SessionSummary log={log} unit={weightUnit(app.units)} title={a.title} />}
+          {log && popup && <SessionSummary popup onClose={() => setPopup(false)} log={log} unit={weightUnit(app.units)} title={a.title} />}
 
           {blocks.map((b) => {
             const done = log?.entries.find((e) => e.block_id === b.id);

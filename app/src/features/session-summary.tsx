@@ -2,8 +2,9 @@
 // Worked out from the client's logs (lib/achievements); new milestones are recorded once for later features.
 import { useEffect, useMemo, useState } from 'react';
 import { Share, View } from 'react-native';
+import { Sheet } from '@/components/sheet';
 import { Button, Card, Txt } from '@/components/ui';
-import { milestoneText, prText, summarize, volumeIn, type Summary } from '@/lib/achievements';
+import { changes, milestoneText, prText, summarize, volumeIn, type Change, type Summary } from '@/lib/achievements';
 import type { PastLog } from '@/lib/history';
 import type { WorkoutLog } from '@/lib/model';
 import { sb } from '@/lib/supabase';
@@ -11,7 +12,7 @@ import { usePalette } from '@/lib/theme';
 
 type Row = PastLog & { id: string };
 
-export function SessionSummary({ log, unit, title }: { log: WorkoutLog; unit: 'lb' | 'kg'; title: string }) {
+export function SessionSummary({ log, unit, title, popup, onClose }: { log: WorkoutLog; unit: 'lb' | 'kg'; title: string; popup?: boolean; onClose?: () => void }) {
   const p = usePalette();
   const [all, setAll] = useState<Row[] | null>(null);
   useEffect(() => {
@@ -21,10 +22,11 @@ export function SessionSummary({ log, unit, title }: { log: WorkoutLog; unit: 'l
     return () => { live = false; };
   }, [log.client_id, log.id]);
 
-  const s: Summary | null = useMemo(() => {
-    if (!all) return null;
+  const [s, ch]: [Summary | null, Change[]] = useMemo(() => {
+    if (!all) return [null, []];
     const cur = all.find((r) => r.id === log.id) ?? { id: log.id, performed_at: log.performed_at, entries: log.entries };
-    return summarize(cur, all.some((r) => r.id === log.id) ? all : [cur, ...all]);
+    const every = all.some((r) => r.id === log.id) ? all : [cur, ...all];
+    return [summarize(cur, every), changes(cur, every.filter((r) => r !== cur))];
   }, [all, log]);
 
   // Record new milestones once (only for the client's newest session, so old sessions don't re-trigger them)
@@ -46,14 +48,21 @@ export function SessionSummary({ log, unit, title }: { log: WorkoutLog; unit: 'l
     `📅 Session ${s.sessionsThisMonth} this month · ${s.sessionNumber} in total`,
   ].filter((x): x is string => !!x);
   const share = () => Share.share({ message: [`${title}: what I achieved today`, ...lines, log.note ? `“${log.note}”` : null].filter(Boolean).join('\n') });
-  return (
-    <Card style={{ gap: 6 }}>
-      <Txt v="bold" color={p.focus}>What you achieved</Txt>
+  const body = (<>
       {lines.map((l) => <Txt key={l}>{l}</Txt>)}
+      {ch.length > 0 && <Txt v="bold" style={{ marginTop: 6 }}>Exercise by exercise</Txt>}
+      {ch.map((c) => (
+        <View key={c.key} style={{ flexDirection: 'row', gap: 6 }}>
+          <Txt style={{ width: 18 }}>{c.tone === 'up' ? '▲' : '•'}</Txt>
+          <Txt style={{ flex: 1 }} color={c.tone === 'up' ? p.good : undefined}><Txt v="bold">{c.name}</Txt> {c.text}</Txt>
+        </View>
+      ))}
       {!s.prs.length && !s.milestones.length && <Txt v="small">Every session counts. Records show up here when you beat your best.</Txt>}
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
         <Button small kind="ghost" icon="share" title="Share" onPress={share} />
+        {popup && <Button small title="Done" onPress={onClose} />}
       </View>
-    </Card>
-  );
+  </>);
+  if (popup) return <Sheet visible onClose={onClose ?? (() => undefined)} title="Session complete 🎉">{body}</Sheet>;
+  return <Card style={{ gap: 6 }}><Txt v="bold" color={p.focus}>What you achieved</Txt>{body}</Card>;
 }
