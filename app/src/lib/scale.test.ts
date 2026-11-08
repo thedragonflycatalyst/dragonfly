@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, goalEta, goalSchedule, kcalPerDay, monthlyChange, mergeHealth, parseCsv, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
+import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, goalEta, goalSchedule, kcalPerDay, monthlyChange, mergeHealth, parseCsv, planCsvImport, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
 import { occurrences, openSlots, priceLabel, toCents, voucherPrice, voucherState, weekOf, spotsText, eventCost, byMonth as moneyByMonth, type Booking } from './business';
 import { bigEmoji, layout, linkify, seenBy, tally, chatName, type Message, type ChatMember } from './chat';
 import { unitPrefs, notifyPrefs } from './prefs';
@@ -118,31 +118,45 @@ test('CSV import: RENPHO export with masses in pounds', () => {
   assert.equal(new Date(rows[0].measured_at).getHours(), 23);
 });
 
-test('Health Connect import ignores repeat weight events and recent existing entries', () => {
-  const t1 = '2026-10-30T09:00:00.000Z', t2 = '2026-11-01T09:00:00.000Z';
-  const health = {
-    weight: [
-      { time: t1, kg: 90, origin: 'com.renpho' },
-      { time: '2026-10-30T09:01:00.000Z', kg: 90, origin: 'com.renpho' },
-      { time: t2, kg: 89, origin: 'com.libra' },
-    ],
-    bodyFat: [{ time: t1, pct: 27 }],
-    leanMass: [], boneMass: [], bodyWater: [], bmr: [],
-  };
-  const inserted = mergeHealth(health);
-  assert.equal(inserted.length, 2);
-  assert.equal(inserted[0].metrics.body_fat_pct, 27);
-  assert.deepEqual(mergeHealth(health, [{ measured_at: '2026-10-30T09:03:00.000Z' }]).map((x) => x.measured_at), [t2]);
-  assert.equal(health.weight.length, 3, 'the source data remains unchanged');
+test('safe CSV import enriches only missing metrics and keeps existing values', () => {
+  const original = W('2026-10-30', 110, { body_fat_pct: 30, muscle_pct: 37 });
+  original.note = 'Existing manual note';
+  const rows = [
+    { measured_at: original.measured_at, weight_kg: 111, metrics: { body_fat_pct: 32, visceral_fat: 14 } },
+    { measured_at: new Date('2026-10-31').toISOString(), weight_kg: 109, metrics: { body_fat_pct: 29 } },
+  ];
+  const plan = planCsvImport(rows, [original]);
+  assert.equal(plan.inserts.length, 1);
+  assert.equal(plan.enrichments.length, 1);
+  assert.equal(plan.conflictingWeights, 1);
+  assert.deepEqual(plan.enrichments[0].metrics, { body_fat_pct: 30, visceral_fat: 14, muscle_pct: 37 });
+  assert.deepEqual(original.metrics, { body_fat_pct: 30, muscle_pct: 37 }, 'does not mutate original');
+  assert.equal(original.note, 'Existing manual note');
 });
 
-test('Health Connect drops invalid scale weights and allows distinct later readings', () => {
-  const base = '2026-11-02T12:00:00.000Z';
-  const readings = { weight: [
-    { time: 'not a date', kg: 90 }, { time: base, kg: 0 },
-    { time: base, kg: 92 }, { time: '2026-11-02T12:06:00.000Z', kg: 91 },
-  ], bodyFat: [], leanMass: [], boneMass: [], bodyWater: [], bmr: [] };
-  assert.equal(mergeHealth(readings).length, 2);
+test('safe CSV import coalesces repeated rows and is idempotent', () => {
+  const timestamp = '2026-11-01T12:00:00.000Z';
+  const rows = [
+    { measured_at: timestamp, weight_kg: 100, metrics: { body_fat_pct: 30 } },
+    { measured_at: timestamp, weight_kg: 99, metrics: { muscle_pct: 36, body_fat_pct: 31 } },
+  ];
+  const first = planCsvImport(rows, []);
+  assert.equal(first.duplicateRows, 1);
+  assert.equal(first.inserts.length, 1);
+  assert.equal(first.inserts[0].weight_kg, 100);
+  assert.deepEqual(first.inserts[0].metrics, { muscle_pct: 36, body_fat_pct: 30 });
+  const stored = { id: 'existing', ...first.inserts[0] };
+  const again = planCsvImport(rows, [stored]);
+  assert.equal(again.inserts.length, 0);
+  assert.equal(again.enrichments.length, 0);
+  assert.equal(again.unchanged, 1);
+});
+
+test('safe CSV import never replaces matching existing weights with empty readings', () => {
+  const existing = W('2026-10-31', 108, { body_fat_pct: 28 });
+  const plan = planCsvImport([{ measured_at: existing.measured_at, weight_kg: 108, metrics: {} }], [existing]);
+  assert.equal(plan.unchanged, 1);
+  assert.deepEqual(plan.enrichments, []);
 });
 
 test('calendar: repeating sessions, skips and week strip', () => {
@@ -215,4 +229,31 @@ test('Health Connect: readings pair with their weigh-in, duplicates are skipped'
   assert.equal(rows.length, 2);
   assert.deepEqual(rows[0].metrics, { body_fat_pct: 30.2, bone_mass_kg: 4.1, body_water_pct: 50.2, bmr_kcal: 2010 });
   assert.equal(rows[1].metrics.body_fat_pct, 29.8);  // worked out from lean mass
+});
+
+test('Health Connect import ignores repeat weight events and recent existing entries', () => {
+  const t1 = '2026-10-30T09:00:00.000Z', t2 = '2026-11-01T09:00:00.000Z';
+  const health = {
+    weight: [
+      { time: t1, kg: 90, origin: 'com.renpho' },
+      { time: '2026-10-30T09:01:00.000Z', kg: 90, origin: 'com.renpho' },
+      { time: t2, kg: 89, origin: 'com.libra' },
+    ],
+    bodyFat: [{ time: t1, pct: 27 }],
+    leanMass: [], boneMass: [], bodyWater: [], bmr: [],
+  };
+  const inserted = mergeHealth(health);
+  assert.equal(inserted.length, 2);
+  assert.equal(inserted[0].metrics.body_fat_pct, 27);
+  assert.deepEqual(mergeHealth(health, [{ measured_at: '2026-10-30T09:03:00.000Z' }]).map((x) => x.measured_at), [t2]);
+  assert.equal(health.weight.length, 3, 'the source data remains unchanged');
+});
+
+test('Health Connect drops invalid scale weights and allows distinct later readings', () => {
+  const base = '2026-11-02T12:00:00.000Z';
+  const readings = { weight: [
+    { time: 'not a date', kg: 90 }, { time: base, kg: 0 },
+    { time: base, kg: 92 }, { time: '2026-11-02T12:06:00.000Z', kg: 91 },
+  ], bodyFat: [], leanMass: [], boneMass: [], bodyWater: [], bmr: [] };
+  assert.equal(mergeHealth(readings).length, 2);
 });
