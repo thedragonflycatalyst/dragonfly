@@ -6,6 +6,7 @@ import { SectionLabel } from '@/components/bits';
 import { DateField } from '@/components/date-field';
 import { ClientPicker, ColorPicker, TimeField, Toggle, useClientList } from '@/components/pickers';
 import { ActionMenu, Sheet } from '@/components/sheet';
+import { FillSlotSheet, type OpenSlot } from '@/features/fill-slot';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
@@ -36,6 +37,7 @@ function CoachCalendar() {
   const [events, setEvents] = useState<CoachEvent[]>([]);
   const [book, setBook] = useState<{ day: string; edit?: Booking } | null>(null);
   const [menu, setMenu] = useState<Occurrence | null>(null);
+  const [fill, setFill] = useState<OpenSlot | null>(null);
   const [hours, setHours] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importMenu, setImportMenu] = useState(false);
@@ -80,6 +82,17 @@ function CoachCalendar() {
       : await sb.from('coach_bookings').update({ skipped: [...o.booking.skipped, o.day] }).eq('id', o.booking.id);
     if (error) toast(errText(error), false); else { toast('Cancelled'); load(); }
   };
+  /** Cancel this one, then offer the time to the client pool */
+  const cancelAndFill = async (o: Occurrence) => {
+    if (o.booking.client_id || o.booking.group_id) await skip(o);
+    setFill({ start: o.start, durationMin: o.booking.duration_min, title: o.booking.kind === 'session' ? 'Training session' : o.booking.title, location: o.booking.location, bookingId: o.booking.repeat === 'none' ? null : o.booking.id });
+  };
+  // Clients already booked at the time being filled
+  const busyAtFill = useMemo(() => {
+    if (!fill || !bookings) return new Set<string>();
+    const d = dayKey(fill.start), end = fill.start.getTime() + fill.durationMin * 60_000;
+    return new Set(occurrences(bookings, d, d).filter((o) => o.booking.client_id && o.start.getTime() < end && o.end.getTime() > fill.start.getTime()).map((o) => o.booking.client_id!));
+  }, [fill, bookings]);
   const removeSeries = async (o: Occurrence) => {
     if (!(await confirm('Delete every session in this series?', 'Past ones are removed from your calendar too.', 'Delete all', true))) return;
     const { error } = await sb.from('coach_bookings').delete().eq('id', o.booking.id);
@@ -190,10 +203,12 @@ function CoachCalendar() {
         { label: 'Edit', icon: 'edit', onPress: () => setBook({ day: menu.day, edit: menu.booking }) },
         { label: 'Message client', icon: 'chat_bubble', hidden: !menu.booking.client_id, onPress: () => router.push({ pathname: '/chat/new', params: { client: menu.booking.client_id! } }) },
         { label: menu.booking.repeat === 'none' ? 'Cancel session' : 'Cancel just this one', icon: 'close', onPress: () => skip(menu) },
+        { label: 'Cancel and fill this slot', icon: 'group_add', onPress: () => cancelAndFill(menu) },
         { label: 'Stop repeating from here', icon: 'stop_circle', hidden: menu.booking.repeat === 'none', onPress: () => endSeries(menu) },
         { label: 'Delete the whole series', icon: 'delete', danger: true, hidden: menu.booking.repeat === 'none', onPress: () => removeSeries(menu) },
       ] : []} />
       <HoursSheet visible={hours} onClose={() => setHours(false)} />
+      <FillSlotSheet slot={fill} onClose={() => { setFill(null); load(); }} busyClients={busyAtFill} />
     </View>
   );
 }
@@ -375,6 +390,7 @@ function ClientCalendar() {
               ))}
             </Card>
           )}
+          <Button small kind="ghost" icon="schedule" title="Want a time that’s taken? Join the waitlist" onPress={() => router.push('/me/availability')} style={{ alignSelf: 'flex-start' }} />
           {app.perms.book_sessions && avail.length > 0 && <>
             <SectionLabel>Book a session</SectionLabel>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
