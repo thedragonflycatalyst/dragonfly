@@ -87,3 +87,26 @@ test('L-022: a paid Stripe payment cannot be voided, so no row change and no not
   assert.deepEqual(await runAdjustment({ id: 'p', method: 'stripe', status: 'paid' }, 'void', 'Entered twice', deps), { ok: false, problem: 'not_allowed' });
   assert.equal(calls.length, 0);
 });
+
+test('partial refunds: amount within the limit is passed through; bad amounts and thin policy overrides are refused before anything changes', async () => {
+  const pay = { id: 'pay-test-9', method: 'stripe', status: 'paid' } as const;
+  const a = fakes();
+  const ok = await runAdjustment(pay, 'refund', 'Missed two sessions', a.deps, { cents: 4000, maxCents: 10000 });
+  assert.ok(ok.ok);
+  assert.deepEqual(a.calls[0].args, ['pay-test-9', 'Missed two sessions', 4000]);
+  for (const amt of [{ cents: null, maxCents: 10000 }, { cents: 0 }, { cents: 10001, maxCents: 10000 }]) {
+    const b = fakes();
+    const r = await runAdjustment(pay, 'refund', 'Missed two sessions', b.deps, amt);
+    assert.ok(!r.ok && r.problem === 'amount'); assert.equal(b.calls.length, 0);
+  }
+  const c = fakes();
+  const thin = await runAdjustment(pay, 'refund', 'pls', c.deps, { cents: 500, outsidePolicy: true });
+  assert.ok(!thin.ok && thin.problem === 'policy_reason'); assert.equal(c.calls.length, 0);
+  const d = fakes();
+  const rec = await runAdjustment({ id: 'pay-test-10', method: 'cash', status: 'paid' }, 'refund', 'Injury, owner override', d.deps, { cents: 2500, outsidePolicy: true });
+  assert.ok(rec.ok);
+  assert.deepEqual(d.calls[0].args, ['pay-test-10', 'refunded', 'Injury, owner override', 2500]);
+  const v = fakes();
+  await runAdjustment({ id: 'pay-test-11', method: 'cash', status: 'pending' }, 'void', 'Entered twice', v.deps, { cents: null });
+  assert.deepEqual(v.calls[0].args, ['pay-test-11', 'void', 'Entered twice']);
+});

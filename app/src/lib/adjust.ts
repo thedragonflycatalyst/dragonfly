@@ -45,22 +45,30 @@ export async function postNotice(paymentId: string, token: string | null | undef
 }
 
 export type AdjustDeps = {
-  refundCard: (paymentId: string, reason: string) => Promise<void>;
-  setStatus: (paymentId: string, status: 'refunded' | 'void', reason: string) => Promise<void>;
+  refundCard: (paymentId: string, reason: string, amountCents?: number) => Promise<void>;
+  setStatus: (paymentId: string, status: 'refunded' | 'void', reason: string, refundedCents?: number) => Promise<void>;
   getToken: () => Promise<string | null | undefined>;
   fetchFn: FetchLike;
 };
-export type AdjustResult = { ok: true; notice: { sent: boolean; text: string } } | { ok: false; problem: 'reason' | 'not_allowed' | 'failed'; error?: unknown };
+export type AdjustResult = { ok: true; notice: { sent: boolean; text: string } }
+  | { ok: false; problem: 'reason' | 'not_allowed' | 'amount' | 'policy_reason' | 'failed'; error?: unknown };
 
-/** Refund or void, then ask for the notice exactly once. No notice if the change itself failed. */
-export async function runAdjustment(p: Pick<Payment, 'id' | 'method' | 'status'>, kind: AdjustKind, reason: string, deps: AdjustDeps): Promise<AdjustResult> {
+/** Partial refunds (#49/#51): how much, the most that can be refunded, and whether it's outside the trainer's refund policy */
+export type RefundAmount = { cents: number | null; maxCents?: number; outsidePolicy?: boolean };
+
+/** Refund or void, then ask for the notice exactly once. No notice if the change itself failed. A refund outside the
+ *  trainer's policy needs a fuller reason (5+ characters), since it's recorded as an override. */
+export async function runAdjustment(p: Pick<Payment, 'id' | 'method' | 'status'>, kind: AdjustKind, reason: string, deps: AdjustDeps, amount?: RefundAmount): Promise<AdjustResult> {
   const why = cleanReason(reason);
   if (!why) return { ok: false, problem: 'reason' };
   const route = adjustRoute(p, kind);
   if (!route) return { ok: false, problem: 'not_allowed' };
+  const cents = kind === 'refund' && amount ? amount.cents : undefined;
+  if (kind === 'refund' && amount && (cents == null || cents <= 0 || (amount.maxCents != null && cents > amount.maxCents))) return { ok: false, problem: 'amount' };
+  if (kind === 'refund' && amount?.outsidePolicy && why.length < 5) return { ok: false, problem: 'policy_reason' };
   try {
-    if (route === 'stripe') await deps.refundCard(p.id, why);
-    else await deps.setStatus(p.id, statusFor(kind), why);
+    if (route === 'stripe') await (cents != null ? deps.refundCard(p.id, why, cents) : deps.refundCard(p.id, why));
+    else await (cents != null ? deps.setStatus(p.id, statusFor(kind), why, cents) : deps.setStatus(p.id, statusFor(kind), why));
   } catch (error) { return { ok: false, problem: 'failed', error }; }
   return { ok: true, notice: await postNotice(p.id, await deps.getToken(), deps.fetchFn) };
 }

@@ -1,7 +1,8 @@
-// Plays Lapis cues: studio-voice lines and the boxing bell, mixed with (or over) the person's music the way they chose.
+// Plays Lapis cues: studio voice and bell, honoring music mixing preferences.
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import { clip } from './clips';
+import { sameAudioGeneration } from './audio-generation';
 import { getPrefs, type BellStyle, type MusicMode } from './prefs';
 
 const BELL_FILES: Record<BellStyle, number> = {
@@ -12,54 +13,128 @@ const BELL_FILES: Record<BellStyle, number> = {
 const MODE = { mix: 'mixWithOthers', duck: 'duckOthers', pause: 'doNotMix' } as const;
 
 let mode: MusicMode | null = null;
-async function ready() {
-  const m = getPrefs().music;
+async function ready(over?: MusicMode) {
+  const m = over ?? getPrefs().music;
   if (m === mode) return;
   mode = m;
-  // Keeps playing with the screen locked; plays even when the ringer is on silent
-  await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: MODE[m] }).catch(() => {});
+  await setAudioModeAsync({
+    playsInSilentMode: true, shouldPlayInBackground: true,
+    interruptionMode: MODE[m],
+  }).catch(() => {});
 }
 
-const live = new Set<AudioPlayer>();
-function play(source: string | number, volume: number): Promise<void> {
+// Each active clip registers an idempotent finalizer. Calling hush() settles
+// playback promises immediately, not six seconds later after a timeout.
+const live = new Map<AudioPlayer, () => void>();
+let audioGeneration = 0;
+export function currentAudioGeneration() { return audioGeneration; }
+function play(source: string | number, volume: number, generation: number, maxMs = 6000): Promise<void> {
   return new Promise((done) => {
+    if (!sameAudioGeneration(generation, audioGeneration)) { done(); return; }
+    let player: AudioPlayer | null = null;
+    let removeListener = () => {};
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timeout !== null) clearTimeout(timeout);
+      try { removeListener(); } catch { /* listener already removed */ }
+      if (player) {
+        live.delete(player);
+        try { player.pause(); } catch { /* already stopped */ }
+        try { player.remove(); } catch { /* already disposed */ }
+      }
+      done();
+    };
     try {
       const pl = createAudioPlayer(source);
+      player = pl;
       pl.volume = volume;
-      live.add(pl);
-      const end = () => { sub.remove(); live.delete(pl); try { pl.remove(); } catch { /* already gone */ } done(); };
-      const sub = pl.addListener('playbackStatusUpdate', (s) => { if (s.didJustFinish) end(); });
-      setTimeout(end, 6000); // never wait on a stuck clip
+      live.set(pl, finish);
+      const sub = pl.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) finish();
+      });
+      removeListener = () => sub.remove();
+      timeout = setTimeout(finish, maxMs); // never wait on a stuck clip
+      if (!sameAudioGeneration(generation, audioGeneration)) { finish(); return; }
       pl.play();
-    } catch { done(); }
+    } catch {
+      finish();
+    }
   });
 }
 
 export const buzz = (strong = false) => {
   if (!getPrefs().haptics) return;
-  Haptics.impactAsync(strong ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  Haptics.impactAsync(strong
+    ? Haptics.ImpactFeedbackStyle.Heavy
+    : Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 };
 
-/** Say a line in the chosen Lapis voice (skipped when the voice is off or the line isn't available offline) */
 export async function say(text: string) {
-  const p = getPrefs();
-  if (!p.voiceOn || p.voiceLevel <= 0) return;
+  const generation = audioGeneration;
+  const prefs = getPrefs();
+  if (!prefs.voiceOn || prefs.voiceLevel <= 0) return;
   await ready();
-  const uri = await clip(text, p.voice, p.voiceSpeed);
-  if (uri) await play(uri, p.voiceLevel);
+  if (!sameAudioGeneration(generation, audioGeneration)) return;
+  const uri = await clip(text, prefs.voice, prefs.voiceSpeed);
+  if (uri && sameAudioGeneration(generation, audioGeneration))
+    await play(uri, prefs.voiceLevel, generation);
 }
 
-/** Ring the chosen bell */
 export async function bell() {
-  const p = getPrefs();
-  if (!p.bellOn) return;
+  const generation = audioGeneration;
+  const prefs = getPrefs();
+  if (!prefs.bellOn) return;
   await ready();
+  if (!sameAudioGeneration(generation, audioGeneration)) return;
   buzz(true);
-  await play(BELL_FILES[p.bell], Math.max(0.4, p.voiceLevel));
+  await play(BELL_FILES[prefs.bell], Math.max(0.4, prefs.voiceLevel), generation);
 }
 
-/** Stop anything still playing (leaving the workout) */
-export function hush() { for (const pl of live) { try { pl.pause(); pl.remove(); } catch { /* gone */ } } live.clear(); }
+/** A bell followed by speech belongs to the *same* audio generation.
+ * Navigating away, resetting or stopping during the bell cancels the speech,
+ * even if the bell was already removed and its promise resolved.
+ */
+export async function bellThenSay(text: string) {
+  const generation = audioGeneration;
+  await bell();
+  if (!sameAudioGeneration(generation, audioGeneration)) return;
+  await say(text);
+}
 
-/** Lines the rest timer and set timer use, fetched when a workout opens */
+export function hush() {
+  audioGeneration++;
+  reading++;
+  for (const finish of [...live.values()]) finish();
+}
+
+let reading = 0;
+/**
+ * Read an exercise's how-to in the Lapis voice (Connor unless they picked another), over the person's music: their music
+ * keeps playing (lowered if they chose that; never paused). Resolves when finished or stopped; false if nothing could play.
+ */
+export async function readAloud(pieces: string[]): Promise<boolean> {
+  hush();
+  const me = reading;
+  const generation = audioGeneration;
+  const p = getPrefs();
+  await ready(p.music === 'pause' ? 'duck' : p.music);
+  const next = (i: number) => (i < pieces.length ? clip(pieces[i], p.voice, p.voiceSpeed) : Promise.resolve(null));
+  let ahead = next(0);
+  let played = false;
+  for (let i = 0; i < pieces.length; i++) {
+    const uri = await ahead;
+    if (me !== reading) return played;
+    ahead = next(i + 1); // fetch the next piece while this one plays
+    if (!uri) return played;
+    await play(uri, p.voiceLevel > 0 ? p.voiceLevel : 1, generation, 45_000);
+    played = true;
+    if (me !== reading) return played;
+  }
+  return played;
+}
+
+/** Lines preloaded when a workout opens. */
 export const CUE_LINES = ['Rest', '3', '2', '1', 'Go', 'Halfway', 'Switch sides', 'Time'];

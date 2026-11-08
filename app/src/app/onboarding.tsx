@@ -7,6 +7,7 @@ import { Screen } from '@/components/shell';
 import { Button, Card, Chip, Field, Txt, useToast } from '@/components/ui';
 import { formComplete, QuestionInput } from '@/features/forms';
 import { InterestPicker } from '@/features/goals';
+import { SmsConsent } from '@/features/sms-consent';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
 import { errText, type FormRequest, type Sex } from '@/lib/model';
@@ -33,6 +34,7 @@ export default function Onboarding() {
     goals: c?.goals ?? '', interests: c?.interests ?? [] as string[],
   });
   const [busy, setBusy] = useState(false);
+  const [texts, setTexts] = useState(false);   // unticked: texting needs an explicit yes
   useEffect(() => {
     if (!c) return;
     sb.from('coach_form_requests').select('*').eq('client_id', c.id).eq('kind', 'health').eq('status', 'pending').maybeSingle()
@@ -71,6 +73,7 @@ export default function Onboarding() {
         p_goals: f.goals, p_interests: f.interests, p_finish_onboarding: true,
       });
       if (error) throw error;
+      if (texts && f.phone.trim()) { const r = await sb.rpc('coach_sms_opt_in', { p_client: c.id }); if (r.error) throw r.error; }
       if (w) await sb.from('coach_measurements').insert({ client_id: c.id, trainer_id: c.trainer_id, weight_kg: w, note: 'Starting weight' });
       if (health) { const r = await sb.rpc('coach_submit_form', { p_request: health.id, p_answers: answers }); if (r.error) throw r.error; }
       await app.reloadMe();
@@ -110,6 +113,7 @@ export default function Onboarding() {
               ) : <Field label="Height (cm)" value={f.cm} onChangeText={(v) => setF((x) => ({ ...x, cm: v }))} keyboardType="decimal-pad" />}
             </Pair>
             <Field label="Phone" value={f.phone} onChangeText={(v) => setF((x) => ({ ...x, phone: v }))} keyboardType="phone-pad" autoComplete="tel" />
+            {f.phone.trim() ? <SmsConsent checked={texts} onChange={setTexts} trainer={coach} /> : null}
           </Card>
         )}
         {step === 'goals' && (

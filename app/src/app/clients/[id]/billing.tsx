@@ -8,6 +8,7 @@ import { useClientRecord } from '@/features/common';
 import { confirm } from '@/lib/ask';
 import { creditsLeft, fmtMoney, packageLive, type ClientPackage, type Payment } from '@/lib/business';
 import { errText } from '@/lib/model';
+import { chargeText, type SessionCharge } from '@/lib/session-billing';
 import { sb } from '@/lib/supabase';
 import { MAX_W, usePalette } from '@/lib/theme';
 
@@ -19,10 +20,18 @@ export default function ClientBilling() {
   const { client } = useClientRecord(id);
   const [pkgs, setPkgs] = useState<ClientPackage[] | null>(null);
   const [pays, setPays] = useState<Payment[]>([]);
+  const [charges, setCharges] = useState<SessionCharge[]>([]);
   const load = useCallback(async () => {
-    const [a, b] = await Promise.all([sb.from('coach_client_packages').select('*').eq('client_id', id).order('created_at', { ascending: false }), sb.from('coach_payments').select('*').eq('client_id', id).order('paid_at', { ascending: false })]);
-    setPkgs((a.data as ClientPackage[]) ?? []); setPays((b.data as Payment[]) ?? []);
+    const [a, b, c] = await Promise.all([sb.from('coach_client_packages').select('*').eq('client_id', id).order('created_at', { ascending: false }), sb.from('coach_payments').select('*').eq('client_id', id).order('paid_at', { ascending: false }),
+      sb.from('coach_session_charges').select('*').eq('client_id', id).in('status', ['due', 'pending']).order('starts_at').limit(30)]);
+    setPkgs((a.data as ClientPackage[]) ?? []); setPays((b.data as Payment[]) ?? []); setCharges((c.data as SessionCharge[]) ?? []);
   }, [id]);
+  const settle = async (x: SessionCharge, status: 'paid' | 'waived') => {
+    const what = status === 'paid' ? 'Record this session as paid (cash or card at the desk)?' : 'Let this session go without payment?';
+    if (!(await confirm(status === 'paid' ? 'Mark paid?' : 'Waive this session?', what, status === 'paid' ? 'Mark paid' : 'Waive'))) return;
+    const { error } = await sb.rpc('coach_charge_settle', { p_charge: x.id, p_status: status, p_method: 'cash' });
+    if (error) toast(errText(error), false); else load();
+  };
   useFocusEffect(useCallback(() => { load(); }, [load]));
   const adjust = async (x: ClientPackage, d: number) => {
     const used = x.credits_used - d;
@@ -54,6 +63,18 @@ export default function ClientBilling() {
                 </Card>
               );
             })}
+          {charges.length > 0 && <>
+            <SectionLabel>Sessions not paid yet</SectionLabel>
+            <Card style={{ padding: 0 }}>{charges.map((x, i) => (
+              <View key={x.id} style={{ padding: 14, gap: 6, borderBottomWidth: i === charges.length - 1 ? 0 : 1, borderBottomColor: p.line }}>
+                <Txt v="bold">{new Date(x.starts_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</Txt>
+                <Txt v="small">{chargeText(x, false).replace('your', 'their')}</Txt>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button small kind="ghost" title="Mark paid" onPress={() => settle(x, 'paid')} />
+                  <Button small kind="quiet" title="Waive" onPress={() => settle(x, 'waived')} />
+                </View>
+              </View>))}</Card>
+          </>}
           <SectionLabel>Payments</SectionLabel>
           {pays.length === 0 ? <Txt v="small">No payments recorded.</Txt> : <Card style={{ padding: 0 }}>{pays.map((x, i) => (
             <View key={x.id} style={{ flexDirection: 'row', padding: 14, gap: 10, borderBottomWidth: i === pays.length - 1 ? 0 : 1, borderBottomColor: p.line }}>

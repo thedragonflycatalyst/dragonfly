@@ -46,7 +46,7 @@ export function CoverPicker({ name, value, trainerId, onChange, group }: { name:
           return (
             <Pressable key={k} accessibilityRole="radio" accessibilityLabel={`${COVER_LABEL[k]} photo`} accessibilityState={{ selected: on }} onPress={() => onChange(`art:${k}`)}
               style={{ borderRadius: R.sm, borderWidth: 2, borderColor: on ? p.focus : 'transparent', padding: 1 }}>
-              <Image source={COVER_IMAGES[k]} style={{ width: 56, height: 56, borderRadius: R.sm - 2 }} contentFit="cover" />
+              <Image source={COVER_IMAGES[k]} style={{ width: 56, height: 56, borderRadius: R.sm - 2 }} contentFit="cover" accessibilityLabel="" accessible={false} />
             </Pressable>
           );
         })}
