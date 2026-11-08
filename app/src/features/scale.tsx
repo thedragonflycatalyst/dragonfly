@@ -527,6 +527,7 @@ function HealthCard({ userId, list, reload }: { userId: string; list: Weighin[];
   const [busy, setBusy] = useState<'connect' | 'history' | 'sync' | null>(null);
   const refresh = useCallback(async () => {
     setState(healthSync(userId));
+    checkHealthConsent(userId); // arms Health Connect for this person if they've consented, so the status below is real
     if (Platform.OS === 'android' && await healthStatus() === 'ready') {
       try { setWeightAllowed((await scalePermissions()).weight); }
       catch { setWeightAllowed(false); }
