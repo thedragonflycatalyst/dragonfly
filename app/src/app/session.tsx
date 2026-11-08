@@ -11,14 +11,14 @@ import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
-import { parseLapisTimer } from '@/features/lapis/library';
+import { lapisTimerSeconds, parseLapisTimer } from '@/features/lapis/library';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { useHidden } from '@/features/library-extras';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
-import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
+import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LapisTimerResult, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
 import { exKey, ghostSet, historyOf, notesOf, pastSwaps, setLine, type PastLog } from '@/lib/history';
 import { clock, doneOnly, DRAFT_KEY, readDraft, type Draft } from '@/lib/session';
 import { weakSide } from '@/lib/sides';
@@ -40,6 +40,7 @@ export default function Session() {
   const unit = weightUnit(app.units);
   const [src, setSrc] = useState<Source | null | undefined>(undefined);
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [timerResults, setTimerResults] = useState<LapisTimerResult[]>([]);
   const [started, setStarted] = useState(Date.now());
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -75,7 +76,7 @@ export default function Session() {
       }
       if (s?.assignment?.status === 'done') { setSrc(s); return; }
       const d = readDraft((k) => storage.getItem(k));
-      if (s && d?.key === key) { setLog(d.log); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
+      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
       else if (s) setLog(startLog(s.blocks, unit));
       setSrc(s);
     })();
@@ -83,10 +84,10 @@ export default function Session() {
 
   // Keep the draft on the device after every change
   useEffect(() => {
-    if (!src || saved.current || src.assignment?.status === 'done' || !log.length) return;
-    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log };
+    if (!src || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
+    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults };
     try { storage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch { /* storage full or blocked: keep going without a draft */ }
-  }, [log, clientId, src, key, aid, workout, started]);
+  }, [log, timerResults, clientId, src, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
@@ -153,7 +154,7 @@ export default function Session() {
   const clearDraft = () => { try { if (readDraft((k) => storage.getItem(k))?.key === key) storage.removeItem(DRAFT_KEY); } catch { /* nothing to clear */ } };
   const save = async () => {
     if (!app.user) return;
-    if (!done) return toast('Tick off at least one set first', false);
+    if (!done && !timerResults.length) return toast('Complete an exercise set or Lapis timer first', false);
     if (isTrainer && !clientId) return toast('Choose who you’re training', false);
     setBusy(true);
     let assignmentId = src.assignment?.id ?? null;
@@ -165,7 +166,7 @@ export default function Session() {
     }
     const { error } = await sb.from('coach_logs').insert({
       assignment_id: assignmentId, client_id: clientId, user_id: app.user.id, duration_seconds: Math.min(86400, Math.round((Date.now() - started) / 1000)),
-      entries: doneOnly(log), rpe, note: note.trim() || null, source: isTrainer ? 'trainer' : 'app',
+      entries: doneOnly(log), timer_results: timerResults, rpe, note: note.trim() || null, source: isTrainer ? 'trainer' : 'app',
     });
     setBusy(false);
     if (error) return toast(errText(error), false);
@@ -195,7 +196,14 @@ export default function Session() {
             const savedTimer = b.timer.source?.app === 'lapis'
               ? parseLapisTimer(b.timer.source.snapshot) : null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer} />
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer} onStart={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onReset={() => setTimerResults((prior) => prior.filter((x) => x.block_id !== b.id))} onComplete={(actualSeconds) => {
+                  const result: LapisTimerResult = {
+                    block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
+                    planned_seconds: lapisTimerSeconds(savedTimer), actual_seconds: Math.round(actualSeconds),
+                    completed_at: new Date().toISOString(),
+                  };
+                  setTimerResults((prior) => [...prior.filter((x) => x.block_id !== b.id), result]);
+                }} />
               : <Card key={b.id}><Txt v="bold">{b.name}</Txt><Txt v="small" color={p.muted}>This older timer needs to be linked again from the workout builder.</Txt></Card>;
           })}
           <Txt v="small">{done} of {total} sets done{volume(log) ? ` · ${volume(log).toLocaleString()} ${unit} lifted` : ''}</Txt>
@@ -314,7 +322,7 @@ export default function Session() {
 
       <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16, alignItems: 'center', gap: 10 }} pointerEvents="box-none">
         <RestBar t={rest} />
-        <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done ? setFinishing(true) : toast('Tick off at least one set first', false))} />
+        <Button kind="accent" title="Finish workout" icon="check" onPress={() => (done || timerResults.length ? setFinishing(true) : toast('Complete an exercise set or Lapis timer first', false))} />
       </View>
 
       <SwapSheet entry={swapping !== null ? log[swapping] : null} trainerId={src.assignment?.trainer_id ?? app.trainer?.user_id} onClose={() => setSwapping(null)} past={past}
@@ -333,7 +341,7 @@ export default function Session() {
           {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => <Chip key={n} label={String(n)} selected={rpe === n} onPress={() => setRpe(rpe === n ? null : n)} />)}
         </View>
         <Field label="Notes" hint="(optional)" value={note} onChangeText={setNote} multiline placeholder="Felt strong, left knee a bit sore" />
-        <Txt v="small" style={{ marginBottom: 12 }}>{done} of {total} sets · {clock((now - started) / 1000)}</Txt>
+        <Txt v="small" style={{ marginBottom: 12 }}>{done} of {total} sets · {timerResults.length} Lapis timers · {clock((now - started) / 1000)}</Txt>
         <Button title="Save workout" busy={busy} onPress={save} style={{ alignSelf: 'flex-start' }} />
       </Sheet>
     </View>
