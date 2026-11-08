@@ -41,9 +41,14 @@ export function LinkedLapisRunner({
   const [muted, setMuted] = useState(false);
   const lastPhase = useRef<number | null>(null);
   const foreground = useRef(AppState.currentState === 'active');
+  const wasBackgrounded = useRef(false);
+  const interruptedCompletion = useRef(false);
   const explicitlyStarted = useRef(false);
   const lastCuePosition = useRef<number | null>(null);
-  const reported = useRef(false);
+  // A completed checkpoint from an earlier app session must not be logged
+  // again with a new timestamp merely because the component remounted.
+  const reported = useRef(!!initialClock?.hasStarted &&
+    initialClock.since === null && initialClock.elapsedBefore >= timeline.totalSeconds);
   const changeRef = useRef(onClockChange);
   changeRef.current = onClockChange;
   // Save on every control change, not every 200ms display tick.
@@ -88,14 +93,33 @@ export function LinkedLapisRunner({
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      foreground.current = state === 'active';
-      if (state !== 'active' && clock.since !== null && !blocked && screenFocused && (canCue?.() ?? true)) hush();
-      // On wake, reconcile elapsed time immediately; don't replay missed cues.
+      const active = state === 'active';
+      const returning = active && wasBackgrounded.current;
+      foreground.current = active;
+      if (!active) {
+        wasBackgrounded.current = true;
+        if (clock.since !== null && !blocked && screenFocused && (canCue?.() ?? true)) hush();
+      }
+      if (returning) {
+        wasBackgrounded.current = false;
+        const tick = Date.now();
+        // Notifications own background completion. A late JS effect must
+        // never log an unseen finish or fire a duplicate end cue on wake.
+        if (clock.since !== null &&
+            elapsedAt(clock, tick, timeline.totalSeconds) >= timeline.totalSeconds) {
+          interruptedCompletion.current = true;
+          setClock((previous) => ({
+            ...pauseClock(previous, tick, timeline.totalSeconds),
+            elapsedBefore: Math.max(0, timeline.totalSeconds - 1),
+          }));
+          onPause?.();
+        }
+      }
       lastCuePosition.current = null;
       setNow(Date.now());
     });
     return () => subscription.remove();
-  }, [clock.since, blocked, screenFocused, canCue]);
+  }, [clock, timeline.totalSeconds, blocked, screenFocused, canCue, onPause]);
 
   useEffect(() => {
     if (since == null) return;
@@ -138,7 +162,8 @@ export function LinkedLapisRunner({
   }, [elapsed, since, muted, blocked, screenFocused, spokenCues]);
 
   useEffect(() => {
-    if (!done || reported.current) return;
+    if (!done || reported.current || !foreground.current || interruptedCompletion.current ||
+        !screenFocused || !(canCue?.() ?? true)) return;
     reported.current = true;
     // A completed timeline cannot remain "running" in the persisted draft.
     // Otherwise a successfully finished interval would block workout saving.
@@ -160,6 +185,7 @@ export function LinkedLapisRunner({
   };
   const start = () => {
     if (blocked || !screenFocused || !(canCue?.() ?? true)) return;
+    interruptedCompletion.current = false;
     onStart?.(!hasStarted || state.finished); // Resume only claims ownership; a new run invalidates old results.
     if (!hasStarted || state.finished) { lastCuePosition.current = -0.01; explicitlyStarted.current = true; }
     if (state.finished) { lastPhase.current = null; reported.current = false; }
@@ -170,6 +196,7 @@ export function LinkedLapisRunner({
   const reset = () => {
     if (clock.since !== null && (canCue?.() ?? true)) hush();
     setClock(freshClock()); setNow(Date.now());
+    interruptedCompletion.current = false;
     reported.current = false; lastPhase.current = null; lastCuePosition.current = null; explicitlyStarted.current = false;
     onPause?.();
     onReset?.();

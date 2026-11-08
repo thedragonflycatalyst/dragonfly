@@ -76,6 +76,15 @@ export type Rest = RestClock;
  */
 export function useRest(sessionId: string, onNextSet?: (key: string) => void, onChange?: (rest: RestClock | null) => void) {
   const [rest, setRest] = useState<RestClock | null>(null);
+  const [stateSessionId, setStateSessionId] = useState(sessionId);
+  useEffect(() => {
+    // A mounted Session route may change workouts without remounting its hook.
+    // Never let the previous workout's rest complete under the new session id.
+    restRef.current = null;
+    fired.current = new Set();
+    setRest(null);
+    setStateSessionId(sessionId);
+  }, [sessionId]);
   const [, setNow] = useState(Date.now());
   const fired = useRef(new Set<string>());
   const restRef = useRef(rest);
@@ -90,7 +99,7 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
     setRest(next);
     changeRef.current?.(next);
   };
-  const active = !!rest && rest.pausedLeft === null;
+  const active = stateSessionId === sessionId && !!rest && rest.pausedLeft === null;
   useEffect(() => {
     if (!active) return;
     const interval = setInterval(() => setNow(Date.now()), 200);
@@ -117,9 +126,10 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
     return () => { sub.remove(); void backstop(sessionId, null); };
   }, [sessionId]);
 
-  const left = rest ? restRemaining(rest, Date.now()) : 0;
+  const left = stateSessionId === sessionId && rest ? restRemaining(rest, Date.now()) : 0;
   useEffect(() => {
-    if (!rest || rest.pausedLeft !== null || !canScheduleWorkoutNotification(sessionId)) return;
+    if (stateSessionId !== sessionId || !rest || rest.pausedLeft !== null || !canScheduleWorkoutNotification(sessionId) ||
+        AppState.currentState !== 'active') return;
     const prefs = getPrefs(), f = fired.current, sec = Math.ceil(left);
     if (prefs.halfway && rest.total >= 20 && left <= rest.total / 2 && !f.has('half')) {
       f.add('half'); void say('Halfway');
@@ -179,7 +189,7 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
       void backstop(sessionId, next.until, next.label ? `Rest is over. ${next.label}` : undefined);
   };
   const skip = () => { void backstop(sessionId, null); update(null); };
-  return { rest, left, start, add, pause, resume, skip, restore };
+  return { rest: stateSessionId === sessionId ? rest : null, left, start, add, pause, resume, skip, restore };
 }
 
 /** The Lapis rest bar pinned to the bottom of the workout */
@@ -283,9 +293,22 @@ export function SetTimer({
     updateClock(paused);
     reportRunning(false);
   }, [screenFocused, blocked]);
+  // A timed set is never marked complete just because the OS suspended JS
+  // through its deadline. Return paused; the user chooses when to resume.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' || stateRef.current.since === null) return;
+      const snapshot = pauseTimedSet(stateRef.current, Date.now());
+      updateClock(snapshot);
+      reportRunning(false);
+    });
+    return () => subscription.remove();
+  }, []);
+
   // A recovered stopwatch or countdown is paused, never silently marked done.
   useEffect(() => {
-    if (!screenFocused || !(canCue?.() ?? true) || !running || !target || finished.current) return;
+    if (!screenFocused || !(canCue?.() ?? true) || AppState.currentState !== 'active' ||
+        !running || !target || finished.current) return;
     const pr = getPrefs(), f = fired.current, s = Math.ceil(left);
     if (pr.halfway && target >= 20 && left <= target / 2 && !f.has('half')) {
       f.add('half'); void say('Halfway');

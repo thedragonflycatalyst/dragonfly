@@ -19,7 +19,8 @@ import type { RestClock } from '@/features/lapis/rest-clock';
 import type { TimedSetClock } from '@/features/lapis/timed-set-clock';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
-import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
+import { matchesPendingAssignment } from '@/features/lapis/integration-guards';
+import { recoverLinkedClocks, recoverTimedSetClocks } from '@/features/lapis/session-recovery';
 import { canResumeRest, canStartLinkedTimer, canStartTimedSet } from '@/features/lapis/timer-ownership';
 import { activeWorkoutTimers, clearTimerCompletion, recordTimerCompletion, shouldAcceptTimedSetCompletion } from '@/features/lapis/completion-integrity';
 import { ExerciseHistory } from '@/features/exercise-history';
@@ -49,6 +50,8 @@ export default function Session() {
   const { aid, workout } = useLocalSearchParams<{ aid?: string; workout?: string }>();
   const screenFocused = useIsFocused();
   const key = aid ? `a:${aid}` : `w:${workout}`;
+  const currentRouteKey = useRef(key);
+  currentRouteKey.current = key;
   const sessionId = `${app.user?.id ?? 'unknown'}:${key}`;
   const leaseToken = useRef(Crypto.randomUUID());
   const [ownsSession, setOwnsSession] = useState(false);
@@ -107,6 +110,7 @@ export default function Session() {
   const [restSnapshot, setRestSnapshot] = useState<RestClock | null>(null);
   const rest = useRest(sessionId,
     (nextSetKey) => {
+      if (currentRouteKey.current !== key) return;
       // A rest that expired while another screen or the OS was foregrounded
       // must not surprise-start a timed exercise on return.
       if (activeScreen && AppState.currentState === 'active')
@@ -159,9 +163,26 @@ export default function Session() {
       if (cancelled) return;
       if (s?.assignment?.status === 'done') { setSrc(s); setReadyKey(key); return; }
       const d = loadWorkoutDraft(storage, key);
-      if (s && d?.key === key) { rest.restore(d.restClock ?? null); setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setTimedSetClocks(d.timedSetClocks ?? {});
-        setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
-        setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
+      const totals: Record<string, number> = {};
+      for (const block of s?.blocks ?? []) {
+        if (block.kind !== 'timed' || block.timer.source?.app !== 'lapis') continue;
+        const timer = parseLapisTimer(block.timer.source.snapshot);
+        if (timer) totals[block.id] = lapisTimerSeconds(timer);
+      }
+      const recoveredLinked = recoverLinkedClocks(d?.runnerClocks, totals,
+        (d?.timerResults ?? []).map((result) => result.block_id), Date.now());
+      const recoveredSets = recoverTimedSetClocks(d?.timedSetClocks, Date.now());
+      if (s && d?.key === key) {
+        rest.restore(d.restClock ?? null);
+        setLog(d.log);
+        setTimerResults(d.timerResults ?? []);
+        setRunnerClocks(recoveredLinked);
+        setTimedSetClocks(recoveredSets);
+        setActiveTimerId(null);
+        setPendingAssignmentId(d.pendingAssignmentId ?? null);
+        setStarted(d.started);
+        setClientId(d.client_id ?? s.assignment?.client_id ?? null);
+      }
       else if (s) {
         rest.restore(null);
         setLog(startLog(s.blocks, unit));
@@ -172,6 +193,7 @@ export default function Session() {
         setActiveSetTimerKey(null);
         setPendingAssignmentId(null);
         setStarted(Date.now());
+        setClientId(s.assignment?.client_id ?? null);
       }
       if (cancelled) return;
       if (s) {
@@ -183,13 +205,19 @@ export default function Session() {
           started: d?.key === key ? d.started : Date.now(),
           log: d?.key === key ? d.log : startLog(s.blocks, unit),
           timerResults: d?.key === key ? d.timerResults ?? [] : [],
-          runnerClocks: d?.key === key ? d.runnerClocks ?? {} : {},
-          timedSetClocks: d?.key === key ? d.timedSetClocks ?? {} : {},
+          runnerClocks: d?.key === key ? recoveredLinked : {},
+          timedSetClocks: d?.key === key ? recoveredSets : {},
           restClock: d?.key === key ? d.restClock ?? null : null,
           pendingAssignmentId: d?.key === key ? d.pendingAssignmentId ?? null : null,
         };
-        try { beginWorkoutDraft(storage, workoutDraftSlot(key), initial); }
-        catch { /* retain progress in memory if storage is unavailable */ }
+        try {
+          beginWorkoutDraft(storage, workoutDraftSlot(key), initial);
+          // Normalize the saved clock before mounting timer children; never
+          // let a stale running checkpoint auto-complete after app restart.
+          writeDraftPatch(storage, workoutDraftSlot(key), key, {
+            runnerClocks: initial.runnerClocks, timedSetClocks: initial.timedSetClocks,
+          });
+        } catch { /* retain progress in memory if storage is unavailable */ }
       }
       setSrc(s);
       setReadyKey(key);
@@ -381,7 +409,7 @@ export default function Session() {
                   initialClock={runnerClocks[b.id]}
                   blocked={!canStartLinkedTimer({ linked: activeTimerId, timedSet: activeSetTimerKey }, b.id)}
                   onClockChange={(clock) => {
-                    if (!activeScreen) {
+                    if (!activeScreen || currentRouteKey.current !== key) {
                       try {
                         const serialized = patchDraftClock(
                           loadWorkoutDraft(storage, key), key, b.id, clock,
@@ -389,18 +417,19 @@ export default function Session() {
                         if (serialized) storage.setItem(workoutDraftSlot(key), serialized);
                       } catch { /* in-memory runner remains available */ }
                     }
-                    setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
+                    if (currentRouteKey.current === key)
+                      setRunnerClocks((prev) => ({ ...prev, [b.id]: clock }));
                   }}
                   onStart={(freshRun) => {
-                    if (saved.current) return;
+                    if (saved.current || currentRouteKey.current !== key) return;
                     rest.pause();
                     setActiveTimerId(b.id);
                     if (freshRun) setTimerResults((prior) => clearTimerCompletion(prior, b.id));
                   }}
-                  onPause={() => setActiveTimerId((current) => current === b.id ? null : current)}
-                  onReset={() => setTimerResults((prior) => clearTimerCompletion(prior, b.id))}
+                  onPause={() => { if (currentRouteKey.current === key) setActiveTimerId((current) => current === b.id ? null : current); }}
+                  onReset={() => { if (currentRouteKey.current === key) setTimerResults((prior) => clearTimerCompletion(prior, b.id)); }}
                   onComplete={(actualSeconds) => {
-                    if (saved.current) return;
+                    if (saved.current || currentRouteKey.current !== key) return;
                     setActiveTimerId((current) => current === b.id ? null : current);
                     const result: LapisTimerResult = {
                       block_id: b.id, timer_id: savedTimer.id, name: savedTimer.name,
@@ -473,7 +502,7 @@ export default function Session() {
                           canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                           initialClock={timedSetClocks[k]}
                           onClockChange={(next) => {
-                            if (!activeScreen) {
+                            if (!activeScreen || currentRouteKey.current !== key) {
                               try {
                                 const serialized = patchDraftTimedSetClock(
                                   loadWorkoutDraft(storage, key), key, k, next,
@@ -481,14 +510,16 @@ export default function Session() {
                                 if (serialized) storage.setItem(workoutDraftSlot(key), serialized);
                               } catch { /* keep in-memory progress */ }
                             }
-                            setTimedSetClocks((prior) => ({ ...prior, [k]: next }));
+                            if (currentRouteKey.current === key)
+                              setTimedSetClocks((prior) => ({ ...prior, [k]: next }));
                           }}
                           onRunningChange={(running) => {
+                            if (currentRouteKey.current !== key) return;
                             if (running) rest.pause();
                             setActiveSetTimerKey((current) => running ? k : current === k ? null : current);
                           }}
                           onDone={(sec) => {
-                            if (saved.current) return;
+                            if (saved.current || currentRouteKey.current !== key) return;
                             const completionKey = `${k}:${started}`;
                             if (s.done || completedSetEvents.current.has(completionKey) ||
                                 !shouldAcceptTimedSetCompletion(false, sec)) return;
