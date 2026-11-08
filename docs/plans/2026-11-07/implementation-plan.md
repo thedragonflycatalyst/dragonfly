@@ -119,22 +119,22 @@ See `../2026-11-06/credentials-and-challenges-directory.md`. Waiting for owner a
 | # | Question | Default used if no answer |
 | --- | --- | --- |
 | 1 | Columbia Association clients | **Decided 2026-11-07:** CA clients use the app like everyone else; messages are included by default (`include_ca_clients` default true), sent from the trainer's own phone/email (To-send list) or the app's number/email |
-| 2 | Tiers right? Weeks until Lapsed? | *Open* — default: tiers as listed; 4 weeks |
-| 3 | Offer to several at once or one at a time? | *Open* — default: several at once, first wins |
+| 2 | Tiers right? Weeks until Lapsed? | **Decided 2026-11-07 (owner confirmed the defaults):** tiers as listed; 4 weeks |
+| 3 | Offer to several at once or one at a time? | **Decided 2026-11-07 (owner confirmed the defaults):** several at once, first wins |
 | 4 | Clients self-book open slots? | **Decided 2026-11-07:** waitlist; clients choose notify or auto-book (#45) |
-| 5 | Filled slots use package credits? | *Open* — default: yes, as normal bookings |
-| 6 | Summary includes body weight/measurements? | *Open* — default: no |
-| 7 | Summary auto-sent or trainer reviews first? | *Open* — default: auto-shown in app |
+| 5 | Filled slots use package credits? | **Decided 2026-11-07 (owner confirmed the defaults):** yes, as normal bookings |
+| 6 | Summary includes body weight/measurements? | **Decided 2026-11-07 (owner confirmed the defaults):** no |
+| 7 | Summary auto-sent or trainer reviews first? | **Decided 2026-11-07 (owner confirmed the defaults):** auto-shown in app |
 | 8 | Texting service | **Decided 2026-11-07:** Twilio applied for; set up as soon as approved — see `twilio-setup.md` |
 | 9 | New business number or owner's own? | Both: app number (Twilio) or trainer's own phone (To-send list) |
-| 10 | Reminder timing; reschedule by text? | *Open* — default: 24 h; C confirms, R asks to reschedule |
+| 10 | Reminder timing; reschedule by text? | **Decided 2026-11-07 (owner confirmed the defaults):** 24 h; C confirms, R asks to reschedule |
 | 10a | Reminder channel | **Decided 2026-11-07:** client chooses text, email or app; default text (#47) |
-| 11 | Survey frequency and questions | *Open* — default: every 4th session, max 1 per 14 days; 1–5 + comment |
+| 11 | Survey frequency and questions | **Decided 2026-11-07 (owner confirmed the defaults):** every 4th session, max 1 per 14 days; 1–5 + comment |
 | 12 | Website only or also review sites? | **Decided 2026-11-07:** every major review site. Trainer lists links (Google, Facebook, Yelp, Trustpilot, Thumbtack, Nextdoor, other); clients pick one after a testimonial or survey, their words are copied for pasting, and the site keeps its own copy (#48). Shown to everyone asked, no rewards (review-gating and incentive rules). |
 | 13 | Referral reward | **Decided 2026-11-07:** none |
-| 14 | Group training types, size, pricing | *Open* — default: existing events; capacity and price per event |
+| 14 | Group training types, size, pricing | **Decided 2026-11-07 (owner confirmed the defaults):** existing events; capacity and price per event |
 | 15 | Program templates | **Decided 2026-11-07:** go ahead; owner reviews content once live (#46) |
-| 16 | Refund policy defaults | *Open* — default: prorated by sessions used, 30 days, $0 fee, expired packages not refundable (#51) |
+| 16 | Refund policy defaults | **Decided 2026-11-07 (owner confirmed the defaults):** prorated by sessions used, 30 days, $0 fee, expired packages not refundable (#51) |
 
 Record answers here (replace the default column with the decision and date) as soon as they arrive.
 
@@ -176,3 +176,5 @@ Record answers here (replace the default column with the decision and date) as s
 - Trainers with any outside calendar get a to-do for every move or cancellation that stays until marked done (hourly phone alerts 8 AM–9 PM). App-only trainers get none.
 - Apple (developer account, iPhone builds, iPhone push keys) is planned and coded, but the owner pays for it only once the app is live. Android first.
 - Owner to-do: Twilio number/verification; Firebase project (`GOOGLE_SERVICES_JSON` GitHub secret, `FCM_SERVICE_ACCOUNT` Supabase secret).
+
+- 2026-11-07 22:34: owner confirmed the remaining defaults (tiers, 4-week lapse, summary without body weight, surveys every 4th session at most every 14 days, group pricing per event). Testing starts after his homework tonight.
