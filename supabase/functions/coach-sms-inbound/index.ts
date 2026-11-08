@@ -61,8 +61,8 @@ Deno.serve(async (req) => {
     return twiml();
   }
   if (reply.kind === 'help') {
-    const { data: t } = await admin.from('coach_trainers').select('display_name, business_name').eq('user_id', clients[0].trainer_id).maybeSingle();
-    return twiml(`The Dragonfly Catalyst: training texts from ${t?.business_name || t?.display_name || 'your trainer'}. Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out, START to opt back in. Help: thedragonflycatalyst.org/sms-terms`);
+    // Word for word what's registered with the carriers (Twilio toll-free verification, 2026-11-08)
+    return twiml('You\'re receiving texts from The Dragonfly Catalyst. For help, email thedragonflycatalyst@outlook.com or visit thedragonflycatalyst.org/sms-terms. Reply STOP to opt out. Msg & data rates may apply.');
   }
   if (reply.kind === 'confirm' || reply.kind === 'reschedule') {
     const m = await latest(admin, ids, ['reminder']);

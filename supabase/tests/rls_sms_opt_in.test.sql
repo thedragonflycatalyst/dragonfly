@@ -23,7 +23,7 @@ select t.ok(public.coach_contact_allowed((select v from t.ids where k = 'c_ana')
 select t.ok(not public.coach_contact_allowed((select v from t.ids where k = 'c_ana'), 'marketing', 'sms'), 'not marketing');
 select public.coach_sms_opt_in((select v from t.ids where k = 'c_ana'));
 select t.as_admin();
-select t.ok((select count(*) from public.coach_outbox where body like 'You''re signed up for training texts from %Reply HELP for help, STOP to opt out.') = 1, 'one confirmation text with HELP and STOP');
+select t.ok((select count(*) from public.coach_outbox where body = 'The Dragonfly Catalyst: you''re signed up for training texts (session reminders and open spots). Msg frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out.') = 1, 'one confirmation text with HELP and STOP');
 select t.as_user('bo');
 select t.ok(t.refused($$select public.coach_sms_opt_in((select v from t.ids where k = 'c_bo'))$$), 'no phone number, no texts');
 -- A stray text is posted into the client's chat with the trainer, as the client

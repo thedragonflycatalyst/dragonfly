@@ -27,7 +27,8 @@ begin
   select coalesce(nullif(trim(business_name), ''), display_name, 'your trainer') into who from public.coach_trainers where user_id = c.trainer_id;   -- business name, not a personal one
   insert into public.coach_outbox (trainer_id, client_id, purpose, kind, channel, body, dedupe_key)
   values (c.trainer_id, c.id, 'reminders', 'note', 'sms',
-    'You''re signed up for training texts from ' || who || ' (reminders and open spots). Msg frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out.',
+    -- word for word what's registered with the carriers (Twilio toll-free verification, 2026-11-08)
+    'The Dragonfly Catalyst: you''re signed up for training texts (session reminders and open spots). Msg frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out.',
     'optin:' || c.id || ':' || to_char(now(), 'YYYYMMDDHH24MI'))
   on conflict (dedupe_key) do nothing;
 end $$;
