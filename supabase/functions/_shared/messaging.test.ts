@@ -98,6 +98,7 @@ Deno.test('reminder plan: under 160 characters, no emoji, business name only, ri
 });
 
 Deno.test('stray texts get one short, clear courtesy reply', () => {
-  const t = relayText('Samantha', 'The Dragonfly Catalyst');
+  const t = relayText('Samantha', true);
+  assert.ok(relayText('Sam', false).includes('automated'));
   assert.ok(t.length <= 160 && !/[^\x00-\x7F]/.test(t), t);
 });

@@ -161,9 +161,10 @@ export function reminderAt(stage: Stage, start: Date, tz: string, bookedAt?: Dat
   }
 }
 
-/** One courtesy reply (at most daily) when a client texts something the system can't act on; the trainer gets it in the app */
-export const relayText = (first: string, brand: string) =>
-  `Thanks, ${first}! Your message was passed along to ${brand}. The app's chat is the quickest way to reach us.`;
+/** One courtesy reply (at most daily) when a client texts something the system can't act on (it goes to the app chat) */
+export const relayText = (first: string, inChat: boolean) => inChat
+  ? `Thanks, ${first}! This number is automated, so your message was sent to your trainer in the app's chat.`
+  : `Thanks, ${first}! This number is automated, so your message was passed to your trainer.`;
 
 /** Reply after RESCHEDULE: today-only wording inside 24 hours */
 export function rescheduleText(link: string, within24h: boolean): string {

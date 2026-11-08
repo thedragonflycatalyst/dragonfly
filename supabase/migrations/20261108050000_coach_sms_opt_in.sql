@@ -36,3 +36,28 @@ alter table public.coach_message_settings alter column reminder_hours set defaul
 
 revoke execute on function public.coach_sms_opt_in(uuid, text[], int) from public, anon;
 grant execute on function public.coach_sms_opt_in(uuid, text[], int) to authenticated;
+
+-- A text the system can't act on is posted into the client's chat with their trainer, as the client (owner 2026-11-08:
+-- "this number is automated and your message was sent via the in-app chat"). Returns false if the client has no app account.
+create function public.coach_sms_to_chat(p_client uuid, p_body text) returns boolean
+language plpgsql security definer set search_path = '' as $$
+declare cl public.coach_clients%rowtype; ch uuid;
+begin
+  select * into cl from public.coach_clients where id = p_client and status = 'active';
+  if cl.user_id is null then return false; end if;
+  select c.id into ch from public.coach_chats c
+   where c.kind = 'direct' and exists (select 1 from public.coach_chat_members m where m.chat_id = c.id and m.user_id = cl.trainer_id)
+     and exists (select 1 from public.coach_chat_members m where m.chat_id = c.id and m.user_id = cl.user_id)
+   order by c.created_at limit 1;
+  if ch is null then
+    insert into public.coach_chats (trainer_id, kind, created_by) values (cl.trainer_id, 'direct', cl.trainer_id) returning id into ch;
+    insert into public.coach_chat_members (chat_id, user_id, role, name) values
+      (ch, cl.trainer_id, 'trainer', public.coach_person_name(cl.trainer_id, cl.trainer_id)),
+      (ch, cl.user_id, 'client', public.coach_person_name(cl.user_id, cl.trainer_id));
+  end if;
+  insert into public.coach_messages (chat_id, sender, kind, body, meta)
+  values (ch, cl.user_id, 'text', left(coalesce(nullif(trim(p_body), ''), '(empty text)'), 2000), jsonb_build_object('via', 'sms'));
+  return true;
+end $$;
+revoke all on function public.coach_sms_to_chat(uuid, text) from public, anon, authenticated;
+grant execute on function public.coach_sms_to_chat(uuid, text) to service_role;

@@ -26,4 +26,12 @@ select t.as_admin();
 select t.ok((select count(*) from public.coach_outbox where body like 'You''re signed up for training texts from %Reply HELP for help, STOP to opt out.') = 1, 'one confirmation text with HELP and STOP');
 select t.as_user('bo');
 select t.ok(t.refused($$select public.coach_sms_opt_in((select v from t.ids where k = 'c_bo'))$$), 'no phone number, no texts');
+-- A stray text is posted into the client's chat with the trainer, as the client
+select t.as_user('ana');
+select t.ok(t.refused($$select public.coach_sms_to_chat((select v from t.ids where k = 'c_ana'), 'hi')$$), 'apps can''t post texts into chat directly');
+select t.as_admin();
+select t.ok(public.coach_sms_to_chat((select v from t.ids where k = 'c_ana'), 'Running 5 min late!'), 'the server posts it');
+select t.ok((select count(*) from public.coach_messages where body = 'Running 5 min late!' and sender = (select v from t.ids where k = 'ana') and meta ->> 'via' = 'sms') = 1, 'as a message from the client, marked as a text');
+select t.as_user('trainer');
+select t.ok((select count(*) from public.coach_messages where body = 'Running 5 min late!') = 1, 'the trainer sees it in their chat');
 select 'ALL SMS OPT-IN TESTS PASSED';

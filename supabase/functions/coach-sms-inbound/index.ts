@@ -6,7 +6,7 @@
 //   YES / NO              take or pass on the latest slot offer
 //   1–5                   answer the latest survey
 //   IN                    join the group session in the latest invite
-//   anything else         lands in the trainer's replies, pushes to the trainer's phone, one courtesy reply a day
+//   anything else         goes to the app chat, pushes to the trainer's phone, one courtesy reply a day
 // Webhook URL (owner sets it in Twilio): https://<project>.supabase.co/functions/v1/coach-sms-inbound
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.0';
 import { cancelReplyText, CONFIRM_REPLY, e164, parseReply, relayText, rescheduleText } from '../_shared/messaging.ts';
@@ -121,20 +121,20 @@ Deno.serve(async (req) => {
       return twiml('Thank you! Reply with a comment anytime if you’d like to say more.');
     }
   }
-  // Anything else (a message meant for the trainer): it lands in the trainer's replies in the app, the trainer's phone
-  // gets a push with it, and the client gets one courtesy reply a day so they know it was received (owner 2026-11-08)
+  // Anything else (a message meant for the trainer): posted into the client's app chat with the trainer (and kept in the
+  // replies list), pushed to the trainer's phone, and one courtesy reply a day says the number is automated (owner 2026-11-08)
   const m = await latest(admin, ids, ['reminder', 'slot_offer', 'survey', 'testimonial_ask', 'referral_ask', 'group_invite', 'note']);
   const c = clients.find((x) => x.id === m?.client_id) ?? clients[0];
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const { count: recent } = await admin.from('coach_inbox').select('id', { count: 'exact', head: true }).eq('client_id', c.id).eq('channel', 'sms').contains('parsed', { relayed: true }).gte('received_at', since);
   await log({ kind: reply.kind, relayed: true }, c, m?.id ?? null);
-  const { data: t } = await admin.from('coach_trainers').select('display_name, business_name').eq('user_id', c.trainer_id).maybeSingle();
+  const { data: inChat } = await admin.rpc('coach_sms_to_chat', { p_client: c.id, p_body: text });
   const { data: full } = await admin.from('coach_clients').select('name').eq('id', c.id).maybeSingle();
   try {
     await fetch(`${url}/functions/v1/dragonfly-push`, {
       method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'send', user_id: c.trainer_id, app: 'coach', kind: 'reply', title: `💬 Text from ${full?.name || c.first_name}`, body: text.slice(0, 200) || '(empty)', url: `${WEB}outbox` }),
+      body: JSON.stringify({ action: 'send', user_id: c.trainer_id, app: 'coach', kind: 'reply', title: `💬 Text from ${full?.name || c.first_name}`, body: text.slice(0, 200) || '(empty)', url: `${WEB}chat` }),
     });
   } catch { /* the message is still in the app */ }
-  return twiml(recent ? undefined : relayText(c.first_name, t?.business_name || t?.display_name || 'your trainer'));
+  return twiml(recent ? undefined : relayText(c.first_name, inChat === true));
 });
