@@ -5,14 +5,21 @@ import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Segmented } from '@/components/bits';
+import { Toggle } from '@/components/pickers';
 import { Sheet } from '@/components/sheet';
 import { Button, Chip, Field, Icon, Txt, useToast } from '@/components/ui';
 import { coverUrl } from '@/components/cover';
+import { WORKOUT_IMAGES } from '@/lib/art';
+import { exerciseArt } from '@/lib/art-match';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, byRef, EQUIPMENT, isLink, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise } from '@/lib/library';
-import { errText, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
+import { BODY_PARTS, builtIn, byRef, EQUIPMENT, groupFamilies, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise, type ListItem } from '@/lib/library';
+import { errText, type GalleryItem, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
+import { MACHINES } from '@/data/machines';
+import { findMachines, machineMatches, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
+import { escalateSuggestion, REPORT_KINDS, reportExercise, reviewText, suggestExercise, useHidden, type ReportKind, type Review } from './library-extras';
+import { MachineScanner, scanMachinePhoto } from './machine-scan';
 
 const MEDIA = 'coach-media';
 
@@ -21,7 +28,8 @@ export function toLib(m: MyExercise): LibExercise {
   const thumb = youTubeThumb(m.video_url);
   return { ref: `my:${m.id}`, name: m.name, category: m.category ?? 'strength', equipment: m.equipment[0] ?? 'other',
     primary: m.muscles, secondary: m.secondary_muscles ?? [], level: '', mechanic: '', steps: m.instructions ? m.instructions.split('\n').filter(Boolean) : [],
-    images: m.image_path ? [`media:${m.image_path}`] : thumb ? [thumb] : [], video: m.video_url, mine: true, alts: m.alternatives ?? [], metric: m.default_metric };
+    images: m.image_path ? [`media:${m.image_path}`] : thumb ? [thumb] : [], video: m.video_url, mine: true, alts: m.alternatives ?? [], metric: m.default_metric,
+    gallery: m.gallery?.length ? m.gallery.map((g) => ({ src: g.path ? `media:${g.path}` : g.url ?? '', caption: g.caption })).filter((g) => g.src) : undefined };
 }
 export function useMyExercises(trainerId: string | undefined) {
   const [mine, setMine] = useState<LibExercise[]>([]);
@@ -35,7 +43,11 @@ export function useMyExercises(trainerId: string | undefined) {
 }
 
 /** Square thumbnail: the exercise's start image, a video frame, or an icon. Shows a play badge when there's a video. */
-export function ExerciseThumb({ img, video, size = 64 }: { img?: string | null; video?: string | null; size?: number }) {
+/** An exercise's picture: its own image, else its demo video's frame, else a placeholder that fits the exercise (leg moves get
+ *  the legs picture, and so on) until a verified video is added */
+export function ExerciseThumb({ img, video, size = 64, ex }: {
+  img?: string | null; video?: string | null; size?: number; ex?: { name: string; category?: string; pattern?: string; primary?: string[]; gear?: string[] } | null;
+}) {
   const p = usePalette();
   const [stored, setStored] = useState<string | null>(null);
   useEffect(() => { if (img?.startsWith('media:')) coverUrl(img.slice(6)).then(setStored); else setStored(null); }, [img]);
@@ -43,6 +55,7 @@ export function ExerciseThumb({ img, video, size = 64 }: { img?: string | null; 
   return (
     <View style={{ width: size, height: size, borderRadius: R.sm, overflow: 'hidden', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
       {src ? <Image source={{ uri: src }} style={{ width: size, height: size }} contentFit="cover" transition={120} accessibilityIgnoresInvertColors />
+        : ex ? <Image source={WORKOUT_IMAGES[exerciseArt(ex)]} style={{ width: size, height: size, opacity: 0.85 }} contentFit="cover" accessibilityIgnoresInvertColors />
         : <Icon name="fitness_center" size={size * 0.42} color={p.muted} />}
       {video ? (
         <View style={{ position: 'absolute', width: size * 0.4, height: size * 0.4, borderRadius: size, backgroundColor: '#000a', alignItems: 'center', justifyContent: 'center' }}>
@@ -90,12 +103,89 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
           ))}
         </View>
       )}
+      {full?.gallery?.length ? <Gallery items={full.gallery} name={ex?.name ?? ''} /> : null}
+      {full?.aliases?.length ? <Txt v="small" style={{ marginBottom: 8 }}>Also called: {full.aliases.join(', ')}</Txt> : null}
       {full && (
         <Txt v="small" style={{ marginBottom: 8 }}>{[full.primary.map(titleCase).join(', '), titleCase(full.equipment), full.level && titleCase(full.level)].filter(Boolean).join(' · ')}</Txt>
       )}
       {full?.secondary.length ? <Txt v="small" style={{ marginBottom: 8 }}>Also works: {full.secondary.map(titleCase).join(', ')}</Txt> : null}
+      {full?.pattern ? <Txt v="small" style={{ marginBottom: 8 }}>{[full.category, full.kind, full.pattern].filter(Boolean).join(' · ')}</Txt> : null}
+      {full?.how && ([['Setup', full.how.setup], ['Movement and return', full.how.move], ['Key cues', full.how.cues]] as const).filter(([, s]) => s).map(([h, s]) => (
+        <View key={h} style={{ marginTop: 8 }}>
+          <Txt v="bold" style={{ fontSize: 15, marginBottom: 4 }}>{h}</Txt>
+          <Txt style={{ marginBottom: 4 }}>{s}</Txt>
+        </View>
+      ))}
       {(full?.steps ?? []).map((s, i) => <Txt key={i} style={{ marginBottom: 8 }}>{full?.mine ? s : `${i + 1}. ${s}`}</Txt>)}
+      {ex?.ref?.startsWith('lib:') && <LibraryActions refId={ex.ref} name={ex.name} />}
     </Sheet>
+  );
+}
+
+/** Report a library exercise for review, or hide it from your own lists */
+function LibraryActions({ refId, name }: { refId: string; name: string }) {
+  const p = usePalette();
+  const toast = useToast();
+  const [hidden, toggleHidden] = useHidden();
+  const [reporting, setReporting] = useState(false);
+  const [kind, setKind] = useState<ReportKind | null>(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [justHid, setJustHid] = useState(false);
+  useEffect(() => { setReporting(false); setKind(null); setNote(''); setJustHid(false); }, [refId]);
+  const isHidden = hidden.has(refId);
+  const send = async () => {
+    if (!kind) return toast('Choose what’s wrong', false);
+    setBusy(true);
+    try { await reportExercise(refId, name, kind, note); toast('Thanks, sent for review'); setReporting(false); setKind(null); setNote(''); }
+    catch (e) { toast(errText(e), false); } finally { setBusy(false); }
+  };
+  return (
+    <View style={{ borderTopWidth: 1, borderTopColor: p.line, marginTop: 16, paddingTop: 12, gap: 10 }}>
+      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+        <Button small kind="ghost" icon="flag" title="Report a problem" onPress={() => setReporting((r) => !r)} />
+        {!isHidden && <Button small kind="quiet" icon="visibility_off" title="Hide from my lists"
+          onPress={() => toggleHidden(refId, true).then(() => setJustHid(true), (e: unknown) => toast(errText(e), false))} />}
+      </View>
+      {isHidden && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.soft, borderRadius: R.md, padding: 10 }}>
+          <Icon name="visibility_off" size={20} color={p.muted} />
+          <Txt v="small" style={{ flex: 1 }}>{justHid ? 'Hidden from your search and swap lists.' : 'You’ve hidden this one.'} Manage hidden exercises in Settings.</Txt>
+          <Button small kind="ghost" icon={justHid ? 'undo' : 'visibility'} title={justHid ? 'Undo' : 'Show again'}
+            onPress={() => toggleHidden(refId, false).then(() => setJustHid(false), (e: unknown) => toast(errText(e), false))} />
+        </View>
+      )}
+      {reporting && (
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {REPORT_KINDS.map(([k, l]) => <Chip key={k} label={l} selected={kind === k} onPress={() => setKind(k)} />)}
+          </View>
+          <Field label="Details" hint="(optional)" value={note} onChangeText={setNote} multiline
+            placeholder={kind === 'redundant' ? 'Which exercise is it the same as?' : 'What’s wrong with it?'} />
+          <Button small title="Send report" busy={busy} onPress={send} style={{ alignSelf: 'flex-start' }} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** Small stills (hand positions, stances…): a row of thumbnails; tap one to see it large with its caption */
+function Gallery({ items, name }: { items: { src: string; caption: string }[]; name: string }) {
+  const p = usePalette();
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <View style={{ marginVertical: 8, gap: 6 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        {items.map((g, i) => (
+          <Pressable key={g.src + i} accessibilityRole="button" accessibilityLabel={g.caption || `${name} picture ${i + 1}`} onPress={() => setOpen(open === i ? null : i)}
+            style={{ width: 72, gap: 2, opacity: open === null || open === i ? 1 : 0.6 }}>
+            <View style={{ width: 72, height: 54, borderRadius: R.sm, overflow: 'hidden', borderWidth: open === i ? 2 : 0, borderColor: p.focus }}><AnyImage src={g.src} label={g.caption} /></View>
+            {g.caption ? <Txt v="small" numberOfLines={2} style={{ fontSize: 11, lineHeight: 14 }}>{g.caption}</Txt> : null}
+          </Pressable>
+        ))}
+      </ScrollView>
+      {open !== null && items[open] && <View style={{ gap: 4 }}><AnyImage src={items[open].src} label={items[open].caption} />{items[open].caption ? <Txt v="small" center>{items[open].caption}</Txt> : null}</View>}
+    </View>
   );
 }
 
@@ -107,7 +197,7 @@ function AnyImage({ src, label }: { src: string; label: string }) {
   return <Image source={url ? { uri: url } : null} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: R.sm, backgroundColor: p.soft }} contentFit="cover" accessibilityLabel={label} />;
 }
 
-type Tab = 'search' | 'part' | 'equipment' | 'recent' | 'favorites' | 'mine';
+type Tab = 'search' | 'part' | 'equipment' | 'recent' | 'favorites' | 'mine' | 'hidden';
 
 /** Exercise search: by name, body part, equipment, recently used, favorites, or the trainer's own. Pick one or many. */
 export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add exercises' }: {
@@ -127,8 +217,13 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   const [recent, setRecent] = useState<string[]>([]);
   const [info, setInfo] = useState<LibExercise | null>(null);
   const [creating, setCreating] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState<MachineRead | null>(null);
+  const [hidden, toggleHidden] = useHidden();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
+    if (!visible) setScanned(null);
     if (!visible || !trainerId) return;
     setPicked([]);
     sb.from('coach_exercise_favorites').select('ref').then(({ data }) => setFavs(new Set((data ?? []).map((r) => r.ref))));
@@ -141,13 +236,23 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
     });
   }, [visible, trainerId]);
 
-  const all = useMemo(() => [...mine, ...builtIn()], [mine]);
+  const all = useMemo(() => [...mine, ...builtIn()], [mine, visible]); // reopening picks up new library additions
+  const typedMachines = useMemo(() => (scanned || tab !== 'search' ? [] : findMachines(q)), [q, tab, scanned]);
+  const scannedMachine = scanned?.id ? MACHINES.find((m) => m.id === scanned.id) : undefined;
+  const fromScan = useMemo(() => (scanned ? machineMatches(scanned, all) : null), [scanned, all]);
   const list = useMemo(() => {
+    if (tab === 'hidden') return search(all.filter((e) => hidden.has(e.ref)), { q });
+    if (fromScan) return fromScan.list.filter((e) => !hidden.has(e.ref));
     if (tab === 'recent') return recent.map((r) => byRef(r, mine)).filter(Boolean).filter((e) => search([e!], { q })[0]) as LibExercise[];
     if (tab === 'favorites') return search(all.filter((e) => favs.has(e.ref)), { q });
     if (tab === 'mine') return search(mine, { q });
     return search(all, { q, part: tab === 'part' ? part : null, equipment: tab === 'equipment' ? equip : null }).slice(0, 300);
-  }, [tab, q, part, equip, all, mine, favs, recent]);
+  }, [tab, q, part, equip, all, mine, favs, recent, fromScan, hidden]);
+  // Search and body-part lists fold equipment versions of a move into one line (tap it to see them)
+  const items = useMemo((): ListItem[] => {
+    const shown = tab === 'hidden' ? list : list.filter((e) => !hidden.has(e.ref));
+    return !fromScan && (tab === 'search' || tab === 'part') ? groupFamilies(shown) : shown.map((e) => ({ kind: 'one', e }));
+  }, [list, hidden, fromScan, tab]);
 
   const toggleFav = async (e: LibExercise) => {
     const on = favs.has(e.ref);
@@ -160,21 +265,84 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
     if (single) { onPick([e]); onClose(); return; }
     setPicked((x) => (x.includes(e.ref) ? x.filter((r) => r !== e.ref) : [...x, e.ref]));
   };
-  const showFilterChips = (tab === 'part' && !part) || (tab === 'equipment' && !equip);
+  /** One exercise line: tap the picture for details, tap the name to pick it */
+  const row = (e: LibExercise, version?: string) => {
+    const on = picked.includes(e.ref);
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: version ? 0 : 1, borderBottomColor: p.line }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${e.name} details`} onPress={() => setInfo(e)}><ExerciseThumb img={e.images[0]} video={e.video} size={version ? 48 : 56} ex={e} /></Pressable>
+        <Pressable accessibilityRole={single ? 'button' : 'checkbox'} accessibilityState={{ checked: on }} onPress={() => choose(e)} style={{ flex: 1, gap: 2 }}>
+          <Txt v="bold">{version ? `${version}: ${e.name}` : e.name}</Txt>
+          {fromScan ? (
+            <>
+              <Txt v="small" numberOfLines={1}>Focus: {e.primary.map(titleCase).join(', ') || 'Full body'}{e.pattern ? ` · ${e.pattern}` : ''}</Txt>
+              {!!e.how?.setup && <Txt v="small" numberOfLines={2} style={{ color: p.muted }}>{e.how.setup.split('. ')[0].replace(/\.$/, '')}.</Txt>}
+            </>
+          ) : <Txt v="small" numberOfLines={1}>{[e.primary.map(titleCase).join(', '), titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>}
+        </Pressable>
+        {tab === 'hidden' ? (
+          <Button small kind="quiet" title="Show" onPress={() => toggleHidden(e.ref, false).catch((x: unknown) => toast(errText(x), false))} />
+        ) : (
+          <Pressable accessibilityRole="button" accessibilityLabel={favs.has(e.ref) ? 'Remove from favorites' : 'Add to favorites'} onPress={() => toggleFav(e)} hitSlop={8}>
+            <Icon name={favs.has(e.ref) ? 'star' : 'star_outline'} size={24} color={favs.has(e.ref) ? p.gold : p.muted} />
+          </Pressable>
+        )}
+        {!single && tab !== 'hidden' && (
+          <Pressable onPress={() => choose(e)} accessibilityLabel={`Select ${e.name}`} hitSlop={8}
+            style={{ width: 26, height: 26, borderRadius: 7, borderWidth: 2, borderColor: on ? p.focus : p.muted, backgroundColor: on ? p.focus : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+            {on && <Icon name="check" size={18} color={p.onAccent} />}
+          </Pressable>
+        )}
+      </View>
+    );
+  };
+  const showFilterChips = !scanned && ((tab === 'part' && !part) || (tab === 'equipment' && !equip));
+  /** Scan a machine: the live scanner on phones, a photo on the web */
+  const scan = async () => {
+    if (Platform.OS !== 'web') { setScanning(true); return; }
+    const r = await scanMachinePhoto(toast);
+    if (r) setScanned(r);
+  };
 
   return (
     <Sheet visible={visible} onClose={onClose} title={title} full>
       <View style={{ paddingHorizontal: 16, gap: 10 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {([['search', 'Search'], ['part', 'Body part'], ['equipment', 'Equipment'], ['recent', 'Recent'], ['favorites', 'Favorites'], ['mine', 'My exercises']] as [Tab, string][])
-            .map(([k, l]) => <Chip key={k} label={l} selected={tab === k} onPress={() => setTab(k)} />)}
+          {([['search', 'Search'], ['part', 'Body part'], ['equipment', 'Equipment'], ['recent', 'Recent'], ['favorites', 'Favorites'], ['mine', 'My exercises'], ...(hidden.size ? [['hidden', `Hidden (${hidden.size})`]] : [])] as [Tab, string][])
+            .map(([k, l]) => <Chip key={k} label={l} selected={!scanned && tab === k} onPress={() => { setScanned(null); setTab(k); }} />)}
         </ScrollView>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.surface, borderWidth: 1.5, borderColor: p.line, borderRadius: R.pill, paddingHorizontal: 14, height: 46 }}>
           <Icon name="search" size={20} color={p.muted} />
-          <TextInput value={q} onChangeText={setQ} placeholder="Search exercises" placeholderTextColor={p.muted} accessibilityLabel="Search exercises"
+          <TextInput value={q} onChangeText={(t) => { setScanned(null); setQ(t); }} placeholder="Search exercises" placeholderTextColor={p.muted} accessibilityLabel="Search exercises"
             autoCorrect={false} style={{ flex: 1, fontFamily: F.body, fontSize: 16, color: p.ink, height: 44 }} />
           {q ? <Pressable accessibilityLabel="Clear search" onPress={() => setQ('')} hitSlop={8}><Icon name="close" size={18} color={p.muted} /></Pressable> : null}
+          <Pressable accessibilityRole="button" accessibilityLabel="Scan a machine" onPress={scan} hitSlop={8}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingLeft: 8, borderLeftWidth: 1, borderLeftColor: p.line }}>
+            <Icon name="photo_camera" size={20} color={p.focus} />
+            <Txt v="small" style={{ color: p.focus, fontFamily: F.bodyBold }}>Scan machine</Txt>
+          </Pressable>
         </View>
+        {typedMachines.length > 0 && (
+          <View style={{ gap: 6 }}>
+            <Txt v="small">Equipment that matches “{q.trim()}”: tap it to see everything you can do on it</Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {typedMachines.map((m) => <Chip key={m.id} label={m.name} onPress={() => setScanned({ id: m.id, machine: m.name, brand: '', gear: [], exercises: [] })} />)}
+            </View>
+          </View>
+        )}
+        {scanned && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Icon name="photo_camera" size={18} color={p.focus} />
+            <Txt v="small" style={{ flex: 1 }} numberOfLines={2}>
+              {scannedMachine ? `${scannedMachine.name}${scanned.brand ? ` (${scanned.brand})` : ''}` : scanned.machine ? `${titleCase(scanned.machine)}${scanned.brand ? ` (${scanned.brand})` : ''}` : 'Scanned equipment'}: everything you can do on it. Tap a picture to watch the demo.
+            </Txt>
+            <Chip label="Clear ✕" selected onPress={() => setScanned(null)} />
+          </View>
+        )}
+        {!!scannedMachine?.note && <Txt v="small">{scannedMachine.note}</Txt>}
+        {!!fromScan?.extra.length && (
+          <Txt v="small">Also done on it (not in the library yet): {fromScan.extra.join(', ')}</Txt>
+        )}
         {tab === 'part' && part && <Chip label={`${BODY_PARTS.find((b) => b.key === part)?.label} ✕`} selected onPress={() => setPart(null)} />}
         {tab === 'equipment' && equip && <Chip label={`${titleCase(equip)} ✕`} selected onPress={() => setEquip(null)} />}
         {tab === 'mine' && <Button small kind="ghost" icon="add" title="Create an exercise" style={{ alignSelf: 'flex-start' }} onPress={() => setCreating(true)} />}
@@ -187,29 +355,35 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
             : EQUIPMENT.map((e) => <Chip key={e} label={titleCase(e)} onPress={() => setEquip(e)} />)}
         </ScrollView>
       ) : (
-        <FlatList data={list} keyExtractor={(e) => e.ref} keyboardShouldPersistTaps="handled" initialNumToRender={14}
+        <FlatList data={items} keyExtractor={(it) => (it.kind === 'one' ? it.e.ref : `fam:${it.key}`)} keyboardShouldPersistTaps="handled" initialNumToRender={14}
           contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
           ListEmptyComponent={<Txt v="small" center style={{ marginTop: 30 }}>
-            {tab === 'favorites' ? 'Tap the star on any exercise to keep it here.' : tab === 'recent' ? 'Exercises you use in workouts show up here.' : tab === 'mine' ? 'Create your own exercises, like your TRX moves, with your own demo videos.' : 'No exercises match.'}
+            {scanned ? 'No library exercises match that machine yet. Try searching by what it works.' : tab === 'hidden' ? 'Nothing hidden.' : tab === 'favorites' ? 'Tap the star on any exercise to keep it here.' : tab === 'recent' ? 'Exercises you use in workouts show up here.' : tab === 'mine' ? 'Create your own exercises, like your TRX moves, with your own demo videos.' : 'No exercises match.'}
           </Txt>}
-          renderItem={({ item: e }) => {
-            const on = picked.includes(e.ref);
+          renderItem={({ item }) => {
+            if (item.kind === 'one') return row(item.e);
+            const open = expanded.has(item.key);
+            const lead = item.members[0].e;
             return (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.line }}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`${e.name} details`} onPress={() => setInfo(e)}><ExerciseThumb img={e.images[0]} video={e.video} size={56} /></Pressable>
-                <Pressable accessibilityRole={single ? 'button' : 'checkbox'} accessibilityState={{ checked: on }} onPress={() => choose(e)} style={{ flex: 1, gap: 2 }}>
-                  <Txt v="bold">{e.name}</Txt>
-                  <Txt v="small" numberOfLines={1}>{[e.primary.map(titleCase).join(', '), titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>
+              <View style={{ borderBottomWidth: 1, borderBottomColor: p.line }}>
+                <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${item.name}, ${item.members.length} versions`}
+                  onPress={() => setExpanded((x) => { const n = new Set(x); if (open) n.delete(item.key); else n.add(item.key); return n; })}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 }}>
+                  <ExerciseThumb img={lead.images[0]} video={lead.video} size={56} ex={lead} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <Txt v="bold">{item.name}</Txt>
+                      <View style={{ backgroundColor: p.soft, borderRadius: R.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                        <Txt v="small" style={{ color: p.focus, fontFamily: F.bodyBold }}>{item.members.length} versions</Txt>
+                      </View>
+                    </View>
+                    <Txt v="small" numberOfLines={2}>{item.members.map((m) => m.version).join(' · ')}</Txt>
+                  </View>
+                  <Icon name={open ? 'expand_less' : 'expand_more'} size={24} color={p.muted} />
                 </Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel={favs.has(e.ref) ? 'Remove from favorites' : 'Add to favorites'} onPress={() => toggleFav(e)} hitSlop={8}>
-                  <Icon name={favs.has(e.ref) ? 'star' : 'star_outline'} size={24} color={favs.has(e.ref) ? p.gold : p.muted} />
-                </Pressable>
-                {!single && (
-                  <Pressable onPress={() => choose(e)} accessibilityLabel={`Select ${e.name}`} hitSlop={8}
-                    style={{ width: 26, height: 26, borderRadius: 7, borderWidth: 2, borderColor: on ? p.focus : p.muted, backgroundColor: on ? p.focus : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                    {on && <Icon name="check" size={18} color={p.onAccent} />}
-                  </Pressable>
-                )}
+                {open && <View style={{ paddingLeft: 18, borderLeftWidth: 2, borderLeftColor: p.focus, marginLeft: 26, marginBottom: 6 }}>
+                  {item.members.map((m) => <View key={m.e.ref}>{row(m.e, m.version)}</View>)}
+                </View>}
               </View>
             );
           }} />
@@ -223,12 +397,12 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
       )}
       <ExerciseInfo ex={info ? { name: info.name, ref: info.ref, img: info.images[0], video: info.video } : null} onClose={() => setInfo(null)} />
       <MyExerciseEditor visible={creating} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />
+      <MachineScanner visible={scanning} onClose={() => setScanning(false)} onFound={setScanned} />
     </Sheet>
   );
 }
 
-const MUSCLE_CHOICES = ['chest', 'shoulders', 'biceps', 'triceps', 'forearms', 'lats', 'middle back', 'lower back', 'traps', 'abdominals', 'obliques',
-  'quadriceps', 'hamstrings', 'glutes', 'calves', 'adductors', 'abductors', 'hip flexors', 'neck', 'full body'];
+const MUSCLE_CHOICES = MUSCLES;
 
 /** Create or edit one of the trainer's own exercises: details, muscles, equipment, demo video and image, and alternatives. */
 export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visible: boolean; onClose: () => void; onSaved: () => void; initial?: MyExercise }) {
@@ -237,7 +411,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
   const app = useApp();
   const { mine } = useMyExercises(app.trainer?.user_id);
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('strength');
+  const [category, setCategory] = useState('Bodyweight');
   const [metric, setMetric] = useState<SetMetric>('reps');
   const [steps, setSteps] = useState('');
   const [main, setMain] = useState<string | null>(null);
@@ -248,15 +422,21 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
   const [alts, setAlts] = useState<string[]>([]);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [suggest, setSuggest] = useState(false);
+  const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [review, setReview] = useState<Review | null>(null);
+  const [appeal, setAppeal] = useState('');
   useEffect(() => {
     if (!visible) return;
-    setName(initial?.name ?? ''); setCategory(initial?.category ?? 'strength'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
+    setSuggest(false); setSavedId(null); setReview(null); setAppeal(''); setGallery(initial?.gallery ?? []);
+    setName(initial?.name ?? ''); setCategory(initial?.category ?? 'Bodyweight'); setMetric(initial?.default_metric ?? 'reps'); setSteps(initial?.instructions ?? '');
     setMain(initial?.muscles[0] ?? null); setOther(initial?.secondary_muscles ?? []); setEquipment(initial?.equipment ?? []);
     setVideo(initial?.video_url ?? ''); setImage(initial?.image_path ?? null); setAlts(initial?.alternatives ?? []);
   }, [visible, initial]);
   const tid = app.trainer?.user_id;
 
-  const uploadMedia = async (kind: 'video' | 'image') => {
+  const uploadMedia = async (kind: 'video' | 'image' | 'gallery') => {
     setBusy(kind);
     try {
       const res = await ImagePicker.launchImageLibraryAsync(kind === 'video' ? { mediaTypes: ['videos'], videoMaxDuration: 180, quality: 1 } : { mediaTypes: ['images'], quality: 0.85, allowsEditing: true, aspect: [4, 3] });
@@ -268,7 +448,7 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
       const bytes = Platform.OS === 'web' ? await (await fetch(a.uri)).arrayBuffer() : await new (await import('expo-file-system')).File(a.uri).arrayBuffer();
       const { error } = await sb.storage.from(MEDIA).upload(path, bytes, { contentType: a.mimeType ?? (kind === 'video' ? 'video/mp4' : 'image/jpeg') });
       if (error) throw error;
-      if (kind === 'video') setVideo(path); else setImage(path);
+      if (kind === 'video') setVideo(path); else if (kind === 'gallery') setGallery((g) => [...g, { path, caption: '' }].slice(0, 8)); else setImage(path);
       toast(kind === 'video' ? 'Video uploaded' : 'Image uploaded');
     } catch (e) { toast(errText(e), false); } finally { setBusy(null); }
   };
@@ -277,11 +457,28 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
     if (video && isLink(video) && !/^https:\/\//i.test(video)) return toast('Use an https link for the video', false);
     setBusy('save');
     const row = { trainer_id: tid, name: name.trim(), category, default_metric: metric, instructions: steps.trim() || null,
-      muscles: main ? [main] : [], secondary_muscles: other.filter((m) => m !== main), equipment, video_url: video.trim() || null, image_path: image, alternatives: alts };
-    const { error } = initial ? await sb.from('coach_exercises').update(row).eq('id', initial.id) : await sb.from('coach_exercises').insert(row);
-    setBusy(null);
-    if (error) return toast(errText(error), false);
-    toast('Exercise saved'); onSaved();
+      muscles: main ? [main] : [], secondary_muscles: other.filter((m) => m !== main), equipment, video_url: video.trim() || null, image_path: image, alternatives: alts,
+      gallery: gallery.map((g) => ({ ...g, caption: g.caption.trim().slice(0, 80) })) };
+    // Saving again after the library feedback updates the same exercise
+    const id = initial?.id ?? savedId;
+    const res = id ? await sb.from('coach_exercises').update(row).eq('id', id).select('id').single() : await sb.from('coach_exercises').insert(row).select('id').single();
+    if (res.error) { setBusy(null); return toast(errText(res.error), false); }
+    setSavedId(res.data.id as string);
+    if (!suggest) { setBusy(null); toast('Exercise saved'); onSaved(); return; }
+    // Also suggested for the shared library: the AI review answers straight away
+    try {
+      const r = await suggestExercise({ name: row.name, category, gear: equipment, main: main ? [main] : [], other: row.secondary_muscles, description: steps.trim(),
+        video: isLink(video) ? video.trim() : undefined });
+      if (r.outcome === 'needs_detail' || r.outcome === 'rejected') { setReview(r); setBusy(null); toast('Saved for you. See the library feedback below', false); return; }
+      toast(`Exercise saved. ${reviewText(r)}`);
+    } catch (e) { toast(`Exercise saved, but the suggestion couldn’t be sent: ${errText(e)}`, false); }
+    setBusy(null); onSaved();
+  };
+  const escalate = async () => {
+    if (!review?.id) return;
+    setBusy('appeal');
+    try { await escalateSuggestion(review.id, appeal.trim()); toast('Sent to the Dragonfly team. Your exercise is yours to use meanwhile.'); setBusy(null); onSaved(); }
+    catch (e) { setBusy(null); const m = errText(e); toast(m.includes('explain_more') ? 'Say a little more about why it needs a person' : m.includes('escalation_limit') ? 'That’s 10 today. Try again tomorrow.' : m, false); }
   };
   const chips = (list: string[], on: (m: string) => boolean, tap: (m: string) => void) => (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>{list.map((m) => <Chip key={m} label={titleCase(m)} selected={on(m)} onPress={() => tap(m)} />)}</View>
@@ -316,6 +513,16 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
         {image && <Button small kind="quiet" title="Remove" onPress={() => setImage(null)} />}
       </View>
 
+      <Txt v="bold" style={{ fontSize: 15 }}>Picture gallery</Txt>
+      <Txt v="small" style={{ marginBottom: 8 }}>Optional stills for things the video can't show up close: hand positions, stances, setup. Up to 8.</Txt>
+      {gallery.map((g, i) => (
+        <View key={(g.path ?? g.url ?? '') + i} style={{ flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+          <ExerciseThumb img={g.path ? `media:${g.path}` : g.url ?? null} size={56} />
+          <View style={{ flex: 1 }}><Field label="Caption" value={g.caption} onChangeText={(t) => setGallery((x) => x.map((y, n) => (n === i ? { ...y, caption: t } : y)))} placeholder="Neutral grip, thumbs up" /></View>
+          <Button small kind="quiet" title="Remove" onPress={() => setGallery((x) => x.filter((_, n) => n !== i))} />
+        </View>
+      ))}
+      <Button small kind="ghost" icon="photo_library" title="Add a picture" disabled={gallery.length >= 8} busy={busy === 'gallery'} style={{ alignSelf: 'flex-start', marginBottom: 20 }} onPress={() => uploadMedia('gallery')} />
       <Txt v="bold" style={{ fontSize: 15 }}>Alternatives</Txt>
       <Txt v="small" style={{ marginBottom: 8 }}>Clients can swap to one of these during a workout (no equipment, a sore joint, a busy gym).</Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
@@ -323,6 +530,17 @@ export function MyExerciseEditor({ visible, onClose, onSaved, initial }: { visib
       </View>
       <Button small kind="ghost" icon="add" title="Select alternative exercises" disabled={alts.length >= 12} style={{ alignSelf: 'flex-start', marginBottom: 20 }} onPress={() => setPicking(true)} />
       <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingTop: 16 }}>
+        <Toggle label="Suggest it for the Dragonfly library" value={suggest} onChange={setSuggest}
+          sub="Your exercise is yours to use with clients either way. A suggestion is checked against the library, then reviewed by the Dragonfly team: an exercise we already have can get your name as a search name; a new, well-described variation can be added for everyone." />
+        {review && (
+          <View style={{ borderLeftWidth: 3, borderLeftColor: p.gold, paddingLeft: 12, marginVertical: 10, gap: 8 }}>
+            <Txt v="bold">{review.outcome === 'rejected' ? 'Not added to the library' : 'Almost: the library needs a bit more'}</Txt>
+            <Txt>{review.reason}</Txt>
+            <Txt v="small">Edit above and save again to resubmit. If the review is wrong and editing can't fix it, ask a person:</Txt>
+            <Field label="What should the Dragonfly team know?" value={appeal} onChangeText={setAppeal} multiline placeholder="Why it's different, or why the review got it wrong" />
+            <Button small kind="ghost" icon="support_agent" title="Ask a person to review" busy={busy === 'appeal'} disabled={appeal.trim().length < 10} onPress={escalate} style={{ alignSelf: 'flex-start' }} />
+          </View>
+        )}
         <Button title="Save exercise" busy={busy === 'save'} onPress={save} style={{ alignSelf: 'flex-start' }} />
       </View>
       <ExercisePicker visible={picking} title="Select alternatives" onClose={() => setPicking(false)}
