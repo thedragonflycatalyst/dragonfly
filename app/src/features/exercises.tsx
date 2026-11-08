@@ -20,6 +20,8 @@ import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
 import { escalateSuggestion, REPORT_KINDS, reportExercise, reviewText, suggestExercise, useHidden, type ReportKind, type Review } from './library-extras';
 import { MachineScanner, scanMachinePhoto } from './machine-scan';
+import { hush, readAloud } from './lapis/audio';
+import { clips, spokenText } from '@/lib/read-aloud';
 
 const MEDIA = 'coach-media';
 
@@ -110,6 +112,7 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
       )}
       {full?.secondary.length ? <Txt v="small" style={{ marginBottom: 8 }}>Also works: {full.secondary.map(titleCase).join(', ')}</Txt> : null}
       {full?.pattern ? <Txt v="small" style={{ marginBottom: 8 }}>{[full.category, full.kind, full.pattern].filter(Boolean).join(' · ')}</Txt> : null}
+      {full && <ReadAloud key={full.ref} ex={full} />}
       {full?.how && ([['Setup', full.how.setup], ['Movement and return', full.how.move], ['Key cues', full.how.cues]] as const).filter(([, s]) => s).map(([h, s]) => (
         <View key={h} style={{ marginTop: 8 }}>
           <Txt v="bold" style={{ fontSize: 15, marginBottom: 4 }}>{h}</Txt>
@@ -119,6 +122,27 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
       {(full?.steps ?? []).map((s, i) => <Txt key={i} style={{ marginBottom: 8 }}>{full?.mine ? s : `${i + 1}. ${s}`}</Txt>)}
       {ex?.ref?.startsWith('lib:') && <LibraryActions refId={ex.ref} name={ex.name} />}
     </Sheet>
+  );
+}
+
+/** Speaker button before the how-to: the Lapis voice (Connor by default) reads the form cues over the person's music */
+function ReadAloud({ ex }: { ex: LibExercise }) {
+  const p = usePalette();
+  const pieces = useMemo(() => clips(spokenText(ex)), [ex]);
+  const [on, setOn] = useState(false);
+  useEffect(() => () => hush(), []);
+  if (!pieces.length) return null;
+  const toggle = () => {
+    if (on) { hush(); setOn(false); return; }
+    setOn(true);
+    void readAloud(pieces).finally(() => setOn(false));
+  };
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={on ? 'Stop reading' : `Read the ${ex.name} instructions aloud`} onPress={toggle} hitSlop={8}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 8, paddingVertical: 4 }}>
+      <Icon name={on ? 'stop_circle' : 'volume_up'} size={22} color={p.focus} />
+      <Txt v="small" style={{ color: p.focus }}>{on ? 'Stop' : 'Listen'}</Txt>
+    </Pressable>
   );
 }
 
