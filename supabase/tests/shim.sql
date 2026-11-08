@@ -22,3 +22,21 @@ create table public.dragonfly_profiles (
 
 create schema extensions;
 create extension if not exists pgcrypto with schema extensions;
+
+-- Stand-ins for Supabase Vault, pg_cron and pg_net (platform extensions plain Postgres lacks). Enough for migrations that
+-- store a secret and schedule a job to apply; nothing runs on a schedule and no request is sent in tests.
+create schema vault;
+create table vault.secrets (id uuid primary key default gen_random_uuid(), name text unique, secret text not null, description text);
+create view vault.decrypted_secrets as select id, name, secret as decrypted_secret, description from vault.secrets;
+create function vault.create_secret(new_secret text, new_name text default null, new_description text default '') returns uuid
+language sql as $$ insert into vault.secrets (secret, name, description) values (new_secret, new_name, new_description) returning id $$;
+create schema cron;
+create table cron.job (jobid bigserial primary key, jobname text unique, schedule text not null, command text not null);
+create function cron.schedule(job_name text, schedule text, command text) returns bigint
+language sql as $$ insert into cron.job (jobname, schedule, command) values (job_name, schedule, command)
+  on conflict (jobname) do update set schedule = excluded.schedule, command = excluded.command returning jobid $$;
+create function cron.unschedule(job_name text) returns boolean
+language sql as $$ with d as (delete from cron.job where jobname = job_name returning 1) select exists (select 1 from d) $$;
+create schema net;
+create function net.http_post(url text, body jsonb default '{}'::jsonb, params jsonb default '{}'::jsonb, headers jsonb default '{}'::jsonb, timeout_milliseconds int default 5000) returns bigint
+language sql as $$ select 0::bigint $$;

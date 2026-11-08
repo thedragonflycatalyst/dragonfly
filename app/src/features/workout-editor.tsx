@@ -4,7 +4,7 @@ import { Pressable, TextInput, View } from 'react-native';
 import { ActionMenu } from '@/components/sheet';
 import { Button, Card, Field, Icon, Txt } from '@/components/ui';
 import type { ExerciseBlock, SetMetric, SetSpec, WorkoutBlock } from '@/lib/model';
-import type { LibExercise } from '@/lib/library';
+import { byRef, type LibExercise } from '@/lib/library';
 import { addSet, fmtSeconds, linkNext, move, newBlock, normalizeGroups, parseSeconds, refOf, removeSet, supersetLabels, unlink } from '@/lib/workouts';
 import { F, R, usePalette } from '@/lib/theme';
 import { ExerciseInfo, ExercisePicker, ExerciseThumb } from './exercises';
@@ -58,7 +58,7 @@ export function BlocksEditor({ blocks, onChange, weightUnit }: { blocks: Workout
             {label ? <View style={{ width: 6, borderRadius: 3, backgroundColor: p.focus, marginBottom: joinedBelow ? -12 : 0 }} /> : null}
             <Card style={{ flex: 1, gap: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`${b.ex.name} details`} onPress={() => setInfo(b)}><ExerciseThumb img={b.ex.img} video={b.ex.video} size={64} /></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={`${b.ex.name} details`} onPress={() => setInfo(b)}><ExerciseThumb img={b.ex.img} video={b.ex.video} size={64} ex={byRef(`${b.ex.src}:${b.ex.id}`) ?? { name: b.ex.name }} /></Pressable>
                 <View style={{ flex: 1 }}>
                   {label ? <Txt v="kicker" color={p.focus}>Superset {label}</Txt> : null}
                   <Txt v="h3">{b.ex.name}</Txt>

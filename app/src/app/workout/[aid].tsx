@@ -15,6 +15,7 @@ import { weightUnit } from '@/lib/units';
 import { setLine } from '@/lib/history';
 import { fmtSeconds, volume } from '@/lib/workouts';
 import { MAX_W, usePalette } from '@/lib/theme';
+import { byRef } from '@/lib/library';
 
 const planned = (b: ExerciseBlock, i: number, unit: string) => {
   const s = b.sets[i];
@@ -91,7 +92,7 @@ export default function AssignmentScreen() {
             return (
               <Card key={b.id} style={{ gap: 8 }}>
                 <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                  <ExerciseThumb img={b.ex.img} video={b.ex.video} size={52} />
+                  <ExerciseThumb img={b.ex.img} video={b.ex.video} size={52} ex={byRef(`${b.ex.src}:${b.ex.id}`) ?? { name: b.ex.name }} />
                   <Txt v="h3" style={{ flex: 1 }}>{b.ex.name}</Txt>
                 </View>
                 {b.note ? <Txt v="small">{b.note}</Txt> : null}
