@@ -10,9 +10,10 @@ import { ExerciseInfo, ExerciseThumb, useMyExercises } from '@/features/exercise
 import { CUE_LINES, hush, say } from '@/features/lapis/audio';
 import { warm } from '@/features/lapis/clips';
 import { useLapisPrefs } from '@/features/lapis/prefs';
-import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
+import { RestBar, SetTimer, useRest, clearOtherWorkoutRestReminders } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
-import { lapisReminderKey } from '@/features/lapis/background';
+import { lapisReminderKey, activateLapisReminderSession, releaseLapisReminderSession } from '@/features/lapis/background';
+import { claimWorkoutSession, isWorkoutSessionOwner, releaseWorkoutSession } from '@/features/lapis/workout-session-lease';
 import { patchDraftClock, patchDraftTimedSetClock, patchDraftRestClock } from '@/features/lapis/navigation-recovery';
 import type { RestClock } from '@/features/lapis/rest-clock';
 import type { TimedSetClock } from '@/features/lapis/timed-set-clock';
@@ -48,6 +49,31 @@ export default function Session() {
   const { aid, workout } = useLocalSearchParams<{ aid?: string; workout?: string }>();
   const screenFocused = useIsFocused();
   const key = aid ? `a:${aid}` : `w:${workout}`;
+  const sessionId = `${app.user?.id ?? 'unknown'}:${key}`;
+  const leaseToken = useRef(Crypto.randomUUID());
+  const [ownsSession, setOwnsSession] = useState(false);
+  useEffect(() => {
+    const token = leaseToken.current;
+    if (!screenFocused) {
+      if (releaseWorkoutSession(token)) {
+        releaseLapisReminderSession(sessionId);
+        hush();
+      }
+      setOwnsSession(false);
+      return;
+    }
+    claimWorkoutSession(token, sessionId);
+    setOwnsSession(true);
+    void activateLapisReminderSession(sessionId);
+    void clearOtherWorkoutRestReminders(sessionId);
+    return () => {
+      if (releaseWorkoutSession(token)) {
+        releaseLapisReminderSession(sessionId);
+        hush();
+      }
+    };
+  }, [screenFocused, sessionId]);
+  const activeScreen = screenFocused && ownsSession && isWorkoutSessionOwner(leaseToken.current);
   const unit = weightUnit(app.units);
   const [src, setSrc] = useState<Source | null | undefined>(undefined);
   const [readyKey, setReadyKey] = useState<string | null>(null);
@@ -79,11 +105,11 @@ export default function Session() {
   const [manualTime, setManualTime] = useState<Record<string, boolean>>({});
   const [autoGo, setAutoGo] = useState<{ key: string; n: number } | null>(null);
   const [restSnapshot, setRestSnapshot] = useState<RestClock | null>(null);
-  const rest = useRest(
+  const rest = useRest(sessionId,
     (nextSetKey) => {
       // A rest that expired while another screen or the OS was foregrounded
       // must not surprise-start a timed exercise on return.
-      if (screenFocused && AppState.currentState === 'active')
+      if (activeScreen && AppState.currentState === 'active')
         setAutoGo({ key: nextSetKey, n: Date.now() });
     },
     (snapshot) => {
@@ -186,15 +212,14 @@ export default function Session() {
     activateKeepAwakeAsync('workout').catch(() => {});
     return () => { deactivateKeepAwake('workout').catch(() => {}); };
   }, [lapis.keepAwake]);
-  useEffect(() => () => hush(), []);
+  // Audio cleanup happens only when this workout releases its lease.
   // Route changes pause the rest countdown and silence current cues. The
   // unfinished workout draft remains available on return.
   useEffect(() => {
-    if (screenFocused) return;
+    if (activeScreen) return;
     rest.pause();
-    hush();
     setActiveSetTimerKey(null);
-  }, [screenFocused]);
+  }, [activeScreen]);
   // This client's past workouts, for last time's numbers and notes
   useEffect(() => {
     if (!clientId) { setPast([]); return; }
@@ -239,6 +264,7 @@ export default function Session() {
   const done = setsDone(log), total = setsTotal(log);
   /** Tick a set off: mark it done and start the Lapis rest from its rest box */
   const tick = (bi: number, si: number, s: SetLog, patch: Partial<SetLog>) => {
+    if (!activeScreen) return;
     setSet(bi, si, { ...patch, done: true });
     if (!lapis.autoRest || activeTimerId !== null) return;
     const e = log[bi];
@@ -251,7 +277,7 @@ export default function Session() {
   const clearDraft = () => { try { clearMatchingDraft(storage, workoutDraftSlot(key), key); } catch { /* nothing to clear */ } };
   const timersActive = activeWorkoutTimers(runnerClocks, timedSetClocks, activeTimerId, activeSetTimerKey);
   const save = async () => {
-    if (saveInFlight.current || !app.user) return;
+    if (saveInFlight.current || !app.user || !activeScreen) return;
     if (activeWorkoutTimers(runnerClocks, timedSetClocks, activeTimerId, activeSetTimerKey))
       return toast('Pause or finish all active timers before saving the workout', false);
     if (!done && !timerResults.length) return toast('Complete an exercise set or Lapis timer first', false);
@@ -349,12 +375,13 @@ export default function Session() {
             if (b.kind !== 'timed') return null;
             const savedTimer = linkedTimers[b.id] ?? null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer} reminderKey={lapisReminderKey(`${app.user?.id ?? 'unknown'}:${key}`, b.id)}
-                  screenFocused={screenFocused}
+              ? <LinkedLapisRunner key={b.id} timer={savedTimer} reminderKey={lapisReminderKey(sessionId, b.id)}
+                  screenFocused={activeScreen}
+                  canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                   initialClock={runnerClocks[b.id]}
                   blocked={!canStartLinkedTimer({ linked: activeTimerId, timedSet: activeSetTimerKey }, b.id)}
                   onClockChange={(clock) => {
-                    if (!screenFocused) {
+                    if (!activeScreen) {
                       try {
                         const serialized = patchDraftClock(
                           loadWorkoutDraft(storage, key), key, b.id, clock,
@@ -442,10 +469,11 @@ export default function Session() {
                         const k = `${bi}:${si}:${side ?? '-'}`;
                         return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
                           blocked={!canStartTimedSet({ linked: activeTimerId, timedSet: activeSetTimerKey }, k)}
-                          screenFocused={screenFocused}
+                          screenFocused={activeScreen}
+                          canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                           initialClock={timedSetClocks[k]}
                           onClockChange={(next) => {
-                            if (!screenFocused) {
+                            if (!activeScreen) {
                               try {
                                 const serialized = patchDraftTimedSetClock(
                                   loadWorkoutDraft(storage, key), key, k, next,
@@ -522,8 +550,9 @@ export default function Session() {
       </ScrollView>
 
       <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16, alignItems: 'center', gap: 10 }} pointerEvents="box-none">
-        <RestBar t={rest} blocked={!canResumeRest({ linked: activeTimerId, timedSet: activeSetTimerKey })} />
+        <RestBar t={rest} blocked={!activeScreen || !canResumeRest({ linked: activeTimerId, timedSet: activeSetTimerKey })} />
         <Button kind="accent" title="Finish workout" icon="check" onPress={() => {
+          if (!activeScreen) return;
           if (timersActive) return toast('Pause or finish active timers before completing this workout', false);
           if (done || timerResults.length) setFinishing(true);
           else toast('Complete an exercise set or Lapis timer first', false);

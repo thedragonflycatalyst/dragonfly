@@ -1,3 +1,4 @@
+import { canScheduleWorkoutNotification } from './workout-session-lease';
 import { Platform } from 'react-native';
 
 /** Session-scoped native completion reminders.
@@ -7,6 +8,7 @@ import { Platform } from 'react-native';
 const queues = new Map<string, Promise<void>>();
 const known = new Map<string, string>();
 const PREFIX = 'lapis-linked:';
+let activeReminderSession: string | null = null;
 
 function enqueue(key: string, work: () => Promise<void>): Promise<void> {
   const previous = queues.get(key) ?? Promise.resolve();
@@ -42,7 +44,9 @@ export async function reconcileLapisCompletion(key: string, secondsLeft: number 
   if (!key || !key.startsWith(PREFIX)) return;
   await enqueue(key, async () => {
     await cancelExisting(key);
-    if (secondsLeft === null || !Number.isFinite(secondsLeft) || secondsLeft <= 0) return;
+    if (secondsLeft === null || !Number.isFinite(secondsLeft) || secondsLeft <= 0 ||
+        !activeReminderSession || !key.startsWith(PREFIX + encodeURIComponent(activeReminderSession) + ':') ||
+        !canScheduleWorkoutNotification(activeReminderSession)) return;
     const N = await notifications();
     if (!N) return;
     try {
@@ -56,6 +60,8 @@ export async function reconcileLapisCompletion(key: string, secondsLeft: number 
           vibrationPattern: [0, 250, 120, 250],
         });
       }
+      if (!activeReminderSession || !key.startsWith(PREFIX + encodeURIComponent(activeReminderSession) + ':') ||
+          !canScheduleWorkoutNotification(activeReminderSession)) return;
       const id = await N.scheduleNotificationAsync({
         content: {
           title: 'Lapis timer finished',
@@ -69,6 +75,11 @@ export async function reconcileLapisCompletion(key: string, secondsLeft: number 
           ...(Platform.OS === 'android' ? { channelId: 'lapis-complete' } : {}),
         },
       });
+      if (!activeReminderSession || !key.startsWith(PREFIX + encodeURIComponent(activeReminderSession) + ':') ||
+          !canScheduleWorkoutNotification(activeReminderSession)) {
+        await N.cancelScheduledNotificationAsync(id).catch(() => {});
+        return;
+      }
       known.set(key, id);
     } catch { /* foreground clock remains authoritative */ }
   });
@@ -79,4 +90,27 @@ export async function clearLapisCompletion(key: string) {
 }
 export function lapisReminderKey(sessionId: string, blockId: string): string {
   return PREFIX + encodeURIComponent(sessionId) + ':' + encodeURIComponent(blockId);
+}
+
+/** Claim only one workout's native linked reminders. Cleanup is strictly
+ * scoped to our own timer tags, never unrelated application notifications.
+ */
+export async function activateLapisReminderSession(sessionId: string): Promise<void> {
+  if (!canScheduleWorkoutNotification(sessionId)) return;
+  activeReminderSession = sessionId;
+  const N = await notifications();
+  if (!N) return;
+  try {
+    for (const item of await N.getAllScheduledNotificationsAsync()) {
+      if (!canScheduleWorkoutNotification(sessionId)) return;
+      const key = item.content.data?.lapisTimerKey;
+      if (typeof key === 'string' && key.startsWith(PREFIX) &&
+          !key.startsWith(PREFIX + encodeURIComponent(sessionId) + ':')) {
+        await N.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+      }
+    }
+  } catch { /* some platforms disallow notification enumeration */ }
+}
+export function releaseLapisReminderSession(sessionId: string): void {
+  if (activeReminderSession === sessionId) activeReminderSession = null;
 }

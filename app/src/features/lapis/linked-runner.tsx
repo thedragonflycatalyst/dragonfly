@@ -19,7 +19,7 @@ import { pauseForNavigation } from './navigation-recovery';
  * React Native resumes. This does not promise continuous background audio.
  */
 export function LinkedLapisRunner({
-  timer, reminderKey, onComplete, onReset, onStart, onPause, blocked = false, screenFocused = true, initialClock, onClockChange,
+  timer, reminderKey, onComplete, onReset, onStart, onPause, blocked = false, screenFocused = true, canCue, initialClock, onClockChange,
 }: {
   timer: LapisTimer;
   reminderKey: string;
@@ -29,6 +29,7 @@ export function LinkedLapisRunner({
   onPause?: () => void;
   blocked?: boolean;
   screenFocused?: boolean;
+  canCue?: () => boolean;
   initialClock?: RunnerClock;
   onClockChange?: (clock: RunnerClock) => void;
 }) {
@@ -88,13 +89,13 @@ export function LinkedLapisRunner({
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       foreground.current = state === 'active';
-      if (state !== 'active' && clock.since !== null && !blocked) hush();
+      if (state !== 'active' && clock.since !== null && !blocked && screenFocused && (canCue?.() ?? true)) hush();
       // On wake, reconcile elapsed time immediately; don't replay missed cues.
       lastCuePosition.current = null;
       setNow(Date.now());
     });
     return () => subscription.remove();
-  }, [clock.since, blocked]);
+  }, [clock.since, blocked, screenFocused, canCue]);
 
   useEffect(() => {
     if (since == null) return;
@@ -103,7 +104,7 @@ export function LinkedLapisRunner({
   }, [since]);
 
   useEffect(() => {
-    if (since == null || muted || blocked || !screenFocused || !hasStarted) return;
+    if (since == null || muted || blocked || !screenFocused || !(canCue?.() ?? true) || !hasStarted) return;
     const previous = lastPhase.current;
     const fresh = explicitlyStarted.current;
     lastPhase.current = phaseIndex;
@@ -126,7 +127,7 @@ export function LinkedLapisRunner({
   // Only announce cues crossed during foreground playback. Reopening a
   // suspended app must not replay a burst of overdue announcements.
   useEffect(() => {
-    if (since == null || muted || blocked || !screenFocused || !foreground.current) { lastCuePosition.current = elapsed; return; }
+    if (since == null || muted || blocked || !screenFocused || !(canCue?.() ?? true) || !foreground.current) { lastCuePosition.current = elapsed; return; }
     const before = lastCuePosition.current ?? elapsed;
     lastCuePosition.current = elapsed;
     const cues = cuesCrossed(spokenCues, before, elapsed);
@@ -153,12 +154,12 @@ export function LinkedLapisRunner({
   }, [done, clock.since, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
 
   const pause = () => {
-    hush();
+    if (canCue?.() ?? true) hush();
     setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
     onPause?.();
   };
   const start = () => {
-    if (blocked || !screenFocused) return;
+    if (blocked || !screenFocused || !(canCue?.() ?? true)) return;
     onStart?.(!hasStarted || state.finished); // Resume only claims ownership; a new run invalidates old results.
     if (!hasStarted || state.finished) { lastCuePosition.current = -0.01; explicitlyStarted.current = true; }
     if (state.finished) { lastPhase.current = null; reported.current = false; }
@@ -167,14 +168,14 @@ export function LinkedLapisRunner({
     setClock((old) => startClock(old, tick, timeline.totalSeconds));
   };
   const reset = () => {
-    if (clock.since !== null) hush();
+    if (clock.since !== null && (canCue?.() ?? true)) hush();
     setClock(freshClock()); setNow(Date.now());
     reported.current = false; lastPhase.current = null; lastCuePosition.current = null; explicitlyStarted.current = false;
     onPause?.();
     onReset?.();
   };
   const skip = () => {
-    if (!state.phase) return;
+    if (!state.phase || !(canCue?.() ?? true)) return;
     hush();
     const tick = Date.now();
     setClock((old) => skipClock(old, tick, state.phase!.endAt));
