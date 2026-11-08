@@ -13,7 +13,8 @@ import { useLapisPrefs } from '@/features/lapis/prefs';
 import { RestBar, SetTimer, useRest } from '@/features/lapis/timers';
 import { LinkedLapisRunner } from '@/features/lapis/linked-runner';
 import { lapisReminderKey } from '@/features/lapis/background';
-import { patchDraftClock } from '@/features/lapis/navigation-recovery';
+import { patchDraftClock, patchDraftTimedSetClock } from '@/features/lapis/navigation-recovery';
+import type { TimedSetClock } from '@/features/lapis/timed-set-clock';
 import { lapisTimerSeconds, parseLapisTimer, type LapisTimer } from '@/features/lapis/library';
 import type { RunnerClock } from '@/features/lapis/runner-clock';
 import { activeLinkedTimer, matchesPendingAssignment } from '@/features/lapis/integration-guards';
@@ -62,6 +63,7 @@ export default function Session() {
   const [runnerClocks, setRunnerClocks] = useState<Record<string, RunnerClock>>({});
   const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
   const [activeSetTimerKey, setActiveSetTimerKey] = useState<string | null>(null);
+  const [timedSetClocks, setTimedSetClocks] = useState<Record<string, TimedSetClock>>({});
   const [started, setStarted] = useState(Date.now());
   const [clientId, setClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -99,13 +101,14 @@ export default function Session() {
       }
       if (s?.assignment?.status === 'done') { setSrc(s); return; }
       const d = readDraft((k) => storage.getItem(k));
-      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {});
+      if (s && d?.key === key) { setLog(d.log); setTimerResults(d.timerResults ?? []); setRunnerClocks(d.runnerClocks ?? {}); setTimedSetClocks(d.timedSetClocks ?? {});
         setActiveTimerId(activeLinkedTimer(d.runnerClocks ?? {}, s.blocks.filter((b) => b.kind === 'timed').map((b) => b.id)));
         setPendingAssignmentId(d.pendingAssignmentId ?? null); setStarted(d.started); if (d.client_id) setClientId(d.client_id); }
       else if (s) {
         setLog(startLog(s.blocks, unit));
         setTimerResults([]);
         setRunnerClocks({});
+        setTimedSetClocks({});
         setActiveTimerId(null);
         setActiveSetTimerKey(null);
         setPendingAssignmentId(null);
@@ -118,9 +121,9 @@ export default function Session() {
   // Keep the draft on the device after every change
   useEffect(() => {
     if (!src || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
-    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, pendingAssignmentId };
+    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, pendingAssignmentId };
     try { storage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch { /* storage full or blocked: keep going without a draft */ }
-  }, [log, timerResults, runnerClocks, pendingAssignmentId, clientId, src, key, aid, workout, started]);
+  }, [log, timerResults, runnerClocks, timedSetClocks, pendingAssignmentId, clientId, src, key, aid, workout, started]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
@@ -207,7 +210,7 @@ export default function Session() {
         assignmentId = Crypto.randomUUID();
         const draft: Draft = {
           key, title: src.title, params: aid ? { aid } : { workout: workout! },
-          client_id: clientId, started, log, timerResults, runnerClocks,
+          client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks,
           pendingAssignmentId: assignmentId,
         };
         // Fail closed: without a persisted ID we cannot safely retry after
@@ -380,6 +383,18 @@ export default function Session() {
                         return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
                           blocked={!canStartTimedSet({ linked: activeTimerId, timedSet: activeSetTimerKey }, k)}
                           screenFocused={screenFocused}
+                          initialClock={timedSetClocks[k]}
+                          onClockChange={(next) => {
+                            if (!screenFocused) {
+                              try {
+                                const serialized = patchDraftTimedSetClock(
+                                  readDraft((keyName) => storage.getItem(keyName)), key, k, next,
+                                );
+                                if (serialized) storage.setItem(DRAFT_KEY, serialized);
+                              } catch { /* keep in-memory progress */ }
+                            }
+                            setTimedSetClocks((prior) => ({ ...prior, [k]: next }));
+                          }}
                           onRunningChange={(running) => {
                             if (running) rest.pause();
                             setActiveSetTimerKey((current) => running ? k : current === k ? null : current);
