@@ -358,6 +358,44 @@ export function parseCsv(text: string, fallback: BodyUnit = 'lb'): { rows: Impor
   return { rows, skipped };
 }
 
+/** Preview a CSV import without replacing any existing weight, note, source or measurement.
+ *  Exact timestamps are the collision key, matching the database uniqueness constraint.
+ *  Repeated rows inside one file are coalesced, keeping the first weight and first value
+ *  of every measurement so a malformed export cannot silently replace values.
+ */
+export type ImportPlan = {
+  inserts: Imported[];
+  enrichments: { id: string; metrics: Weighin['metrics'] }[];
+  unchanged: number;
+  conflictingWeights: number;
+  duplicateRows: number;
+};
+export function planCsvImport(rows: Imported[], existing: Pick<Weighin, 'id' | 'measured_at' | 'weight_kg' | 'metrics'>[]): ImportPlan {
+  const unique = new Map<string, Imported>();
+  let duplicateRows = 0;
+  for (const row of rows) {
+    const prev = unique.get(row.measured_at);
+    if (prev) {
+      duplicateRows++;
+      unique.set(row.measured_at, { ...prev, metrics: { ...row.metrics, ...prev.metrics } });
+    } else unique.set(row.measured_at, { ...row, metrics: { ...row.metrics } });
+  }
+  const have = new Map(existing.map((w) => [new Date(w.measured_at).toISOString(), w]));
+  const inserts: Imported[] = [], enrichments: ImportPlan['enrichments'] = [];
+  let unchanged = 0, conflictingWeights = 0;
+  for (const row of unique.values()) {
+    const old = have.get(row.measured_at);
+    if (!old) { inserts.push(row); continue; }
+    if (Math.abs(Number(old.weight_kg) - row.weight_kg) > 0.01) conflictingWeights++;
+    // Existing measurements always win. Only fill measurements that are absent.
+    const merged = { ...row.metrics, ...(old.metrics ?? {}) };
+    if (Object.keys(merged).some((key) => old.metrics?.[key as ReadingKey] == null))
+      enrichments.push({ id: old.id, metrics: merged });
+    else unchanged++;
+  }
+  return { inserts, enrichments, unchanged, conflictingWeights, duplicateRows };
+}
+
 /* ---------------- Health Connect (Android) ---------------- */
 /** Readings as Health Connect stores them (each is its own record with a time) */
 export type HealthReadings = {
