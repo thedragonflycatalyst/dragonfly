@@ -24,6 +24,7 @@ import { recoverLinkedClocks, recoverTimedSetClocks } from '@/features/lapis/ses
 import { canResumeRest, canStartLinkedTimer, canStartTimedSet } from '@/features/lapis/timer-ownership';
 import { activeWorkoutTimers, clearTimerCompletion, recordTimerCompletion, shouldAcceptTimedSetCompletion } from '@/features/lapis/completion-integrity';
 import { canMutateWorkoutTimer } from '@/features/lapis/save-finalization';
+import { timerInstanceKey } from '@/features/lapis/timer-instance';
 import { ExerciseHistory } from '@/features/exercise-history';
 import { useHidden } from '@/features/library-extras';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
@@ -77,10 +78,10 @@ export default function Session() {
       }
     };
   }, [screenFocused, sessionId]);
-  const activeScreen = screenFocused && ownsSession && isWorkoutSessionOwner(leaseToken.current);
   const unit = weightUnit(app.units);
   const [src, setSrc] = useState<Source | null | undefined>(undefined);
   const [readyKey, setReadyKey] = useState<string | null>(null);
+  const activeScreen = screenFocused && ownsSession && readyKey === key && isWorkoutSessionOwner(leaseToken.current);
   // Parse snapshots once when the assigned workout changes, rather than on
   // every 200 ms runner tick or every exercise-set update.
   const linkedTimers = useMemo(() => {
@@ -416,7 +417,7 @@ export default function Session() {
             if (b.kind !== 'timed') return null;
             const savedTimer = linkedTimers[b.id] ?? null;
             return savedTimer
-              ? <LinkedLapisRunner key={b.id} timer={savedTimer} reminderKey={lapisReminderKey(sessionId, b.id)}
+              ? <LinkedLapisRunner key={timerInstanceKey(sessionId, b.id)} timer={savedTimer} reminderKey={lapisReminderKey(sessionId, b.id)}
                   screenFocused={activeScreen && !busy && !finishing}
                   canCue={() => isWorkoutSessionOwner(leaseToken.current)}
                   initialClock={runnerClocks[b.id]}
@@ -510,7 +511,7 @@ export default function Session() {
                     if (metric === 'time') {
                       if (lapisTime) {
                         const k = `${bi}:${si}:${side ?? '-'}`;
-                        return <SetTimer key={tk} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
+                        return <SetTimer key={timerInstanceKey(sessionId, k)} label={`set ${si + 1}${who}`} target={s[tk] ?? null} compact={!!side} go={autoGo?.key === k ? autoGo.n : undefined}
                           blocked={!canStartTimedSet({ linked: activeTimerId, timedSet: activeSetTimerKey }, k)}
                           screenFocused={activeScreen && !busy && !finishing}
                           canCue={() => isWorkoutSessionOwner(leaseToken.current)}
