@@ -6,6 +6,7 @@ export type Package = {
   id: string; trainer_id: string; name: string; description: string | null; cover: string | null; price_cents: number; currency: string;
   billing: Billing; credits: number | null; valid_days: number | null; program_ids: string[]; plan_ids: string[]; visible: boolean;
   client_ids: string[]; available_from: string | null; available_until: string | null; max_sales: number | null; sold: number; archived: boolean; created_at: string;
+  refund_mode?: 'prorated' | 'unused_only' | 'none' | null; refund_window_days?: number | null;
 };
 export type Voucher = { id: string; trainer_id: string; code: string; description: string | null; percent_off: number | null; amount_off_cents: number | null; package_ids: string[]; max_uses: number | null; uses: number; expires_on: string | null; active: boolean };
 export type Payment = {
