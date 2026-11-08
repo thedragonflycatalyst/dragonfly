@@ -2,7 +2,7 @@
 // Everything is stored metric (kg); shown in the person's bodyweight unit.
 
 export type Weighin = { id: string; user_id: string; measured_at: string; weight_kg: number; metrics: Partial<Record<ReadingKey, number>>; source: 'manual' | 'import' | 'health_connect'; note: string | null };
-export type ScaleSettings = { user_id: string; metrics: MetricKey[]; goal_kg: number | null; goal_date: string | null; height_cm: number | null; sex: 'male' | 'female' | 'other' | null; reminder_on: boolean; reminder_time: string };
+export type ScaleSettings = { user_id: string; metrics: MetricKey[]; goal_kg: number | null; goal_date: string | null; height_cm: number | null; sex: 'male' | 'female' | 'other' | null; reminder_on: boolean; reminder_time: string; trend_smoothing?: number | null };
 export type BodyUnit = 'lb' | 'kg' | 'st';
 
 /** Keep stored readings that are not shown in the current edit form; clear only visible blank fields. */
@@ -130,6 +130,8 @@ export function bmiClass(b: number) {
 
 /* ---------------- trend ---------------- */
 const DAY = 86_400_000;
+export const SMOOTHING_OPTIONS = [0.05, 0.1, 0.2, 0.35] as const;
+export const getSmoothing = (value: number | null | undefined): number => value != null && SMOOTHING_OPTIONS.some((x) => x === value) ? value : 0.1;
 /** Exponentially smoothed weight (10% a day, adjusted for gaps), oldest first. Takes weigh-ins in any order. */
 export function trend(list: Pick<Weighin, 'measured_at' | 'weight_kg'>[], smoothing = 0.1): { t: number; kg: number; trend: number }[] {
   const pts = [...list].map((w) => ({ t: new Date(w.measured_at).getTime(), kg: Number(w.weight_kg) })).sort((a, b) => a.t - b.t);
@@ -232,7 +234,7 @@ export function yearlyChange(tr: { t: number; trend: number }[]): { year: number
   return [...last.keys()].sort().map((y) => { const a = first.get(y)!, b = last.get(y)!; return { year: y, kg: b - a, pct: ((b - a) / a) * 100 }; });
 }
 /** Weigh-ins grouped by month, newest first, with the month's change */
-export function byMonth(list: Weighin[]) {
+export function byMonth(list: Weighin[], smoothing = 0.1) {
   const sorted = [...list].sort((a, b) => b.measured_at.localeCompare(a.measured_at));
   const groups: { month: string; items: Weighin[]; change: number | null; pct: number | null }[] = [];
   for (const w of sorted) {
@@ -241,10 +243,13 @@ export function byMonth(list: Weighin[]) {
     if (!g || g.month !== k) { g = { month: k, items: [], change: null, pct: null }; groups.push(g); }
     g.items.push(w);
   }
-  for (let i = 0; i < groups.length; i++) {
-    const newest = Number(groups[i].items[0].weight_kg), prevMonth = groups[i + 1]?.items[0];
-    const base = prevMonth ? Number(prevMonth.weight_kg) : Number(groups[i].items[groups[i].items.length - 1].weight_kg);
-    groups[i].change = newest - base; groups[i].pct = ((newest - base) / base) * 100;
+  // Use exactly the same trend endpoints as the Stats tab, not raw weigh-ins
+  // compared against a different reference point.
+  const monthChanges = new Map(monthlyChange(trend(list, smoothing)).map((m) => [m.month, m]));
+  for (const g of groups) {
+    const change = monthChanges.get(g.month);
+    g.change = change?.kg ?? null;
+    g.pct = change?.pct ?? null;
   }
   return groups;
 }

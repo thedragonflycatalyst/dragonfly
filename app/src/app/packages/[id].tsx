@@ -100,6 +100,13 @@ export default function PackageEditor() {
                 <View style={{ flex: 1 }}><Field label="Use within (days)" value={pkg.valid_days == null ? '' : String(pkg.valid_days)} onChangeText={(t) => set({ valid_days: intOrNull(t, 1, 3650) })} keyboardType="number-pad" placeholder="No limit" /></View>
               </View>
               {pkg.billing !== 'once' && <Txt v="small">With a recurring price, clients get these credits each {pkg.billing}.</Txt>}
+              <Txt v="smallBold">Refunds</Txt>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                {([[null, 'My refund policy'], ['none', 'Non-refundable'], ['unused_only', 'Only if unused'], ['prorated', 'Unused sessions']] as [Package['refund_mode'], string][]).map(([m, label]) => (
+                  <Chip key={label} label={label} selected={(pkg.refund_mode ?? null) === m} onPress={() => set({ refund_mode: m })} />
+                ))}
+              </View>
+              <Txt v="small">Shown to clients before they buy. Set your usual policy in Settings → Refund policy.</Txt>
             </Card>
             <Card>
               <Txt v="h3">Programs</Txt>

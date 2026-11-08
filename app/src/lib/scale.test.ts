@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, goalEta, goalSchedule, kcalPerDay, monthlyChange, mergeHealth, parseCsv, planCsvImport, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
+import { bmi, bmiClass, byMonth, changeOver, chartValue, editedMetrics, weightRulerValue, fmtMetric, fmtNum, getSmoothing, goalEta, goalSchedule, kcalPerDay, monthlyChange, mergeHealth, parseCsv, planCsvImport, ratePerWeek, spanText, toKgFrom, fromKg, trend, valueOf, yearlyChange, type Weighin } from './scale';
 import { occurrences, openSlots, priceLabel, toCents, voucherPrice, voucherState, weekOf, spotsText, eventCost, byMonth as moneyByMonth, type Booking } from './business';
 import { bigEmoji, layout, linkify, seenBy, tally, chatName, type Message, type ChatMember } from './chat';
 import { unitPrefs, notifyPrefs } from './prefs';
@@ -93,9 +93,37 @@ test('change over periods, monthly and yearly, and month groups', () => {
   assert.equal(changeOver(tr, 365), null);
   assert.deepEqual(monthlyChange(tr).map((m) => Math.round(m.kg)), [-2, -2, 1]);
   assert.deepEqual(yearlyChange(tr).map((y) => [y.year, Math.round(y.kg)]), [[2025, 0], [2026, -1]]);
-  const g = byMonth(list);
+  const g = byMonth(list, 1);
   assert.equal(g[0].month, '2026-03'); assert.equal(g[0].change, 1); assert.equal(g.length, 4);
   assert.equal(spanText(list), '3 months');
+});
+
+test('monthly history and stats agree on identical smoothed endpoints', () => {
+  const entries = [
+    W('2026-01-02T12:00:00', 100),
+    W('2026-01-31T12:00:00', 98),
+    W('2026-02-01T12:00:00', 103),
+    W('2026-02-27T12:00:00', 96),
+    W('2026-03-02T12:00:00', 97),
+    W('2026-03-29T12:00:00', 95),
+  ];
+  for (const smoothing of [0.05, 0.1, 0.2, 0.35]) {
+    const changes = new Map(monthlyChange(trend(entries, smoothing)).map((m) => [m.month, m]));
+    const groups = byMonth(entries, smoothing);
+    assert.equal(groups.find((g) => g.month === '2026-01')?.change, null, 'first month has no prior month-end baseline');
+    for (const group of groups.filter((g) => g.month !== '2026-01')) {
+      assert.ok(Math.abs(group.change! - changes.get(group.month)!.kg) < 1e-9);
+      assert.ok(Math.abs(group.pct! - changes.get(group.month)!.pct) < 1e-9);
+    }
+  }
+});
+
+test('smoothing defaults and only permits supported options', () => {
+  assert.equal(getSmoothing(undefined), 0.1);
+  assert.equal(getSmoothing(null), 0.1);
+  assert.equal(getSmoothing(0.2), 0.2);
+  assert.equal(getSmoothing(0.123), 0.1);
+  assert.equal(getSmoothing(-1), 0.1);
 });
 
 test('CSV import: Libra export', () => {

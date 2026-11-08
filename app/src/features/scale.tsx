@@ -15,11 +15,11 @@ import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { dayKey } from '@/lib/dates';
-import { progressShareText, scaleProgress } from '@/lib/scale-report';
+import { canShareProgress, progressShareText, scaleProgress } from '@/lib/scale-report';
 import { errText } from '@/lib/model';
 import {
-  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, goalEta, goalSchedule, GROUPS, isMassChart,
-  kcalPerDay, metricLabel, monthlyChange, parseCsv, planCsvImport, PERIODS, RANGES, ratePerWeek, READINGS, signed, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
+  bmi, bmiClass, byMonth, changeOver, chartValue, DEFAULT_METRICS, editedMetrics, enterable, extremes, fmtMass, fmtMetric, fmtNum, fromKg, getSmoothing, goalEta, goalSchedule, GROUPS, isMassChart,
+  kcalPerDay, metricLabel, monthlyChange, parseCsv, planCsvImport, PERIODS, RANGES, ratePerWeek, READINGS, signed, SMOOTHING_OPTIONS, spanText, toKgFrom, trend, unitLabel, valueOf, yearlyChange,
   type MetricKey, type ReadingKey, type ScaleSettings, type Weighin,
 } from '@/lib/scale';
 import { sb } from '@/lib/supabase';
@@ -82,11 +82,11 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
           body={readOnly ? 'When they log weigh-ins in their Scale tab, you’ll see their trend here.' : 'Add your weight and any readings your scale gives (body fat, muscle…). You can also import a CSV from Libra or RENPHO in Settings.'}
           action={readOnly ? undefined : <Button title="Log weigh-in" icon="add" onPress={() => setEditing('new')} />} />
       ) : tab === 'chart' ? (
-        <ChartTab list={list} settings={settings} metrics={metrics} chosen={chosen} setChosen={setChosen} range={range} setRange={setRange} unit={unit} fmt={fmt} height={height} />
+        <ChartTab readOnly={readOnly} list={list} settings={settings} metrics={metrics} chosen={chosen} setChosen={setChosen} range={range} setRange={setRange} unit={unit} fmt={fmt} height={height} />
       ) : tab === 'history' ? (
-        <History list={list} metrics={metrics} unit={unit} fmt={fmt} onOpen={readOnly ? undefined : setEditing} />
+        <History list={list} metrics={metrics} unit={unit} fmt={fmt} smoothing={getSmoothing(settings.trend_smoothing)} onOpen={readOnly ? undefined : setEditing} />
       ) : tab === 'stats' ? (
-        <Stats list={list} unit={unit} fmt={fmt} />
+        <Stats list={list} unit={unit} fmt={fmt} smoothing={getSmoothing(settings.trend_smoothing)} />
       ) : (
         <SettingsTab settings={settings} save={saveSettings} unit={unit} heightUnit={app.prefs.height} reload={load} count={list.length} list={list} />
       )}
@@ -97,16 +97,18 @@ export function ScaleView({ userId, readOnly, defaults }: { userId: string; read
 }
 
 /* ---------------- chart ---------------- */
-function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange, unit, fmt, height }: {
+function ChartTab({ readOnly, list, settings, metrics, chosen, setChosen, range, setRange, unit, fmt, height }: {
+  readOnly?: boolean;
   list: Weighin[]; settings: ScaleSettings; metrics: MetricKey[]; chosen: MetricKey[]; setChosen: (m: MetricKey[]) => void;
   range: number | null; setRange: (r: number | null) => void; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; height: number | null;
 }) {
   const p = usePalette();
   const toast = useToast();
   const report = useMemo(() => scaleProgress(list, range, settings.goal_kg == null ? null : Number(settings.goal_kg)), [list, range, settings.goal_kg]);
+  const [withGoal, setWithGoal] = useState(false);
   const shareProgress = async () => {
-    if (!report) return;
-    const message = progressShareText(report, unit, fmt);
+    if (!canShareProgress(readOnly, report)) return;
+    const message = progressShareText(report, unit, fmt, withGoal);
     try {
       if (Platform.OS === 'web') {
         await Clipboard.setStringAsync(message);
@@ -116,7 +118,8 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
       }
     } catch (error) { toast(errText(error), false); }
   };
-  const tr = useMemo(() => trend(list), [list]);
+  const smoothing = getSmoothing(settings.trend_smoothing);
+  const tr = useMemo(() => trend(list, smoothing), [list, smoothing]);
   const last = tr[tr.length - 1];
   const rate = ratePerWeek(tr);
   const goal = settings.goal_kg != null ? Number(settings.goal_kg) : null;
@@ -136,7 +139,7 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
   const from = range ? now - range * 86_400_000 : first - 86_400_000;
   const series: Series[] = sel.map((k, i) => {
     const pts = list.map((w) => ({ w, v: chartValue(w, k, height) })).filter((x) => x.v != null) as { w: Weighin; v: number }[];
-    const sm = trend(pts.map((x) => ({ measured_at: x.w.measured_at, weight_kg: x.v })));
+    const sm = trend(pts.map((x) => ({ measured_at: x.w.measured_at, weight_kg: x.v })), smoothing);
     const conv = (v: number) => (massMode ? fromKg(v, unit) : v);
     const latest = pts.sort((a, b) => b.w.measured_at.localeCompare(a.w.measured_at))[0];
     const shown = k === 'body_fat_pct' || k === 'muscle_pct' || k === 'skeletal_muscle_pct' ? valueOf(latest.w, k)! : latest.v;
@@ -177,8 +180,11 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
             <View><Txt v="small">Latest</Txt><Txt v="bold">{fmtMass(report.endKg, unit, fmt)}</Txt></View>
             <View><Txt v="small">Change</Txt><Txt v="bold">{report.count < 2 ? '—' : `${signed(fromKg(report.changeKg, unit), 1, fmt)} ${unitLabel(unit)}`}</Txt></View>
           </View>
-          <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and optional goal information; review before sharing.</Txt>
-          <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+          {canShareProgress(readOnly, report) && <>
+            <Txt v="small">Only recorded weigh-ins are included. The summary contains weight measurements and, if you include it, your goal; review before sharing.</Txt>
+            {report.goalKg != null && <Toggle label="Include goal" sub="Add your goal weight and how far you are from it" value={withGoal} onChange={setWithGoal} />}
+            <Button kind="ghost" icon="share" title={Platform.OS === 'web' ? 'Copy progress summary' : 'Share progress summary'} onPress={shareProgress} style={{ alignSelf: 'flex-start' }} />
+          </>}
         </Card>
       )}
       {last && (
@@ -213,9 +219,9 @@ function ChartTab({ list, settings, metrics, chosen, setChosen, range, setRange,
 }
 
 /* ---------------- history ---------------- */
-function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metrics: MetricKey[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; onOpen?: (w: Weighin) => void }) {
+function History({ list, metrics, unit, fmt, smoothing, onOpen }: { list: Weighin[]; metrics: MetricKey[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; smoothing: number; onOpen?: (w: Weighin) => void }) {
   const p = usePalette();
-  const groups = useMemo(() => byMonth(list), [list]);
+  const groups = useMemo(() => byMonth(list, smoothing), [list, smoothing]);
   const [shown, setShown] = useState(6);
   const [year, setYear] = useState<string | null>(null);
   const [month, setMonth] = useState<string | null>(null);
@@ -244,7 +250,7 @@ function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metric
           <View key={g.month}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: p.soft }}>
               <Txt v="bold">{new Date(`${g.month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Txt>
-              <Txt v="smallBold">{signed(fromKg(g.change ?? 0, unit), 1, fmt)} {unitLabel(unit)} ({fmtNum(Math.abs(g.pct ?? 0), 1, fmt)}%)</Txt>
+              <Txt v="smallBold">{g.change == null || g.pct == null ? '—' : `${signed(fromKg(g.change, unit), 1, fmt)} ${unitLabel(unit)} (${signed(g.pct, 1, fmt)}%)`}</Txt>
             </View>
             {g.items.map((w) => {
               const d = new Date(w.measured_at);
@@ -294,9 +300,9 @@ function History({ list, metrics, unit, fmt, onOpen }: { list: Weighin[]; metric
 }
 
 /* ---------------- stats ---------------- */
-function Stats({ list, unit, fmt }: { list: Weighin[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma' }) {
+function Stats({ list, unit, fmt, smoothing }: { list: Weighin[]; unit: ReturnType<typeof useApp>['prefs']['bodyweight']; fmt: 'dot' | 'comma'; smoothing: number }) {
   const p = usePalette();
-  const tr = useMemo(() => trend(list), [list]);
+  const tr = useMemo(() => trend(list, smoothing), [list, smoothing]);
   const ex = extremes(list)!;
   const [pct, setPct] = useState(false);
   const months = monthlyChange(tr);
@@ -475,6 +481,18 @@ function SettingsTab({ settings, save, unit, heightUnit, reload, count, list }: 
           </View>
         ))}
         <Txt v="small">Lean mass and fat mass are worked out from body fat; BMI from your height.</Txt>
+      </Card>
+
+      <SectionLabel>Weight trend</SectionLabel>
+      <Card style={{ gap: 10 }}>
+        <Txt v="small">Choose how quickly the smoothed trend follows daily weigh-ins. This changes charts, projections and monthly changes, but never your recorded measurements.</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {SMOOTHING_OPTIONS.map((value) => <Chip key={value}
+            label={({ 0.05: 'Very smooth', 0.1: 'Balanced', 0.2: 'Responsive', 0.35: 'Very responsive' } as Record<number, string>)[value]}
+            selected={getSmoothing(settings.trend_smoothing) === value}
+            onPress={() => save({ trend_smoothing: value })} />)}
+        </View>
+        <Txt v="small">Balanced is the default. A smoother line reacts more slowly; a responsive line follows new readings sooner.</Txt>
       </Card>
 
       <SectionLabel>Reminder</SectionLabel>
