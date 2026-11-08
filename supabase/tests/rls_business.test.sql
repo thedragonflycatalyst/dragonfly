@@ -82,6 +82,9 @@ select t.ok(t.refused($$insert into public.coach_bookings (trainer_id, client_id
 select t.as_admin();
 create temp table bk as select id from public.coach_bookings;
 grant select on bk to authenticated;
+-- the trainer's own time zone decides which calendar day a session falls on
+create temp table trainer_tz as select coalesce(timezone, 'UTC') as z from public.coach_trainers where user_id = (select v from t.ids where k = 'trainer');
+grant select on trainer_tz to authenticated;
 select t.as_user('client');
 select t.ok(public.coach_book_session((select v from t.ids where k = 'trainer'), date_trunc('hour', now()) + interval '2 days 4 hours', 60) is not null, 'a client books into open hours');
 select t.ok(t.refused($$select public.coach_book_session((select v from t.ids where k = 'trainer'), date_trunc('hour', now()) + interval '2 days 4 hours 30 minutes', 60)$$), 'overlapping slots are refused');
@@ -89,7 +92,7 @@ select t.ok(t.refused($$select public.coach_book_session((select v from t.ids wh
 select t.ok((select count(*) from public.coach_bookings) = 2, 'clients see their own sessions');
 select t.ok(t.refused($$select public.coach_book_session((select v from t.ids where k = 'trainer'), date_trunc('hour', now()) + interval '30 days', 60)$$), 'repeating sessions block their slots too');
 select t.ok((select count(*) from public.coach_trainer_busy((select v from t.ids where k = 'trainer'), 40)) >= 5, 'clients can see when the trainer is busy');
-select public.coach_cancel_session((select id from public.coach_bookings where repeat = 'weekly'), ((date_trunc('hour', now()) + interval '30 days') at time zone 'UTC')::date);
+select public.coach_cancel_session((select id from public.coach_bookings where repeat = 'weekly'), ((date_trunc('hour', now()) + interval '30 days') at time zone (select z from trainer_tz))::date);
 select t.ok((select cardinality(skipped) from public.coach_bookings where repeat = 'weekly') = 1, 'a client skips one date of a repeating session');
 select t.as_user('client2');
 select t.ok((select count(*) from public.coach_bookings) = 0, 'other clients don''t see them');

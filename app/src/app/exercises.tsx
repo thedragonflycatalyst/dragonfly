@@ -6,7 +6,7 @@ import { Sheet } from '@/components/sheet';
 import { Button, Chip, Icon, Txt, useToast } from '@/components/ui';
 import { ExerciseInfo, ExerciseThumb, MyExerciseEditor, toLib } from '@/features/exercises';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, EQUIPMENT, MY_CATEGORIES, search, titleCase, type LibExercise } from '@/lib/library';
+import { BODY_PARTS, builtIn, CATEGORIES, EQUIPMENT, search, titleCase, type LibExercise } from '@/lib/library';
 import { errText, type MyExercise } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { F, MAX_W, R, usePalette } from '@/lib/theme';
@@ -87,7 +87,7 @@ export default function Exercises() {
             return (
               <Pressable accessibilityRole={selecting ? 'checkbox' : 'button'} accessibilityState={selecting ? { checked: on } : undefined} accessibilityLabel={e.name} onPress={() => tap(e)}
                 style={({ pressed }) => ({ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: p.line, opacity: pressed ? 0.6 : 1 })}>
-                <ExerciseThumb img={e.images[0]} video={e.video} size={56} />
+                <ExerciseThumb img={e.images[0]} video={e.video} size={56} ex={e} />
                 <View style={{ flex: 1 }}>
                   <Txt v="bold">{e.name}</Txt>
                   <Txt v="small">{[e.primary.map(titleCase).join(', '), titleCase(e.equipment)].filter(Boolean).join(' · ')}</Txt>
@@ -118,7 +118,7 @@ export default function Exercises() {
         </View>
         <Txt v="smallBold" style={{ marginBottom: 8 }}>Category</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-          {MY_CATEGORIES.map((x) => <Chip key={x} label={titleCase(x)} selected={category === x} onPress={() => setCategory(category === x ? null : x)} />)}
+          {CATEGORIES.map((x) => <Chip key={x} label={titleCase(x)} selected={category === x} onPress={() => setCategory(category === x ? null : x)} />)}
         </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Button title="Done" onPress={() => setFiltering(false)} />
