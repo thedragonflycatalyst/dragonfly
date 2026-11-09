@@ -18,7 +18,7 @@ type Sent = { client: PoolClient & { user_id?: string | null; first_name?: strin
 /** Load everything the ranking needs for this trainer */
 export async function loadPool(trainerId: string) {
   const [c, w, seen, pk] = await Promise.all([
-    sb.from('coach_clients').select('id, name, first_name, user_id, status, frequency_tier, short_notice_ok, client_of, phone').eq('trainer_id', trainerId),
+    sb.from('coach_clients').select('id, name, first_name, user_id, status, frequency_tier, short_notice_ok, client_of, phone, away_reason, away_from, away_until').eq('trainer_id', trainerId),
     sb.from('coach_client_availability').select('client_id, weekday, start_time, end_time'),
     sb.rpc('coach_client_last_seen'),
     sb.from('coach_client_packages').select('client_id, credits_total, credits_used, status').eq('trainer_id', trainerId).eq('status', 'active'),

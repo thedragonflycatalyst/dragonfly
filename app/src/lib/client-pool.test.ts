@@ -32,6 +32,13 @@ test('ranking: free then, opted in, longest since last, most credits; regulars, 
   assert.ok(withRegs.some((x) => x.client.id === 'reg'));
 });
 
+test('clients away on the slot day are not offered it', () => {
+  const clients = [c('away', 'on_call', { away_reason: 'injury', away_until: '2026-11-20' }), c('later', 'on_call', { away_reason: 'travel', away_from: '2026-11-15' }),
+    c('backtoday', 'on_call', { away_reason: 'travel', away_until: '2026-11-09' })];
+  const r = rankPool({ clients, windows: [], lastSeen: {}, credits: {}, start: slot, durationMin: 60, now });
+  assert.deepEqual(r.map((x) => x.client.id).sort(), ['backtoday', 'later']);
+});
+
 test('offer expiry is an hour before, never in the past', () => {
   assert.equal(offerExpiry(slot, now).getTime(), slot.getTime() - 3600_000);
   const soon = new Date(now.getTime() + 30 * 60_000);

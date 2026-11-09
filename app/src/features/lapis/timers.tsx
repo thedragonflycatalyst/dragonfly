@@ -5,90 +5,200 @@ import { AppState, Platform, Pressable, View } from 'react-native';
 import { Icon, Txt } from '@/components/ui';
 import { clock } from '@/lib/session';
 import { F, R, usePalette } from '@/lib/theme';
-import { bell, buzz, say } from './audio';
+import { bell, bellThenSay, buzz, hush, say } from './audio';
 import { getPrefs } from './prefs';
+import { canScheduleWorkoutNotification } from './workout-session-lease';
+import { addRestSeconds, createRestClock, pauseRestClock, restRemaining, restoreRestClock, resumeRestClock, type RestClock } from './rest-clock';
+import { elapsedTimedSet, pauseTimedSet, resetTimedSet, restoreTimedSetClock, resumeTimedSet, type TimedSetClock } from './timed-set-clock';
 
-/* ---------- the backstop if the phone stops the app while locked ---------- */
-let pending: string | null = null;
-async function backstop(at: number | null, body = 'Rest is over. Next set!') {
-  if (Platform.OS === 'web') return;
-  try {
-    const N = await import('expo-notifications');
-    if (pending) { await N.cancelScheduledNotificationAsync(pending).catch(() => {}); pending = null; }
-    if (at == null) return;
-    const secs = Math.round((at - Date.now()) / 1000) + 2; // a moment after the app's own bell, so only one rings
-    if (secs < 2) return;
-    if (Platform.OS === 'android') await N.setNotificationChannelAsync('rest', { name: 'Rest timer', importance: N.AndroidImportance.HIGH, sound: 'bell_ring2.wav', vibrationPattern: [0, 250, 120, 250] });
-    pending = await N.scheduleNotificationAsync({
-      content: { title: 'Dragonfly', body, sound: 'bell_ring2.wav', data: { kind: 'rest' } },
-      trigger: { type: N.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: secs, channelId: 'rest' },
-    });
-  } catch { /* notifications off: the in-app timer still runs */ }
+/* ---------- background rest notifications, scoped to current workout ---------- */
+let backstopQueue: Promise<void> = Promise.resolve();
+async function backstop(sessionId: string, at: number | null, body = 'Rest is over. Next set!') {
+  const task = async () => {
+    if (Platform.OS === 'web') return;
+    try {
+      const N = await import('expo-notifications');
+      // A prior app process may have scheduled a rest notification. We only
+      // cancel our own rest reminders, not unrelated notification categories.
+      for (const item of await N.getAllScheduledNotificationsAsync()) {
+        if (item.content.data?.kind === 'rest' &&
+            item.content.data?.lapisSessionId === sessionId) {
+          await N.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+        }
+      }
+      if (at === null || !canScheduleWorkoutNotification(sessionId)) return;
+      const secs = Math.round((at - Date.now()) / 1000) + 2;
+      if (secs < 2) return;
+      if (Platform.OS === 'android') {
+        await N.setNotificationChannelAsync('rest', {
+          name: 'Rest timer', importance: N.AndroidImportance.HIGH,
+          sound: 'bell_ring2.wav', vibrationPattern: [0, 250, 120, 250],
+        });
+      }
+      if (!canScheduleWorkoutNotification(sessionId)) return;
+      const id = await N.scheduleNotificationAsync({
+        content: { title: 'Dragonfly', body, sound: 'bell_ring2.wav',
+          data: { kind: 'rest', lapisSessionId: sessionId } },
+        trigger: { type: N.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: secs, ...(Platform.OS === 'android' ? { channelId: 'rest' } : {}) },
+      });
+      if (!canScheduleWorkoutNotification(sessionId))
+        await N.cancelScheduledNotificationAsync(id).catch(() => {});
+    } catch { /* foreground rest clock remains authoritative */ }
+  };
+  const next = backstopQueue.catch(() => {}).then(task);
+  backstopQueue = next;
+  await next;
+}
+export async function clearOtherWorkoutRestReminders(sessionId: string) {
+  const task = async () => {
+    if (Platform.OS === 'web' || !canScheduleWorkoutNotification(sessionId)) return;
+    try {
+      const N = await import('expo-notifications');
+      for (const item of await N.getAllScheduledNotificationsAsync()) {
+        if (!canScheduleWorkoutNotification(sessionId)) return;
+        if (item.content.data?.kind === 'rest' &&
+          item.content.data?.lapisSessionId !== sessionId) {
+          await N.cancelScheduledNotificationAsync(item.identifier).catch(() => {});
+        }
+      }
+    } catch { /* native notifications may be unavailable */ }
+  };
+  const next = backstopQueue.catch(() => {}).then(task);
+  backstopQueue = next;
+  await next;
 }
 
-export type Rest = { until: number; total: number; label: string; pausedLeft: number | null };
+export type Rest = RestClock;
 
-/** Rest timer state and cues: "Rest" at the start, optional "Halfway", 3-2-1, then the bell. */
-export function useRest() {
-  const [rest, setRest] = useState<Rest | null>(null);
+/** Safe rest recovery: live clocks catch up by absolute time; restored clocks
+ * always start paused and never replay missed cues or auto-start a timed set.
+ */
+export function useRest(sessionId: string, onNextSet?: (key: string) => void, onChange?: (rest: RestClock | null) => void) {
+  const [rest, setRest] = useState<RestClock | null>(null);
+  const [stateSessionId, setStateSessionId] = useState(sessionId);
+  useEffect(() => {
+    // A mounted Session route may change workouts without remounting its hook.
+    // Never let the previous workout's rest complete under the new session id.
+    restRef.current = null;
+    fired.current = new Set();
+    setRest(null);
+    setStateSessionId(sessionId);
+  }, [sessionId]);
   const [, setNow] = useState(Date.now());
   const fired = useRef(new Set<string>());
-  const restRef = useRef(rest); restRef.current = rest;
-  const onEnd = useRef<(() => void) | null>(null);
+  const restRef = useRef(rest);
+  restRef.current = rest;
+  const nextRef = useRef(onNextSet);
+  nextRef.current = onNextSet;
+  const changeRef = useRef(onChange);
+  changeRef.current = onChange;
 
-  const on = !!rest && rest.pausedLeft == null;
-  useEffect(() => { if (!on) return; const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t); }, [on]);
-  // Locked or switched away: set the backstop; back in the app: clear it
+  const update = (next: RestClock | null) => {
+    restRef.current = next;
+    setRest(next);
+    changeRef.current?.(next);
+  };
+  const active = stateSessionId === sessionId && !!rest && rest.pausedLeft === null;
   useEffect(() => {
-    const s = AppState.addEventListener('change', (st) => {
-      const r = restRef.current;
-      if (st === 'active') void backstop(null);
-      else if (r && r.pausedLeft == null) void backstop(r.until, r.label ? `Rest is over. ${r.label}` : undefined);
+    if (!active) return;
+    const interval = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(interval);
+  }, [active]);
+
+  // React timers do not run reliably while backgrounded. Only the native
+  // rest reminder may fire; returning to foreground clears the reminder.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (!canScheduleWorkoutNotification(sessionId)) return;
+      const latest = restRef.current;
+      if (state === 'active') {
+        void backstop(sessionId, null);
+        if (latest && latest.pausedLeft === null && latest.until <= Date.now()) {
+          // OS may have suspended JS through the deadline. Dismiss an
+          // overdue rest without replaying its bell or advancing a set.
+          fired.current.add('end');
+          update(null);
+        }
+      } else if (latest && latest.pausedLeft === null)
+        void backstop(sessionId, latest.until, latest.label ? `Rest is over. ${latest.label}` : undefined);
     });
-    return () => { s.remove(); void backstop(null); };
-  }, []);
+    return () => { sub.remove(); void backstop(sessionId, null); };
+  }, [sessionId]);
 
-  const left = rest ? (rest.pausedLeft ?? Math.max(0, (rest.until - Date.now()) / 1000)) : 0;
+  const left = stateSessionId === sessionId && rest ? restRemaining(rest, Date.now()) : 0;
   useEffect(() => {
-    if (!rest || rest.pausedLeft != null) return;
-    const p = getPrefs(), f = fired.current, s = Math.ceil(left);
-    if (p.halfway && rest.total >= 20 && left <= rest.total / 2 && !f.has('half')) { f.add('half'); void say('Halfway'); }
-    if (p.countdown) for (const n of [3, 2, 1]) if (s === n && rest.total > n && !f.has(String(n))) { f.add(String(n)); buzz(); void say(String(n)); }
+    if (stateSessionId !== sessionId || !rest || rest.pausedLeft !== null || !canScheduleWorkoutNotification(sessionId) ||
+        AppState.currentState !== 'active') return;
+    const prefs = getPrefs(), f = fired.current, sec = Math.ceil(left);
+    if (prefs.halfway && rest.total >= 20 && left <= rest.total / 2 && !f.has('half')) {
+      f.add('half'); void say('Halfway');
+    }
+    if (prefs.countdown) for (const n of [3, 2, 1]) {
+      if (sec === n && rest.total > n && !f.has(String(n))) {
+        f.add(String(n)); buzz(); void say(String(n));
+      }
+    }
     if (left <= 0 && !f.has('end')) {
-      f.add('end'); void backstop(null); void bell(); setRest(null);
-      const next = onEnd.current; onEnd.current = null; next?.();
+      f.add('end');
+      void backstop(sessionId, null);
+      void bell();
+      const nextKey = rest.nextSetKey;
+      update(null);
+      if (nextKey) nextRef.current?.(nextKey);
     }
   }, [rest, left]);
 
-  /** Start resting; `then` runs when the rest runs out (not when skipped), e.g. to start the next timed set */
-  const start = (seconds: number, label = '', then?: () => void) => {
-    onEnd.current = then ?? null;
-    if (seconds <= 0) { then?.(); return; }
+  const restore = (snapshot: unknown) => {
     fired.current = new Set();
-    setRest({ until: Date.now() + seconds * 1000, total: seconds, label, pausedLeft: null });
+    void backstop(sessionId, null);
+    update(restoreRestClock(snapshot, Date.now()));
+  };
+  const start = (seconds: number, label = '', nextSetKey: string | null = null) => {
+    if (!canScheduleWorkoutNotification(sessionId)) return;
+    if (seconds <= 0) {
+      if (nextSetKey) nextRef.current?.(nextSetKey);
+      return;
+    }
+    const next = createRestClock(seconds, label, nextSetKey, Date.now());
+    fired.current = new Set();
+    update(next);
     buzz();
     if (getPrefs().sayRest) void say('Rest');
-    if (AppState.currentState !== 'active') void backstop(Date.now() + seconds * 1000);
+    if (AppState.currentState !== 'active') void backstop(sessionId, next.until);
   };
-  const add = (sec: number) => setRest((r) => {
-    if (!r) return r;
-    if (r.pausedLeft != null) return { ...r, pausedLeft: Math.max(1, r.pausedLeft + sec), total: Math.max(1, r.total + sec) };
-    const until = Math.max(Date.now() + 1000, r.until + sec * 1000);
-    for (const k of ['3', '2', '1', 'half']) fired.current.delete(k);
-    return { ...r, until, total: Math.max(1, r.total + sec) };
-  });
-  const pause = () => setRest((r) => (r && r.pausedLeft == null ? { ...r, pausedLeft: Math.max(0, (r.until - Date.now()) / 1000) } : r));
-  const resume = () => setRest((r) => (r && r.pausedLeft != null ? { ...r, until: Date.now() + r.pausedLeft * 1000, pausedLeft: null } : r));
-  const skip = () => { void backstop(null); setRest(null); onEnd.current = null; };
-  return { rest, left, start, add, pause, resume, skip };
+  const add = (seconds: number) => {
+    if (!canScheduleWorkoutNotification(sessionId)) return;
+    const next = addRestSeconds(restRef.current, seconds, Date.now());
+    for (const key of ['3', '2', '1', 'half']) fired.current.delete(key);
+    update(next);
+    if (next?.pausedLeft === null && AppState.currentState !== 'active')
+      void backstop(sessionId, next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+  };
+  const pause = () => {
+    void backstop(sessionId, null);
+    const next = pauseRestClock(restRef.current, Date.now());
+    if (next !== restRef.current) update(next);
+  };
+  const resume = () => {
+    if (!canScheduleWorkoutNotification(sessionId)) return;
+    const next = resumeRestClock(restRef.current, Date.now());
+    if (next === restRef.current) return;
+    update(next);
+    if (next && AppState.currentState !== 'active')
+      void backstop(sessionId, next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+  };
+  const skip = () => { void backstop(sessionId, null); update(null); };
+  return { rest: stateSessionId === sessionId ? rest : null, left, start, add, pause, resume, skip, restore };
 }
 
 /** The Lapis rest bar pinned to the bottom of the workout */
-export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
+export function RestBar({ t, blocked = false }: { t: ReturnType<typeof useRest>; blocked?: boolean }) {
   const p = usePalette();
   if (!t.rest) return null;
   const frac = t.rest.total ? Math.min(1, t.left / t.rest.total) : 0;
   const paused = t.rest.pausedLeft != null;
+  const resumeBlocked = blocked && paused;
   const btn = { width: 44, height: 44, borderRadius: 22, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: p.soft };
   return (
     <View accessibilityRole="timer" accessibilityLabel={`Rest, ${Math.ceil(t.left)} seconds left`}
@@ -96,13 +206,13 @@ export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
       <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${frac * 100}%`, backgroundColor: p.glow }} />
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10 }}>
         <View style={{ flex: 1, paddingLeft: 6 }}>
-          <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>{paused ? 'Paused' : 'Rest'}{t.rest.label ? ` · ${t.rest.label}` : ''}</Txt>
+          <Txt v="kicker" color={p.focus} style={{ textTransform: 'uppercase' }}>{paused ? (blocked ? 'Paused for Lapis' : 'Paused') : 'Rest'}{t.rest.label ? ` · ${t.rest.label}` : ''}</Txt>
           <Txt style={{ fontFamily: F.display, fontSize: 34, fontVariant: ['tabular-nums'], color: p.ink }}>{clock(Math.ceil(t.left))}</Txt>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="15 seconds less" onPress={() => t.add(-15)} style={btn}><Txt v="smallBold" color={p.ink}>−15</Txt></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="15 seconds more" onPress={() => t.add(15)} style={btn}><Txt v="smallBold" color={p.ink}>+15</Txt></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={paused ? 'Resume rest' : 'Pause rest'} onPress={paused ? t.resume : t.pause} style={btn}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" onPress={t.skip} style={[btn, { backgroundColor: p.fill }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="15 seconds less" disabled={blocked} onPress={() => t.add(-15)} style={[btn, blocked && { opacity: 0.45 }]}><Txt v="smallBold" color={p.ink}>−15</Txt></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="15 seconds more" disabled={blocked} onPress={() => t.add(15)} style={[btn, blocked && { opacity: 0.45 }]}><Txt v="smallBold" color={p.ink}>+15</Txt></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={resumeBlocked ? 'Pause Lapis to resume rest' : paused ? 'Resume rest' : 'Pause rest'} disabled={resumeBlocked} onPress={paused ? t.resume : t.pause} style={[btn, resumeBlocked && { opacity: 0.4 }]}><Icon name={paused ? 'play_arrow' : 'pause'} color={p.ink} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Skip rest" disabled={blocked} onPress={t.skip} style={[btn, { backgroundColor: p.fill }, blocked && { opacity: 0.45 }]}><Icon name="skip_next" color={p.onAccent} /></Pressable>
       </View>
     </View>
   );
@@ -112,37 +222,181 @@ export function RestBar({ t }: { t: ReturnType<typeof useRest> }) {
  * Mini Lapis timer for a timed set, sitting where the time box goes. With a target it counts down ("Go", bell,
  * 3-2-1, bell); without one it's a stopwatch. When it ends it hands back the seconds done.
  */
-export function SetTimer({ target, onDone, label, compact, go: autoGo }: { target: number | null; onDone: (seconds: number) => void; label: string; compact?: boolean; go?: number }) {
+export function SetTimer({
+  target, onDone, label, compact, go: autoGo, blocked = false,
+  screenFocused = true, canCue, onRunningChange, initialClock, onClockChange,
+}: {
+  target: number | null;
+  onDone: (seconds: number) => void;
+  label: string;
+  compact?: boolean;
+  go?: number;
+  blocked?: boolean;
+  screenFocused?: boolean;
+  canCue?: () => boolean;
+  onRunningChange?: (running: boolean) => void;
+  initialClock?: TimedSetClock;
+  onClockChange?: (clock: TimedSetClock) => void;
+}) {
   const p = usePalette();
-  const [started, setStarted] = useState<number | null>(null);
+  const [clockState, setClockState] = useState<TimedSetClock>(() =>
+    restoreTimedSetClock(initialClock, target, Date.now()));
+  const stateRef = useRef(clockState);
+  stateRef.current = clockState;
+  const callbacks = useRef({ onDone, onRunningChange, onClockChange });
+  callbacks.current = { onDone, onRunningChange, onClockChange };
+  const runningRef = useRef(false);
+  const finished = useRef(false);
   const [now, setNow] = useState(Date.now());
   const fired = useRef(new Set<string>());
-  useEffect(() => { if (started == null) return; const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t); }, [started]);
-  const elapsed = started == null ? 0 : (now - started) / 1000;
-  const left = target ? Math.max(0, target - elapsed) : 0;
+  const running = clockState.since !== null;
+  const elapsed = elapsedTimedSet(clockState, now);
+  const left = target == null ? 0 : Math.max(0, target - elapsed);
+
+  const reportRunning = (value: boolean) => {
+    if (runningRef.current === value) return;
+    runningRef.current = value;
+    callbacks.current.onRunningChange?.(value);
+  };
+  const updateClock = (next: TimedSetClock) => {
+    stateRef.current = next;
+    setClockState(next);
+    callbacks.current.onClockChange?.(next);
+  };
+  // Persist the current clock only on controls and interruption, not 5x/s.
   useEffect(() => {
-    if (started == null || !target) return;
+    callbacks.current.onClockChange?.(stateRef.current);
+    return () => {
+      const snapshot = pauseTimedSet(stateRef.current, Date.now());
+      callbacks.current.onClockChange?.(snapshot);
+      if (runningRef.current) callbacks.current.onRunningChange?.(false);
+    };
+  }, []);
+  // A saved or edited exercise duration can change after onDone updates the
+  // set. Invalidate partial progress from the previous target rather than
+  // incorrectly resuming a countdown configured for a different duration.
+  useEffect(() => {
+    if (stateRef.current.target === target) return;
+    reportRunning(false);
+    finished.current = false;
+    fired.current = new Set();
+    updateClock(resetTimedSet(target));
+  }, [target]);
+  useEffect(() => {
+    if (clockState.since === null) return;
+    const tick = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(tick);
+  }, [clockState.since]);
+  useEffect(() => {
+    if ((screenFocused && !blocked) || stateRef.current.since === null) return;
+    const paused = pauseTimedSet(stateRef.current, Date.now());
+    updateClock(paused);
+    reportRunning(false);
+  }, [screenFocused, blocked]);
+  // A timed set is never marked complete just because the OS suspended JS
+  // through its deadline. Return paused; the user chooses when to resume.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' || stateRef.current.since === null) return;
+      const snapshot = pauseTimedSet(stateRef.current, Date.now());
+      updateClock(snapshot);
+      reportRunning(false);
+    });
+    return () => subscription.remove();
+  }, []);
+
+  // A recovered stopwatch or countdown is paused, never silently marked done.
+  useEffect(() => {
+    if (!screenFocused || !(canCue?.() ?? true) || AppState.currentState !== 'active' ||
+        !running || !target || finished.current) return;
     const pr = getPrefs(), f = fired.current, s = Math.ceil(left);
-    if (pr.halfway && target >= 20 && left <= target / 2 && !f.has('half')) { f.add('half'); void say('Halfway'); }
-    if (pr.countdown) for (const n of [3, 2, 1]) if (s === n && target > n && !f.has(String(n))) { f.add(String(n)); buzz(); void say(String(n)); }
-    if (left <= 0 && !f.has('end')) { f.add('end'); void bell(); setStarted(null); onDone(target); }
-  }, [started, left, target]); // eslint-disable-line react-hooks/exhaustive-deps
-  const go = () => { fired.current = new Set(); setStarted(Date.now()); void bell().then(() => say('Go')); };
-  // Started for you: the next set of a timed exercise after its rest, or the left side after the right
-  useEffect(() => { if (autoGo && started == null) go(); }, [autoGo]); // eslint-disable-line react-hooks/exhaustive-deps
-  const stop = () => { const secs = Math.round(elapsed); setStarted(null); if (secs > 0) { void bell(); onDone(secs); } };
-  const running = started != null;
-  const frac = target ? 1 - left / target : 0;
+    if (pr.halfway && target >= 20 && left <= target / 2 && !f.has('half')) {
+      f.add('half'); void say('Halfway');
+    }
+    if (pr.countdown) for (const n of [3, 2, 1]) {
+      if (s === n && target > n && !f.has(String(n))) {
+        f.add(String(n)); buzz(); void say(String(n));
+      }
+    }
+    if (left <= 0) {
+      finished.current = true;
+      void bell();
+      updateClock(resetTimedSet(target));
+      reportRunning(false);
+      callbacks.current.onDone(target);
+    }
+  }, [screenFocused, running, target, left]);
+
+  const start = () => {
+    if (blocked || !screenFocused || !(canCue?.() ?? true) || running) return;
+    fired.current = new Set();
+    finished.current = false;
+    const tick = Date.now();
+    setNow(tick);
+    updateClock(resumeTimedSet(stateRef.current, tick));
+    reportRunning(true);
+    void bellThenSay('Go');
+  };
+  useEffect(() => {
+    if (autoGo && !running && !blocked && screenFocused && stateRef.current.elapsedBefore === 0) start();
+  }, [autoGo]); // An explicit parent auto-start is a single event.
+  const stop = () => {
+    if (!screenFocused || !(canCue?.() ?? true) || stateRef.current.since === null) return;
+    // Cancel a delayed "Go" after the start bell, before the stop bell.
+    hush();
+    const snapshot = pauseTimedSet(stateRef.current, Date.now());
+    updateClock(snapshot);
+    reportRunning(false);
+    const seconds = Math.round(snapshot.elapsedBefore);
+    if (seconds > 0 && !finished.current) {
+      finished.current = true;
+      void bell();
+      callbacks.current.onDone(seconds);
+      updateClock(resetTimedSet(target));
+    }
+  };
+  const reset = () => {
+    if (!screenFocused || blocked || !(canCue?.() ?? true)) return;
+    hush(); // Prevent a prior Go/bell from outliving manual reset.
+    reportRunning(false);
+    finished.current = false;
+    fired.current = new Set();
+    updateClock(resetTimedSet(target));
+  };
+  const hasPartial = !running && clockState.elapsedBefore > 0;
+  const recoveredAtLimit = hasPartial && target !== null && clockState.elapsedBefore >= target;
+  const frac = target ? Math.max(0, 1 - left / target) : 0;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={running ? `Stop ${label} timer` : `Start ${label} timer`} onPress={running ? stop : go}
-      style={{ flex: 1, minWidth: compact ? 64 : 96, height: 44, borderRadius: R.sm, overflow: 'hidden', borderWidth: 1.5, borderColor: running ? p.focus : p.line, backgroundColor: p.surface, justifyContent: 'center' }}>
-      {running && target ? <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${frac * 100}%`, backgroundColor: p.glow }} /> : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-        <Icon name={running ? 'stop' : 'play_arrow'} size={18} color={p.focus} />
-        <Txt style={{ fontFamily: F.bodyBold, fontSize: 16, fontVariant: ['tabular-nums'], color: p.ink }}>
-          {running ? clock(target ? Math.ceil(left) : elapsed) : target ? clock(target) : 'Start'}
-        </Txt>
-      </View>
-    </Pressable>
+    <View style={{ flex: 1, minWidth: compact ? 64 : 96, flexDirection: 'row', gap: 3 }}>
+      <Pressable accessibilityRole="button"
+        accessibilityLabel={running ? `Stop ${label} timer` : recoveredAtLimit ? `Restart ${label} timer` : hasPartial ? `Resume ${label} timer` : `Start ${label} timer`}
+        disabled={!running && (blocked || !screenFocused)}
+        onPress={running ? stop : start}
+        style={{ flex: 1, minWidth: 56, height: 44, borderRadius: R.sm, overflow: 'hidden',
+          borderWidth: 1.5, borderColor: running ? p.focus : p.line,
+          backgroundColor: p.surface, justifyContent: 'center',
+          opacity: !running && (blocked || !screenFocused) ? 0.45 : 1 }}>
+        {running && target ? <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0,
+          width: `${frac * 100}%`, backgroundColor: p.glow }} /> : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+          <Icon name={running ? 'stop' : 'play_arrow'} size={18} color={p.focus} />
+          <Txt style={{ fontFamily: F.bodyBold, fontSize: 16, fontVariant: ['tabular-nums'], color: p.ink }}>
+            {running || hasPartial ? clock(target ? Math.ceil(left) : elapsed) : target ? clock(target) : 'Start'}
+          </Txt>
+        </View>
+      </Pressable>
+      {hasPartial && <Pressable accessibilityRole="button" accessibilityLabel={`Reset partial ${label} timer`}
+        onPress={reset} style={{ width: 32, height: 44, justifyContent: 'center', alignItems: 'center',
+          backgroundColor: p.soft, borderRadius: R.sm }}>
+        <Icon name="replay" color={p.ink} size={18} />
+      </Pressable>}
+    </View>
   );
+}
+
+/** Clears the tagged rest reminder for a completed or discarded workout.
+ * The serialized queue makes an earlier in-flight schedule finish first.
+ */
+export async function clearWorkoutRestReminder(sessionId: string): Promise<void> {
+  await backstop(sessionId, null);
 }

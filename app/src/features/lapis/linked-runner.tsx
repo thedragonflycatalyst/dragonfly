@@ -3,28 +3,33 @@ import { AppState, Pressable, View } from 'react-native';
 import { Button, Txt } from '@/components/ui';
 import { fmtSeconds } from '@/lib/workouts';
 import { F, R, usePalette } from '@/lib/theme';
-import { bell, buzz, say } from './audio';
+import { bell, buzz, hush, say } from './audio';
 import { type LapisTimer } from './library';
 import { compileLapisTimeline, phaseAt } from './timeline';
 import { elapsedAt, freshClock, pauseClock, skipClock, startClock, validClock, type RunnerClock } from './runner-clock';
-import { scheduleLapisCompletion, cancelLapisCompletion } from './background';
+import { reconcileLapisCompletion, clearLapisCompletion } from './background';
 import { compileSpokenCues, cuesCrossed } from './cue-plan';
 import { completedNaturally, phaseTransitionDue } from './runner-events';
 import { announcementForPhase } from './phase-announcement';
+import { reminderSeconds } from './reminder-policy';
+import { pauseForNavigation } from './navigation-recovery';
 
 /** Foreground interval controls using absolute clock offsets.
  * If the app is suspended, the phase catches up to actual elapsed time when
  * React Native resumes. This does not promise continuous background audio.
  */
 export function LinkedLapisRunner({
-  timer, onComplete, onReset, onStart, onPause, blocked = false, initialClock, onClockChange,
+  timer, reminderKey, onComplete, onReset, onStart, onPause, blocked = false, screenFocused = true, canCue, initialClock, onClockChange,
 }: {
   timer: LapisTimer;
+  reminderKey: string;
   onComplete?: (actualSeconds: number) => void;
   onReset?: () => void;
-  onStart?: () => void;
+  onStart?: (freshRun: boolean) => void;
   onPause?: () => void;
   blocked?: boolean;
+  screenFocused?: boolean;
+  canCue?: () => boolean;
   initialClock?: RunnerClock;
   onClockChange?: (clock: RunnerClock) => void;
 }) {
@@ -36,9 +41,14 @@ export function LinkedLapisRunner({
   const [muted, setMuted] = useState(false);
   const lastPhase = useRef<number | null>(null);
   const foreground = useRef(AppState.currentState === 'active');
+  const wasBackgrounded = useRef(false);
+  const interruptedCompletion = useRef(false);
   const explicitlyStarted = useRef(false);
   const lastCuePosition = useRef<number | null>(null);
-  const reported = useRef(false);
+  // A completed checkpoint from an earlier app session must not be logged
+  // again with a new timestamp merely because the component remounted.
+  const reported = useRef(!!initialClock?.hasStarted &&
+    initialClock.since === null && initialClock.elapsedBefore >= timeline.totalSeconds);
   const changeRef = useRef(onClockChange);
   changeRef.current = onClockChange;
   // Save on every control change, not every 200ms display tick.
@@ -49,6 +59,17 @@ export function LinkedLapisRunner({
   const phaseIndex = state.phase ? timeline.phases.indexOf(state.phase) : timeline.phases.length;
   const done = hasStarted && state.finished;
 
+  // On route blur, freeze the running clock and report the paused snapshot
+  // synchronously. Navigation is not an OS background interruption: it should
+  // never silently complete a workout after the screen is left.
+  useEffect(() => {
+    if (screenFocused || clock.since === null) return;
+    const paused = pauseForNavigation(clock, Date.now(), timeline.totalSeconds);
+    changeRef.current?.(paused);
+    setClock(paused);
+    onPause?.();
+  }, [screenFocused, clock, timeline.totalSeconds, onPause]);
+
   // A workout may contain several Lapis blocks, but only one linked timer
   // can actively run and own voice/haptics at any moment.
   useEffect(() => {
@@ -57,41 +78,48 @@ export function LinkedLapisRunner({
     }
   }, [blocked, clock.since, timeline.totalSeconds]);
 
-  // Native end-of-timer fallback while backgrounded. React timers and voice
-  // announcements aren't guaranteed to run after the OS suspends the app.
+  // Reconcile a single tagged native completion reminder. This effect runs
+  // on clock control changes, not on display ticks. A per-key serialized queue
+  // ensures an earlier schedule cannot outlive a later reset or pause.
   useEffect(() => {
-    let generation = 0;
-    let pending: string | null = null;
-    const change = async (state: string | null | undefined) => {
-      const token = ++generation;
-      const previous = pending;
-      pending = null;
-      await cancelLapisCompletion(previous);
-      if (state === 'active' || blocked || clock.since == null || clock.skipped) return;
-      const left = timeline.totalSeconds - elapsedAt(clock, Date.now(), timeline.totalSeconds);
-      if (left <= 0) return;
-      const id = await scheduleLapisCompletion(left, timer.name);
-      if (generation === token) pending = id;
-      else await cancelLapisCompletion(id);
+    const reconcile = (state: string | null | undefined) => {
+      const left = screenFocused ? reminderSeconds(state, clock, timeline.totalSeconds, blocked, Date.now()) : null;
+      void reconcileLapisCompletion(reminderKey, left, timer.name);
     };
-    const sub = AppState.addEventListener('change', (state) => { void change(state); });
-    void change(AppState.currentState);
-    return () => {
-      generation++;
-      sub.remove();
-      void cancelLapisCompletion(pending);
-    };
-  }, [blocked, clock, timeline.totalSeconds, timer.name]);
+    const sub = AppState.addEventListener('change', reconcile);
+    reconcile(AppState.currentState);
+    return () => { sub.remove(); void clearLapisCompletion(reminderKey); };
+  }, [blocked, screenFocused, clock, timeline.totalSeconds, timer.name, reminderKey]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      foreground.current = state === 'active';
-      // On wake, reconcile elapsed time immediately; don't replay missed cues.
+      const active = state === 'active';
+      const returning = active && wasBackgrounded.current;
+      foreground.current = active;
+      if (!active) {
+        wasBackgrounded.current = true;
+        if (clock.since !== null && !blocked && screenFocused && (canCue?.() ?? true)) hush();
+      }
+      if (returning) {
+        wasBackgrounded.current = false;
+        const tick = Date.now();
+        // Notifications own background completion. A late JS effect must
+        // never log an unseen finish or fire a duplicate end cue on wake.
+        if (clock.since !== null &&
+            elapsedAt(clock, tick, timeline.totalSeconds) >= timeline.totalSeconds) {
+          interruptedCompletion.current = true;
+          setClock((previous) => ({
+            ...pauseClock(previous, tick, timeline.totalSeconds),
+            elapsedBefore: Math.max(0, timeline.totalSeconds - 1),
+          }));
+          onPause?.();
+        }
+      }
       lastCuePosition.current = null;
       setNow(Date.now());
     });
     return () => subscription.remove();
-  }, []);
+  }, [clock, timeline.totalSeconds, blocked, screenFocused, canCue, onPause]);
 
   useEffect(() => {
     if (since == null) return;
@@ -100,7 +128,7 @@ export function LinkedLapisRunner({
   }, [since]);
 
   useEffect(() => {
-    if (since == null || muted || blocked || !hasStarted) return;
+    if (since == null || muted || blocked || !screenFocused || !(canCue?.() ?? true) || !hasStarted) return;
     const previous = lastPhase.current;
     const fresh = explicitlyStarted.current;
     lastPhase.current = phaseIndex;
@@ -118,12 +146,12 @@ export function LinkedLapisRunner({
     if (announcement.ring) void bell();
     if (announcement.speech) void say(announcement.speech);
     buzz();
-  }, [phaseIndex, since, muted, blocked, hasStarted, done, elapsed, timeline, timer]);
+  }, [phaseIndex, since, muted, blocked, screenFocused, hasStarted, done, elapsed, timeline, timer]);
 
   // Only announce cues crossed during foreground playback. Reopening a
   // suspended app must not replay a burst of overdue announcements.
   useEffect(() => {
-    if (since == null || muted || blocked || !foreground.current) { lastCuePosition.current = elapsed; return; }
+    if (since == null || muted || blocked || !screenFocused || !(canCue?.() ?? true) || !foreground.current) { lastCuePosition.current = elapsed; return; }
     const before = lastCuePosition.current ?? elapsed;
     lastCuePosition.current = elapsed;
     const cues = cuesCrossed(spokenCues, before, elapsed);
@@ -131,27 +159,34 @@ export function LinkedLapisRunner({
       if (cue.kind === 'countdown') buzz();
       void say(cue.text);
     }
-  }, [elapsed, since, muted, blocked, spokenCues]);
+  }, [elapsed, since, muted, blocked, screenFocused, spokenCues]);
 
   useEffect(() => {
-    if (done && !reported.current) {
-      reported.current = true;
-      if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds)) {
-        onComplete?.(Math.round(elapsed));
-      } else {
-        // A skipped run isn't logged, but must release the audio lease.
-        onPause?.();
-      }
+    if (!done || reported.current || !foreground.current || interruptedCompletion.current ||
+        !screenFocused || !(canCue?.() ?? true)) return;
+    reported.current = true;
+    // A completed timeline cannot remain "running" in the persisted draft.
+    // Otherwise a successfully finished interval would block workout saving.
+    if (clock.since !== null) {
+      setClock((previous) => pauseClock(previous, Date.now(), timeline.totalSeconds));
     }
-  }, [done, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
+    if (completedNaturally(hasStarted, skipped, elapsed, timeline.totalSeconds)) {
+      onComplete?.(Math.round(elapsed));
+    } else {
+      // A skipped run isn't logged, but must release the audio lease.
+      onPause?.();
+    }
+  }, [done, clock.since, hasStarted, skipped, elapsed, timeline.totalSeconds, onComplete, onPause]);
 
   const pause = () => {
+    if (canCue?.() ?? true) hush();
     setClock((old) => pauseClock(old, Date.now(), timeline.totalSeconds));
     onPause?.();
   };
   const start = () => {
-    if (blocked) return;
-    onStart?.(); // Also claim audio ownership when resuming a paused timer.
+    if (blocked || !screenFocused || !(canCue?.() ?? true)) return;
+    interruptedCompletion.current = false;
+    onStart?.(!hasStarted || state.finished); // Resume only claims ownership; a new run invalidates old results.
     if (!hasStarted || state.finished) { lastCuePosition.current = -0.01; explicitlyStarted.current = true; }
     if (state.finished) { lastPhase.current = null; reported.current = false; }
     const tick = Date.now();
@@ -159,13 +194,16 @@ export function LinkedLapisRunner({
     setClock((old) => startClock(old, tick, timeline.totalSeconds));
   };
   const reset = () => {
+    if (clock.since !== null && (canCue?.() ?? true)) hush();
     setClock(freshClock()); setNow(Date.now());
+    interruptedCompletion.current = false;
     reported.current = false; lastPhase.current = null; lastCuePosition.current = null; explicitlyStarted.current = false;
     onPause?.();
     onReset?.();
   };
   const skip = () => {
-    if (!state.phase) return;
+    if (!state.phase || !(canCue?.() ?? true)) return;
+    hush();
     const tick = Date.now();
     setClock((old) => skipClock(old, tick, state.phase!.endAt));
     setNow(tick);
@@ -193,11 +231,14 @@ export function LinkedLapisRunner({
         {total ? ` · ${fmtSeconds(Math.ceil(total - elapsed))} remaining overall` : ''}
       </Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        {since === null && !done ? <Button small title={hasStarted ? 'Resume' : 'Start'} icon="play_arrow" disabled={blocked} onPress={start} /> :
+        {since === null && !done ? <Button small title={hasStarted ? 'Resume' : 'Start'} icon="play_arrow" disabled={blocked || !screenFocused} onPress={start} /> :
           !done && <Button small title="Pause" icon="pause" onPress={pause} />}
         {!done && hasStarted && <Button small kind="ghost" title="Skip interval" icon="skip_next" onPress={skip} />}
         {hasStarted && <Button small kind="ghost" title="Reset" icon="replay" onPress={reset} />}
-        <Pressable accessibilityRole="button" accessibilityLabel={muted ? 'Enable timer cues' : 'Mute timer cues'} onPress={() => setMuted(!muted)}
+        <Pressable accessibilityRole="button" accessibilityLabel={muted ? 'Enable timer cues' : 'Mute timer cues'} onPress={() => {
+          if (!muted && (canCue?.() ?? true)) hush();
+          setMuted(!muted);
+        }}
           style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}>
           <Txt v="smallBold" color={p.focus}>{muted ? 'Unmute cues' : 'Mute cues'}</Txt>
         </Pressable>
