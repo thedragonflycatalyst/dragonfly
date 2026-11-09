@@ -5,6 +5,7 @@ import { appName } from '@/lib/apps';
 import { mergeHealth, type Weighin } from '@/lib/scale';
 import { recall, sb, store } from '@/lib/supabase';
 import { readHealth, readHeight, scalePermissions } from './health-connect';
+import { checkHealthConsent } from './health-consent';
 import { deviceSync } from './health-sync';
 
 const KEY = (uid: string) => `scale.hc.${uid}`;
@@ -43,7 +44,7 @@ async function existingWindow(uid: string, from: Date, until: Date): Promise<Pic
  * Manual history requests should pass a from date and permission-verify first.
  */
 export async function syncHealth(uid: string, _visible: Weighin[], from?: Date): Promise<number> {
-  if (Platform.OS !== 'android') return 0;
+  if (Platform.OS !== 'android' || !checkHealthConsent(uid)) return 0;
   const before = healthSync(uid);
   const perms = await scalePermissions();
   if (!perms.weight) throw new Error('Weight permission is not granted in Health Connect.');

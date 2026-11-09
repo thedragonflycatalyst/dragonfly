@@ -5,6 +5,10 @@ import { emptyHealth, mealName, type DeviceHealth } from '@/lib/health';
 import type { HealthReadings } from '@/lib/scale';
 
 export type HealthStatus = 'unsupported' | 'not_installed' | 'update_needed' | 'ready';
+
+// Off until the person consents (features/health-consent.ts). While off, nothing is requested or read.
+let allowed = false;
+export function allowReads(on: boolean) { allowed = on; }
 const TYPES = ['Weight', 'Height', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate',
   'Steps', 'ActiveCaloriesBurned', 'Distance', 'SleepSession', 'RestingHeartRate', 'HeartRateVariabilityRmssd', 'Hydration', 'ExerciseSession', 'Nutrition'] as const;
 
@@ -20,26 +24,27 @@ export async function healthStatus(): Promise<HealthStatus> {
 /** Asks for read access to everything Dragonfly uses (and older history). True if anything was allowed. */
 /** The Scale asks only for the measurements it needs, rather than every health category. */
 export async function scalePermissions(): Promise<{ weight: boolean; history: 'unknown' }> {
-  if (!(await initialize())) return { weight: false, history: 'unknown' };
+  if (!allowed || !(await initialize())) return { weight: false, history: 'unknown' };
   const granted = await getGrantedPermissions();
   // react-native-health-connect 4.1.x does not reliably report the special
   // historical-data permission through getGrantedPermissions. Never infer it.
   return { weight: granted.some((g) => g.accessType === 'read' && g.recordType === 'Weight'), history: 'unknown' };
 }
 export async function connectScaleHealth(): Promise<boolean> {
-  if (!(await initialize())) return false;
+  if (!allowed || !(await initialize())) return false;
   await requestPermission((['Weight', 'Height', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass', 'BasalMetabolicRate'] as const)
     .map((recordType) => ({ accessType: 'read' as const, recordType })));
   return (await scalePermissions()).weight;
 }
 /** User-initiated request only; successful historical reading is the actual verification. */
 export async function requestScaleHistoryAccess(): Promise<void> {
+  if (!allowed) throw new Error('Agree to Health Connect use on the consent screen first');
   if (!(await initialize())) throw new Error('Health Connect is not available');
   await requestPermission([{ accessType: 'read', recordType: 'ReadHealthDataHistory' } as never]);
 }
 
 export async function connectHealth(): Promise<boolean> {
-  if (!(await initialize())) return false;
+  if (!allowed || !(await initialize())) return false;
   const granted = await requestPermission([
     ...TYPES.map((recordType) => ({ accessType: 'read' as const, recordType })),
     { accessType: 'read', recordType: 'ReadHealthDataHistory' } as never,
@@ -62,6 +67,7 @@ async function all<T>(type: (typeof TYPES)[number], since: Date): Promise<T[]> {
 
 /** Everything shared since a date. Types they didn't allow come back empty. */
 export async function readHealth(since: Date): Promise<HealthReadings> {
+  if (!allowed) return { weight: [], bodyFat: [], leanMass: [], boneMass: [], bodyWater: [], bmr: [] };
   await initialize();
   const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
   if (!ok.has('Weight')) throw new Error('Allow Dragonfly to read Weight in Health Connect first.');
@@ -88,6 +94,7 @@ export const openHealthSettings = () => openHealthConnectSettings();
 
 /** Their most recent height in Health Connect (cm), if any app shared one */
 export async function readHeight(): Promise<number | null> {
+  if (!allowed) return null;
   try {
     await initialize();
     const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
@@ -103,6 +110,7 @@ const AWAKE = new Set<number>([SleepStageType.AWAKE, SleepStageType.OUT_OF_BED])
 
 /** Activity, sleep, heart, water, workouts and food shared since a date */
 export async function readDevice(since: Date): Promise<DeviceHealth> {
+  if (!allowed) return emptyHealth();
   await initialize();
   const ok = new Set(((await getGrantedPermissions()) as { recordType?: string }[]).map((g) => g.recordType));
   const get = <T>(t: (typeof TYPES)[number]) => (ok.has(t) ? all<T>(t, since).catch(() => [] as T[]) : Promise.resolve([] as T[]));
