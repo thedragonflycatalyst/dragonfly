@@ -6,30 +6,23 @@ import { Sheet } from '@/components/sheet';
 import { Button, Field, Txt, useToast } from '@/components/ui';
 import { fmtMoney, type Payment } from '@/lib/business';
 import { callFn, fnText } from '@/lib/fn';
+import { cleanReason, postNotice, runAdjustment, type AdjustKind } from '@/lib/adjust';
 import { errText } from '@/lib/model';
 import { quoteText, toCentsInput, type RefundQuote } from '@/lib/refunds';
 import { sb } from '@/lib/supabase';
 
-/** The website endpoint that emails the refund / void notice (same format as the website's own receipts) */
-const NOTICE_URL = 'https://thedragonflycatalyst.org/api/account/coach-adjust';
-
 /** Asks the website to email the client a refund or void notice (Charlie's coach-adjust endpoint; no resend guard there, so the
  *  app calls it once per adjustment and again only on an explicit "Email the receipt again"). Resolves to a short status line. */
 export async function sendAdjustmentNotice(paymentId: string): Promise<string> {
-  try {
-    const { data } = await sb.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) return 'Sign in again to email the receipt.';
-    const r = await fetch(NOTICE_URL, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ payment_id: paymentId }) });
-    const j = (await r.json().catch(() => null)) as { ok?: boolean; message?: string; error?: string } | null;
-    if (r.ok && j?.ok !== false) return j?.message ?? 'Receipt emailed to the client.';
-    // 409: no client email, or the payment isn't refunded/voided with a reason; 404: not this trainer's payment; 502: email service
-    if (r.status === 502) return 'Receipt not emailed: the email service didn’t answer. Try “Email the receipt again” later.';
-    return `Receipt not emailed: ${j?.message ?? j?.error ?? `error ${r.status}`}`;
-  } catch { return 'Receipt not emailed: can’t reach the website.'; }
+  return (await postNotice(paymentId, await currentToken(), fetch)).text;
 }
 
-export type AdjustKind = 'refund' | 'void';
+async function currentToken() {
+  const { data } = await sb.auth.getSession();
+  return data.session?.access_token;
+}
+
+export type { AdjustKind };
 
 /** Refund (money given back) or void (recorded by mistake), with a required reason */
 export function AdjustPayment({ payment, kind, clientName, onClose, onDone }: {
@@ -54,22 +47,25 @@ export function AdjustPayment({ payment, kind, clientName, onClose, onDone }: {
   const cents = toCentsInput(amount);
   const outside = kind === 'refund' && !!quote && (!quote.refundable || (cents ?? 0) > quote.suggested_cents);
   const go = async () => {
-    const why = reason.trim();
-    if (why.length < 3) return toast('Give a reason (it goes on the client’s receipt)', false);
-    if (kind === 'refund' && (cents === null || cents <= 0 || (quote && cents > quote.max_cents))) return toast(`Enter an amount up to ${fmtMoney(quote?.max_cents ?? payment.amount_cents, payment.currency)}`, false);
-    if (outside && why.length < 5) return toast('This is outside your refund policy. Say why in the reason.', false);
+    if (!cleanReason(reason)) return toast('Give a reason (it goes on the client’s receipt)', false);
     setBusy(true);
     try {
-      if (card) await callFn('coach-pay', { action: 'refund', payment_id: payment.id, reason: why, amount_cents: cents });
-      else {
-        const patch = kind === 'refund' ? { status: 'refunded', status_reason: why, refunded_cents: cents } : { status: 'void', status_reason: why };
-        const { error } = await sb.from('coach_payments').update(patch).eq('id', payment.id);
-        if (error) throw error;
-      }
-      const note = await sendAdjustmentNotice(payment.id);
-      toast(`${kind === 'refund' ? 'Refunded' : 'Voided'}. ${note}`);
-      onDone();
-    } catch (e) { toast(card ? fnText(e) : errText(e), false); } finally { setBusy(false); }
+      const r = await runAdjustment(payment, kind, reason, {
+        refundCard: async (id, why, amountCents) => { await callFn('coach-pay', { action: 'refund', payment_id: id, reason: why, amount_cents: amountCents }); },
+        setStatus: async (id, status, why, refundedCents) => {
+          const patch = status === 'refunded' ? { status, status_reason: why, refunded_cents: refundedCents } : { status, status_reason: why };
+          const { error } = await sb.from('coach_payments').update(patch).eq('id', id);
+          if (error) throw error;
+        },
+        getToken: currentToken,
+        fetchFn: fetch,
+      }, kind === 'refund' ? { cents, maxCents: quote?.max_cents ?? payment.amount_cents, outsidePolicy: outside } : undefined);
+      if (r.ok) { toast(`${kind === 'refund' ? 'Refunded' : 'Voided'}. ${r.notice.text}`); onDone(); }
+      else if (r.problem === 'amount') toast(`Enter an amount up to ${fmtMoney(quote?.max_cents ?? payment.amount_cents, payment.currency)}`, false);
+      else if (r.problem === 'policy_reason') toast('This is outside your refund policy. Say why in the reason.', false);
+      else if (r.problem === 'not_allowed') toast(kind === 'refund' ? 'Only a paid payment can be refunded.' : 'Card payments are refunded, not voided. Only a pending or hand-recorded payment can be voided.', false);
+      else toast(card ? fnText(r.error) : errText(r.error), false);
+    } finally { setBusy(false); }
   };
   return (
     <Sheet visible onClose={onClose} title={kind === 'refund' ? `Refund (paid ${fmtMoney(payment.amount_cents, payment.currency)})` : 'Void this payment'}>
