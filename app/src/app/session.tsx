@@ -26,6 +26,8 @@ import { activeWorkoutTimers, clearTimerCompletion, recordTimerCompletion, shoul
 import { canMutateWorkoutTimer } from '@/features/lapis/save-finalization';
 import { timerInstanceKey } from '@/features/lapis/timer-instance';
 import { ExerciseHistory } from '@/features/exercise-history';
+import { EquipmentSettings } from '@/features/equipment-settings';
+import { cleanSettings, lastSettings, settingFields } from '@/lib/equipment-settings';
 import { useHidden } from '@/features/library-extras';
 import { alternativesFor, byRef, titleCase, type LibExercise } from '@/lib/library';
 import { ask } from '@/lib/ask';
@@ -260,6 +262,22 @@ export default function Session() {
       .then(({ data }) => setPast((data as PastLog[] | null) ?? []));
   }, [clientId]);
 
+  // Carry machine settings over from last time (only into exercises that don't have any yet)
+  useEffect(() => {
+    if (!past.length) return;
+    setLog((l) => {
+      let changed = false;
+      const next = l.map((e) => {
+        if (e.settings) return e;
+        const s = lastSettings(historyOf(past, exKey(e.ex)));
+        if (!s) return e;
+        changed = true;
+        return { ...e, settings: { ...s } };
+      });
+      return changed ? next : l;
+    });
+  }, [past, log.length]);
+
   if (src === undefined) return <View style={{ flex: 1, backgroundColor: p.bg, justifyContent: 'center' }}><ActivityIndicator color={p.ink} /></View>;
   if (!src) return <View style={{ flex: 1, backgroundColor: p.bg, padding: 16 }}><Empty emoji="🔎" title="Workout not found" /></View>;
   if (src.assignment?.status === 'done') {
@@ -475,6 +493,14 @@ export default function Session() {
                   {e.ex && <Button small kind="quiet" icon="swap_horiz" title="Swap" onPress={() => setSwapping(bi)} />}
                 </View>
                 {b?.note ? <Txt v="small">{b.note}</Txt> : null}
+                {(() => {
+                  const libEx = e.ex ? byRef(`${e.ex.src}:${e.ex.id}`) : undefined;
+                  const fields = settingFields(libEx ?? (e.ex ? { name: e.ex.name } : null));
+                  // Equipment with adjustments gets its slots; your own exercises can add any; bodyweight moves show nothing
+                  if (!fields.length && !Object.keys(e.settings ?? {}).length && e.ex?.src !== 'my') return null;
+                  return <EquipmentSettings fields={fields} value={e.settings}
+                    onChange={(v) => setLog((l) => l.map((x, n) => (n === bi ? { ...x, settings: cleanSettings(v) ?? {} } : x)))} />;
+                })()}
                 {hist[0] ? (
                   <Pressable accessibilityRole="button" accessibilityLabel={`${e.ex?.name ?? 'Exercise'} history`} onPress={() => setHistoryFor(bi)}>
                     <Txt v="small" style={{ opacity: 0.6 }} numberOfLines={2}>Last time ({shortDate(hist[0].at)}): {hist[0].sets.map((x) => setLine(x, hist[0].unit)).join(', ')}</Txt>
@@ -624,7 +650,7 @@ export default function Session() {
         workoutTitle={isTrainer && src.workoutId ? src.title : null}
         onSwap={(alt, forGood) => {
           const i = swapping!; const entry = log[i];
-          setLog((l) => l.map((x, n) => (n === i ? { ...x, ex: refOf(alt), swapped_from: x.swapped_from ?? x.ex?.name, swapped_from_ref: x.swapped_from_ref ?? (x.ex ? `${x.ex.src}:${x.ex.id}` : undefined) } : x)));
+          setLog((l) => l.map((x, n) => (n === i ? { ...x, ex: refOf(alt), settings: lastSettings(historyOf(past, exKey(refOf(alt)))), swapped_from: x.swapped_from ?? x.ex?.name, swapped_from_ref: x.swapped_from_ref ?? (x.ex ? `${x.ex.src}:${x.ex.id}` : undefined) } : x)));
           setSwapping(null);
           if (forGood && entry?.ex) void swapForGood(entry.block_id, entry.ex, refOf(alt));
         }} />
