@@ -2,7 +2,7 @@
 import type { ExerciseRef, LogEntry, SetLog } from './model';
 
 export type PastLog = { performed_at: string; entries: LogEntry[] };
-export type ExerciseTime = { at: string; sets: SetLog[]; note: string | null; unit?: 'lb' | 'kg'; sides?: boolean };
+export type ExerciseTime = { at: string; sets: SetLog[]; note: string | null; unit?: 'lb' | 'kg'; sides?: boolean; settings?: Record<string, string> };
 
 export const exKey = (ex: ExerciseRef | undefined) => (ex ? `${ex.src}:${ex.id}` : '');
 
@@ -13,7 +13,7 @@ export function historyOf(logs: PastLog[], key: string): ExerciseTime[] {
   for (const l of [...logs].sort((a, b) => b.performed_at.localeCompare(a.performed_at))) {
     for (const e of l.entries ?? []) {
       if (exKey(e.ex) !== key) continue;
-      out.push({ at: l.performed_at, sets: e.sets ?? [], note: e.note?.trim() || null, unit: e.unit, sides: e.sides });
+      out.push({ at: l.performed_at, sets: e.sets ?? [], note: e.note?.trim() || null, unit: e.unit, sides: e.sides, settings: e.settings });
     }
   }
   return out;

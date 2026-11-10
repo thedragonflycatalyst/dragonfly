@@ -100,7 +100,7 @@ export type SetLog = {
   reps_l?: number | null; reps_r?: number | null; time_l?: number | null; time_r?: number | null; rest?: number | null;
 };
 /** One exercise in a logged workout. sides: logged left/right. note: the trainer's or client's note for this exercise. */
-export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; swapped_from_ref?: string; sides?: boolean; note?: string };
+export type LogEntry = { block_id: string; ex?: ExerciseRef; sets: SetLog[]; unit?: 'lb' | 'kg'; swapped_from?: string; swapped_from_ref?: string; sides?: boolean; note?: string; settings?: Record<string, string> };
 export type LapisTimerResult = {
   block_id: string; timer_id: string; name: string;
   planned_seconds: number; actual_seconds: number; completed_at: string;

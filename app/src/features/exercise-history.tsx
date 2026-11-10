@@ -1,6 +1,7 @@
 import { ScrollView, View } from 'react-native';
 import { Sheet } from '@/components/sheet';
 import { Txt } from '@/components/ui';
+import { settingsLine } from '@/lib/equipment-settings';
 import { setLine, type ExerciseTime } from '@/lib/history';
 import type { LogEntry } from '@/lib/model';
 import { usePalette } from '@/lib/theme';
@@ -15,6 +16,7 @@ export function ExerciseHistory({ entry, history, onClose }: { entry: LogEntry |
         {history.map((h, i) => (
           <View key={`${h.at}${i}`} style={{ paddingVertical: 10, gap: 3, borderBottomWidth: i === history.length - 1 ? 0 : 1, borderBottomColor: p.line }}>
             <Txt v="bold">{new Date(h.at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</Txt>
+            {settingsLine(h.settings) ? <Txt v="small" color={p.muted}>Settings: {settingsLine(h.settings)}</Txt> : null}
             {h.sets.map((s, n) => <Txt key={n} v="small" color={p.ink}>Set {n + 1}: {setLine(s, h.unit)}</Txt>)}
             {h.note ? <Txt v="small" style={{ fontStyle: 'italic', opacity: 0.55 }}>{h.note}</Txt> : null}
           </View>
