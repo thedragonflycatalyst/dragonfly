@@ -40,7 +40,8 @@ export function clock(sec: number) {
 export const doneOnly = (log: LogEntry[]): LogEntry[] => log.map((e) => ({ ...e, sets: e.sets.filter((s) => s.done) })).filter((e) => e.sets.length);
 
 /** An unfinished workout kept on the device so closing the app doesn't lose it */
-export type Draft = { key: string; title: string; params: Record<string, string>; client_id: string | null; started: number; log: LogEntry[]; timerResults?: LapisTimerResult[]; runnerClocks?: Record<string, RunnerClock>; timedSetClocks?: Record<string, TimedSetClock>; restClock?: RestClock | null; pendingAssignmentId?: string | null };
+export type Draft = { key: string; title: string; params: Record<string, string>; client_id: string | null; started: number; log: LogEntry[]; timerResults?: LapisTimerResult[]; runnerClocks?: Record<string, RunnerClock>; timedSetClocks?: Record<string, TimedSetClock>; restClock?: RestClock | null; pendingAssignmentId?: string | null;
+  /** Last time anything changed (ms); 4 hours after it the workout is saved on its own */ touched?: number; };
 export const DRAFT_KEY = 'dragonfly.session';
 export function readDraft(get: (k: string) => string | null): Draft | null {
   try { const d = JSON.parse(get(DRAFT_KEY) ?? 'null'); return d && typeof d.key === 'string' && Array.isArray(d.log) ? d : null; } catch { return null; }

@@ -44,7 +44,7 @@ export default function UnfinishedWorkouts() {
   );
   return (
     <Screen title="Unfinished workouts" kicker="Workout recovery">
-      <Txt v="small">Saved on this device. Resume any workout without losing progress in the others.</Txt>
+      <Txt v="small">Saved on this device. Resume any workout without losing progress in the others. After 4 hours without activity, a workout saves on its own with what you completed.</Txt>
       {error ? <Txt v="small" color={p.focus}>{error}</Txt> : null}
       {!drafts.length ? (
         <Empty emoji="🏋️" title="No unfinished workouts"

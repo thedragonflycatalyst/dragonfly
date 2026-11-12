@@ -4,10 +4,11 @@ import { SplashScreen, Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from '@/components/ui';
 import { SidebarDrawer, SidebarRail, useWide } from '@/components/shell';
+import { autoSubmitIdleWorkouts } from '@/features/auto-submit';
 import { AutoSync } from '@/features/auto-sync';
 import { BiometricSecurityProvider } from '@/features/biometric-security';
 import { BiometricGate } from '@/features/biometric-gate';
@@ -38,6 +39,15 @@ function Shell() {
   useEffect(() => { noteRoute(path); }, [path]);
   // Crashes queued while signed out (or just before the app closed) go out once someone is signed in
   useEffect(() => { if (user) void flushCrashes(); }, [user]);
+  // Unfinished workouts idle for 4 hours save themselves: on open, on return to the app, and every 5 minutes
+  useEffect(() => {
+    if (!ready || !user) return;
+    const run = () => { void autoSubmitIdleWorkouts(user.id); };
+    run();
+    const t = setInterval(run, 5 * 60_000);
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') run(); });
+    return () => { clearInterval(t); sub.remove(); };
+  }, [ready, user]);
 
   if (!fontsLoaded || !ready) return null;
   const header = {

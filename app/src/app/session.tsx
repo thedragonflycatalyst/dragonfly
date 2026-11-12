@@ -36,6 +36,7 @@ import { dayKey } from '@/lib/dates';
 import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LapisTimerResult, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
 import { exKey, ghostSet, historyOf, notesOf, pastSwaps, setLine, type PastLog } from '@/lib/history';
 import { clock, doneOnly, type Draft } from '@/lib/session';
+import { onAutoSubmitted } from '@/features/auto-submit';
 import { weakSide } from '@/lib/sides';
 import { storage } from '@/lib/storage';
 import { beginWorkoutDraft, writeDraftCore, writeDraftPatch, clearMatchingDraft, workoutDraftSlot, loadWorkoutDraft } from '@/lib/draft-integrity';
@@ -235,9 +236,22 @@ export default function Session() {
   // Keep the draft on the device after every change
   useEffect(() => {
     if (!src || readyKey !== key || saved.current || src.assignment?.status === 'done' || (!log.length && !src.blocks.some((b) => b.kind === 'timed'))) return;
-    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, restClock: restSnapshot, pendingAssignmentId };
+    // touched: any change counts as activity; 4 hours without one and the workout saves on its own
+    const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, restClock: restSnapshot, pendingAssignmentId, touched: Date.now() };
     try { writeDraftCore(storage, workoutDraftSlot(key), d); } catch { /* storage full or blocked: keep going without a draft */ }
   }, [log, timerResults, runnerClocks, timedSetClocks, restSnapshot, pendingAssignmentId, clientId, src, readyKey, key, aid, workout, started]);
+
+  // Saved on its own after 4 hours idle (features/auto-submit) while this screen was open: close up like a normal save
+  useEffect(() => onAutoSubmitted((k, assignmentId) => {
+    if (k !== key || saved.current) return;
+    saved.current = true;
+    rest.skip();
+    hush();
+    void clearWorkoutRestReminder(sessionId);
+    void clearWorkoutLinkedReminders(sessionId, Object.keys(linkedTimers));
+    toast('This workout was saved automatically after 4 hours without activity');
+    router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId, done: '1' } });
+  }), [key, sessionId, linkedTimers, rest, toast]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   // Lapis: fetch the voice lines once, keep the screen on if asked, stop sounds on the way out
