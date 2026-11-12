@@ -27,6 +27,7 @@ export function writeDraftCore(store: DraftStore, slot: string, draft: Draft): b
     client_id: draft.client_id, started: draft.started,
     log: draft.log, timerResults: draft.timerResults,
     pendingAssignmentId: previous?.pendingAssignmentId ?? draft.pendingAssignmentId,
+    touched: draft.touched ?? previous?.touched,
   } satisfies Draft));
   return true;
 }
