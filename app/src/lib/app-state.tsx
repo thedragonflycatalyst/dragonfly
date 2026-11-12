@@ -27,7 +27,7 @@ type Ctx = {
   /** The client record in use (first active one, else the first) */
   membership: Client | null;
   /** The trainer of that client record, as the client sees them */
-  myTrainer: { user_id: string; display_name: string; business_name: string | null; units: Units; unit_prefs?: Partial<UnitPrefs>; brand_color?: string | null; logo?: string | null; welcome?: string | null; client_perms?: Partial<ClientPerms> } | null;
+  myTrainer: { user_id: string; display_name: string; business_name: string | null; units: Units; unit_prefs?: Partial<UnitPrefs>; brand_color?: string | null; logo?: string | null; welcome?: string | null; client_perms?: Partial<ClientPerms>; cancel_hours?: number | null } | null;
   /** Detailed units (lifting weights, bodyweight, lengths, height, distance, number format) */
   prefs: UnitPrefs;
   /** What clients may do themselves (the trainer's settings) */
@@ -88,7 +88,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMemberships(mine);
     const primary = mine.find((c) => c.status === 'active') ?? mine[0];
     if (primary) {
-      const { data: tr } = await sb.from('coach_trainers').select('user_id,display_name,business_name,units,unit_prefs,brand_color,logo,welcome,client_perms').eq('user_id', primary.trainer_id).maybeSingle();
+      const { data: tr } = await sb.from('coach_trainers').select('user_id,display_name,business_name,units,unit_prefs,brand_color,logo,welcome,client_perms,cancel_hours').eq('user_id', primary.trainer_id).maybeSingle();
       setMyTrainer((tr as Ctx['myTrainer']) ?? null);
     } else setMyTrainer(null);
     return mine.length;

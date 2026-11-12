@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { Row, SectionLabel } from '@/components/bits';
 import { Badge, Screen } from '@/components/shell';
-import { Card, Empty, Press, Txt, useToast } from '@/components/ui';
+import { Button, Card, Empty, Press, Txt, useToast } from '@/components/ui';
 import { ResumeBanner } from '@/features/resume';
 import { SECTIONS, type SectionKey } from '@/features/common';
 import { useApp } from '@/lib/app-state';
@@ -83,6 +83,7 @@ export default function Me() {
           )}
           {app.myTrainer?.welcome ? <Card style={{ borderLeftWidth: 4, borderLeftColor: app.myTrainer.brand_color ?? p.focus }}><Txt>{app.myTrainer.welcome}</Txt></Card> : null}
           <ResumeBanner />
+          <Button icon="event" title="My Appointments" onPress={() => router.push('/calendar')} />
           <Txt v="h2">Today</Txt>
           {todays.length ? todays.map((a) => <WorkoutCard key={a.id} a={a} />) : (
             <Empty emoji="🌿" title="Rest day" body={upcoming.length ? `Next up: ${upcoming[0].title}, ${relDay(upcoming[0].scheduled_on).toLowerCase()}.` : 'Nothing is scheduled yet. Your trainer will add your program here.'} />
@@ -104,7 +105,7 @@ export default function Me() {
           </Card>
           <Card style={{ padding: 0 }}>
             <Row icon="chat_bubble" title="Messages" sub={`Chat with ${coach ?? 'your trainer'}`} onPress={() => router.push('/chat')} />
-            <Row icon="event" title="Sessions" sub="Your bookings, and booking a session" onPress={() => router.push('/calendar')} />
+            <Row icon="event" title="My Appointments" sub="Book, reschedule or cancel your sessions" onPress={() => router.push('/calendar')} />
             <Row icon="redeem" title="Packages and credits" sub="Session packs, memberships and payments" onPress={() => router.push('/me/packages')} />
             <Row icon="credit_card" title="Session payments" sub="Card on file, what you owe, what pays for each session" onPress={() => router.push('/me/billing')} />
             <Row icon="star" title="Leave a review" sub={`Say how training with ${coach ?? 'your trainer'} is going`} onPress={review} />

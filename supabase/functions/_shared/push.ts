@@ -16,6 +16,10 @@ const REPORT_KIND: Record<string, string> = { name: 'Wrong name', instructions: 
   duplicate: 'Duplicate', variations: 'Variations', difficulty: 'Difficulty', other: 'Other', redundant: 'Duplicate', wrong_video: 'Image or video', unclear: 'Instructions', unsafe: 'Unsafe' };
 /** "Goblet Squat · Instructions" (never the tester's words, which may be long or personal) */
 export const exerciseReportText = (name: string, kind: string) => `${name.slice(0, 80)} · ${REPORT_KIND[kind] ?? 'Other'}`;
+/** "Susan Forbes moved 3:00 PM to 5:00 PM." (a client's move into an open time; nothing to approve) */
+export function movedAlertText(name: string, oldStart: Date, newStart: Date, tz: string, now = new Date()): string {
+  return rescheduleAlertText(name, oldStart, newStart, tz, now).replace(' wants to reschedule to ', ' moved to ');
+}
 
 type ServiceAccount = { project_id: string; client_email: string; private_key: string };
 export const pushConfigured = () => !!Deno.env.get('FCM_SERVICE_ACCOUNT') || apnsConfigured();

@@ -11,6 +11,7 @@ import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/compone
 import { confirm } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { at, COLORS, fmtDuration, hhmm, KINDS, occurrences, openSlots, REPEATS, weekOf, type Availability, type Booking, type CoachEvent, type Occurrence } from '@/lib/business';
+import { cancelPrompt, logLine, sameDayOnly as within24h, upcomingStatus, type LogEntry } from '@/lib/appointments';
 import { addDays, dayKey, fromKey } from '@/lib/dates';
 import { callFn, fnText } from '@/lib/fn';
 import { readAppointments, type FoundSession } from '@/features/calendar-import';
@@ -345,8 +346,13 @@ function ClientCalendar() {
   const { move: moveParam, day: dayParam } = useLocalSearchParams<{ move?: string; day?: string }>();
   const [owed, setOwed] = useState(0);
   const [requests, setRequests] = useState<{ id: string; booking_id: string; on_date: string; new_start: string }[]>([]);
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const [failed, setFailed] = useState(false);
   const load = useCallback(async () => {
     if (!c) return;
+    setFailed(false);
+    void sb.from('coach_appointment_log').select('id, action, via, old_start, new_start, created_at').eq('client_id', c.id).order('created_at', { ascending: false }).limit(15)
+      .then(({ data }) => setLog((data as LogEntry[] | null) ?? []));
     void sb.from('coach_session_charges').select('id', { count: 'exact', head: true }).eq('client_id', c.id).eq('status', 'due').then(({ count }) => setOwed(count ?? 0));
     void sb.from('coach_reschedule_requests').select('id, booking_id, on_date, new_start').eq('client_id', c.id).eq('status', 'pending').then(({ data }) => setRequests((data as typeof requests | null) ?? []));
     const [b, a, busy] = await Promise.all([
@@ -354,6 +360,7 @@ function ClientCalendar() {
       sb.from('coach_availability').select('*').eq('trainer_id', c.trainer_id),
       sb.rpc('coach_trainer_busy', { p_trainer: c.trainer_id, p_days: 21 }),
     ]);
+    if (b.error) { setFailed(true); setMine([]); return; }
     setMine((b.data as Booking[]) ?? []); setAvail((a.data as Availability[]) ?? []);
     setBusy(((busy.data ?? []) as { starts_at: string; ends_at: string }[]).map((x) => ({ start: new Date(x.starts_at), end: new Date(x.ends_at) })));
   }, [c]);
@@ -369,7 +376,7 @@ function ClientCalendar() {
   const today = dayKey(new Date());
   const upcoming = occurrences(mine ?? [], today, dayKey(addDays(new Date(), 60))).filter((o) => o.end.getTime() > Date.now());
   // Moving a session within 24 hours of it: same day only (owner rule 2026-11-07)
-  const sameDayOnly = !!moving && moving.start.getTime() - Date.now() < 24 * 3600_000;
+  const sameDayOnly = !!moving && within24h(moving.start, new Date());
   const days = sameDayOnly ? [moving.day] : Array.from({ length: 14 }, (_, i) => dayKey(addDays(new Date(), i + (new Date().getHours() >= 20 ? 1 : 0))));
   const slotMins = moving ? moving.booking.duration_min : mins;
   const slots = openSlots(day, slotMins, avail, moving ? busyTimes.filter((b) => b.start.getTime() !== moving.start.getTime()) : busyTimes)
@@ -386,27 +393,30 @@ function ClientCalendar() {
     if (error) return toast(/slot_taken/.test(error.message) ? 'That time was just taken. Pick another.' : /booking_closed/.test(error.message) ? 'Your trainer books sessions for you. Send them a message.'
       : /payment_due/.test(error.message) ? 'Pay for your last session first (Me → Payments).' : /same_day_only/.test(error.message) ? 'Within 24 hours of a session it can only move to another time that day.' : errText(error), false);
     const at = picked.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' });
-    toast(moving ? `Asked ${app.myTrainer?.display_name?.split(' ')[0] ?? 'your trainer'} to move it to ${at}. You'll hear back soon.` : `Booked for ${at}`); setPicked(null); setMoving(null); load();
+    toast(moving ? `Moved to ${at}. ${app.myTrainer?.display_name?.split(' ')[0] ?? 'Your trainer'} has been told.` : `Booked for ${at}`); setPicked(null); setMoving(null); load();
   };
   const cancel = async (o: Occurrence) => {
-    if (!(await confirm('Cancel this session?', `${o.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`, 'Cancel session', true))) return;
-    const { error } = await sb.rpc('coach_cancel_session', { p_booking: o.booking.id, p_on: o.day });
-    if (error) return toast(/too_late/.test(error.message) ? `Too close to the session to cancel here. Message ${app.myTrainer?.display_name ?? 'your trainer'}.` : /cancel_closed/.test(error.message) ? 'Message your trainer to cancel.' : errText(error), false);
-    toast('Cancelled'); load();
+    const when = o.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const q = cancelPrompt(o.start, new Date(), app.myTrainer?.cancel_hours ?? 24, when);
+    if (!(await confirm(q.title, q.body, q.action, true))) return;
+    const { data, error } = await sb.rpc('coach_cancel_session', { p_booking: o.booking.id, p_on: o.day });
+    if (error) return toast(/cancel_closed/.test(error.message) ? 'Message your trainer to cancel.' : /no session/.test(error.message) ? 'That session was already changed. Refreshing.' : errText(error), false);
+    toast((data as { status?: string } | null)?.status === 'late_cancelled' ? 'Cancelled. It counts as a session (late cancellation).' : 'Cancelled'); load();
   };
   return (
     <View style={{ flex: 1, backgroundColor: p.bg }}>
-      <Stack.Screen options={{ title: 'Sessions' }} />
+      <Stack.Screen options={{ title: 'My Appointments' }} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60, alignItems: 'center' }}>
         <View style={{ width: '100%', maxWidth: MAX_W, gap: 12 }}>
           <SectionLabel>Coming up</SectionLabel>
-          {mine === null ? <ActivityIndicator color={p.ink} /> : upcoming.length === 0 ? <Empty emoji="📅" title="Nothing booked" body="Your sessions with your trainer show here." /> : (
+          {failed && <Card style={{ gap: 6 }}><Txt v="small">Couldn’t load your appointments. Check your connection.</Txt><Button small title="Try again" onPress={load} style={{ alignSelf: 'flex-start' }} /></Card>}
+          {mine === null ? <ActivityIndicator color={p.ink} /> : failed ? null : upcoming.length === 0 ? <Empty emoji="📅" title="Nothing booked" body="Your sessions with your trainer show here." /> : (
             <Card style={{ padding: 0 }}>
               {upcoming.slice(0, 10).map((o, i, a) => (
                 <View key={`${o.booking.id}-${o.day}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderBottomWidth: i === a.length - 1 ? 0 : 1, borderBottomColor: p.line }}>
                   <View style={{ flex: 1 }}>
                     <Txt v="bold">{o.start.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</Txt>
-                    <Txt v="small">{t12(o.start)} · {fmtDuration(o.booking.duration_min)}{o.booking.location ? ` · ${o.booking.location}` : ''}</Txt>
+                    <Txt v="small">{t12(o.start)} · {fmtDuration(o.booking.duration_min)}{o.booking.location ? ` · ${o.booking.location}` : ''} · {upcomingStatus(o.start, log)}</Txt>
                     {requests.filter((q) => q.booking_id === o.booking.id && q.on_date === o.day).map((q) => (
                       <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <Txt v="small" color={p.gold} style={{ flex: 1 }}>Waiting for approval to move to {new Date(q.new_start).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</Txt>
@@ -414,7 +424,7 @@ function ClientCalendar() {
                       </View>
                     ))}
                   </View>
-                  {app.perms.book_sessions && o.booking.client_id && avail.length > 0 && <Button small kind="ghost" title="Change time" onPress={() => startMove(o)} />}
+                  {app.perms.book_sessions && o.booking.client_id && avail.length > 0 && <Button small kind="ghost" title="Reschedule" onPress={() => startMove(o)} />}
                   {app.perms.cancel_sessions && o.booking.client_id && <Button small kind="ghost" title="Cancel" onPress={() => cancel(o)} />}
                 </View>
               ))}
@@ -433,7 +443,7 @@ function ClientCalendar() {
             {moving && (
               <View style={{ gap: 6 }}>
                 <Txt v="small">{`Moving ${moving.start.toLocaleString(undefined, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. `}
-                  {sameDayOnly ? 'It’s less than 24 hours away, so it can only move to another time the same day.' : 'Pick any open time.'} Your trainer approves the change.</Txt>
+                  {sameDayOnly ? 'It’s less than 24 hours away, so it can only move to another open time the same day. If none works, keep it or cancel it (a late cancellation counts as a session).' : 'Pick any open time.'}</Txt>
                 <Button small kind="ghost" title="Keep the current time" onPress={() => { setMoving(null); setPicked(null); }} style={{ alignSelf: 'flex-start' }} />
               </View>
             )}
@@ -455,6 +465,12 @@ function ClientCalendar() {
             {picked && <Button title={`${moving ? 'Move to' : 'Book'} ${t12(picked)}`} icon="check" busy={saving} onPress={bookIt} />}
           </>}
           {app.perms.book_sessions && avail.length === 0 && mine !== null && <Txt v="small">Your trainer hasn’t opened booking times yet. Message them to set up a session.</Txt>}
+          {log.length > 0 && <>
+            <SectionLabel>Recent changes</SectionLabel>
+            <Card style={{ gap: 6 }}>
+              {log.map((e) => <Txt key={e.id} v="small" color={e.action === 'late_cancelled' ? p.gold : undefined}>{logLine(e, (d) => d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</Txt>)}
+            </Card>
+          </>}
         </View>
       </ScrollView>
     </View>
