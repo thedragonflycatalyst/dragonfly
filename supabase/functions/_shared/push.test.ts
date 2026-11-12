@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { apnsPayload, followupDue, rescheduleAlertText, urgentMessage } from './push.ts';
+import { apnsPayload, exerciseReportText, followupDue, rescheduleAlertText, urgentMessage } from './push.ts';
 
 const TZ = 'America/New_York';
 Deno.test('iPhone alerts are time-sensitive and open the right page', () => {
@@ -24,4 +24,9 @@ Deno.test('reschedule alert reads like the owner asked: name, old time, new time
   assert.equal(m.message.android.priority, 'HIGH');
   assert.equal(m.message.android.notification.channel_id, 'approvals');
   assert.equal(urgentMessage('t', 'a', 'b', 'https://thedragonflycatalyst.github.io/dragonfly/reschedule/abc').message.data.path, '/reschedule/abc');
+});
+
+Deno.test('exercise report alerts name the exercise and the category only', () => {
+  assert.equal(exerciseReportText('Goblet Squat', 'instructions'), 'Goblet Squat · Instructions');
+  assert.equal(exerciseReportText('X', 'mystery'), 'X · Other');
 });

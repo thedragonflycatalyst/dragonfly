@@ -2,11 +2,12 @@
 // POST { action: 'send', user_id, app?, title, body, url?, kind? } + service-role key   any app's server code
 // POST { action: 'reschedule', request_id } + x-cron-secret   called by the database the moment a client asks to move a session
 // POST { action: 'followup', followup_id } + x-cron-secret   a to-do that stays until done (e.g. update ClubAutomation)
+// POST { action: 'exercise_report', report_id } + x-cron-secret   a beta tester reported a problem with an exercise
 // POST { action: 'test' } + trainer session                   "Send a test alert" in Settings
 // Deploy with --no-verify-jwt (it checks the cron secret or the user's session itself). Android needs FCM_SERVICE_ACCOUNT;
 // iPhone needs APNS_KEY, APNS_KEY_ID and APNS_TEAM_ID.
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { type Device, FOLLOWUP_TITLE, followupBody, pushConfigured, rescheduleAlertText, sendUrgent } from '../_shared/push.ts';
+import { type Device, exerciseReportText, FOLLOWUP_TITLE, followupBody, pushConfigured, rescheduleAlertText, sendUrgent } from '../_shared/push.ts';
 
 const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.github.io/dragonfly/').replace(/\/?$/, '/');
 const json = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -57,6 +58,19 @@ Deno.serve(async (req) => {
     if (!f || f.status !== 'open') return json(200, { sent: 0 });
     const sent = await send(f.trainer_id, FOLLOWUP_TITLE, followupBody(f.title), `${WEB}followups`, 'followup');
     await admin.from('coach_followups').update({ alerts: (f.alerts ?? 0) + 1, last_alert_at: new Date().toISOString() }).eq('id', body.followup_id);
+    return json(200, { sent });
+  }
+  if (body.action === 'exercise_report') {
+    // A beta tester reported a problem with an exercise: tell the reviewers (Dragonfly admins, and the trainer whose exercise it is)
+    const { data: ok } = await admin.rpc('coach_cron_ok', { p: req.headers.get('x-cron-secret') ?? '' });
+    if (ok !== true) return json(403, { error: 'forbidden' });
+    if (!UUID.test(String(body.report_id ?? ''))) return json(400, { error: 'bad_request' });
+    const { data: r } = await admin.from('coach_exercise_reports').select('ref_no, name, kind, owner_id').eq('id', body.report_id).maybeSingle();
+    if (!r) return json(200, { sent: 0 });
+    const { data: admins } = await admin.from('dragonfly_admins').select('user_id');
+    const to = [...new Set([...(admins ?? []).map((a) => a.user_id as string), ...(r.owner_id ? [r.owner_id as string] : [])])];
+    let sent = 0;
+    for (const u of to) sent += await send(u, `🐞 Report R-${r.ref_no}`, exerciseReportText(r.name, r.kind), `${WEB}library-review`, 'report');
     return json(200, { sent });
   }
   if (body.action === 'test') {

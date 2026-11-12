@@ -2,10 +2,12 @@
 // handle, and anyone can report an entry. Recent AI additions are listed so a bad one can be taken back.
 import { Stack } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { SectionLabel } from '@/components/bits';
 import { Button, Card, Chip, Field, Txt, useToast } from '@/components/ui';
-import { loadLibraryExtras, REPORT_KINDS, type Pending, type Report } from '@/features/library-extras';
+import * as WebBrowser from 'expo-web-browser';
+import { loadLibraryExtras, REPORT_COLS, type Pending, type Report } from '@/features/library-extras';
+import { KIND_LABEL, refLabel, STATUS_LABEL, type ReportStatus } from '@/lib/exercise-report';
 import { Page } from '@/features/settings-page';
 import { byRef } from '@/lib/library';
 import { errText } from '@/lib/model';
@@ -20,15 +22,16 @@ export default function LibraryReview() {
   const load = useCallback(async () => {
     const a = await sb.rpc('dragonfly_is_admin');
     setAdmin(a.data === true);
+    // Trainers review reports about their own exercises (row security shows them only those)
+    const r = await sb.from('coach_exercise_reports').select(REPORT_COLS).in('status', ['open', 'reviewing', 'fixed']).order('created_at').limit(200);
+    setReports((r.data as Report[]) ?? []);
     if (a.data !== true) return;
-    const [s, r, x] = await Promise.all([
+    const [s, x] = await Promise.all([
       sb.from('coach_exercise_submissions').select('id, created_at, exercise, ai_decision, reason, match_ref, proposal, outcome, escalated_from, escalation_note')
         .in('outcome', ['escalated', 'pending']).order('created_at').limit(100),
-      sb.from('coach_exercise_reports').select('id, created_at, ref, name, kind, note, status').eq('status', 'open').order('created_at').limit(200),
       sb.from('coach_library_extra').select('ref, data, created_at').order('created_at', { ascending: false }).limit(30),
     ]);
     setPending((s.data as Pending[]) ?? []);
-    setReports((r.data as Report[]) ?? []);
     setRecent((x.data as typeof recent) ?? []);
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -36,12 +39,16 @@ export default function LibraryReview() {
   return (
     <Page title="Library review">
       <Stack.Screen options={{ title: 'Library review' }} />
-      {admin === false && <Txt>Only Dragonfly admins can review the library.</Txt>}
+      {admin === false && reports.length === 0 && <Txt>Only Dragonfly admins review the library. Reports about your own exercises show here.</Txt>}
+      {admin === false && reports.length > 0 && <>
+        <SectionLabel>{`Reports about your exercises (${reports.length})`}</SectionLabel>
+        {reports.map((r) => <ReportCard key={r.id} r={r} onDone={load} />)}
+      </>}
       {admin && <>
         <SectionLabel>{`Escalated by trainers (${pending.length})`}</SectionLabel>
         {pending.length === 0 && <Txt v="small" style={{ marginBottom: 16 }}>Nothing waiting. The AI review handles suggestions on its own.</Txt>}
         {pending.map((s) => <Suggestion key={s.id} s={s} onDone={load} />)}
-        <SectionLabel>{`Reports (${reports.length})`}</SectionLabel>
+        <SectionLabel>{`Beta reports (${reports.length})`}</SectionLabel>
         {reports.length === 0 && <Txt v="small">No open reports.</Txt>}
         {reports.map((r) => <ReportCard key={r.id} r={r} onDone={load} />)}
         <SectionLabel>Recently added by the AI review</SectionLabel>
@@ -98,29 +105,61 @@ function Suggestion({ s, onDone }: { s: Pending; onDone: () => void }) {
 }
 
 function ReportCard({ r, onDone }: { r: Report; onDone: () => void }) {
+  const p = usePalette();
   const toast = useToast();
   const [note, setNote] = useState('');
-  const close = async (status: 'resolved' | 'dismissed') => {
-    const { error } = await sb.from('coach_exercise_reports').update({ status, admin_note: note.trim() || null }).eq('id', r.id);
-    if (error) return toast(errText(error), false);
-    onDone();
+  const [dup, setDup] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState<{ at: string; status: string | null; note: string | null }[] | null>(null);
+  const [shot, setShot] = useState<string | null>(null);
+  const review = async (args: { p_status?: string; p_assign_me?: boolean; p_duplicate_of?: number }) => {
+    setBusy(true);
+    const { error } = await sb.rpc('coach_review_report', { p_id: r.id, p_note: note.trim() || null, ...args });
+    setBusy(false);
+    if (error) return toast(/no_such_report/.test(error.message) ? 'No report with that number' : errText(error), false);
+    setNote(''); setDup(''); onDone();
   };
+  const showHistory = async () => {
+    const { data } = await sb.from('coach_exercise_report_events').select('at, status, note').eq('report_id', r.id).order('at');
+    setHistory((data as typeof history) ?? []);
+  };
+  useEffect(() => {
+    if (!r.screenshot_path) return;
+    void sb.storage.from('coach-reports').createSignedUrl(r.screenshot_path, 3600).then(({ data }) => setShot(data?.signedUrl ?? null));
+  }, [r.screenshot_path]);
+  const detail = [r.variant && `Variant: ${r.variant}`, r.screen && `Seen on: ${r.screen.replace(/_/g, ' ')}`, r.app_version && `App ${r.app_version}`, r.revision && `Entry rev ${r.revision}`].filter(Boolean).join(' · ');
   return (
     <Card style={{ marginBottom: 12, gap: 6 }}>
-      <Txt v="bold">{r.name}</Txt>
-      <View style={{ flexDirection: 'row' }}><Chip label={REPORT_KINDS.find(([k]) => k === r.kind)?.[1] ?? r.kind} selected /></View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Txt v="bold" style={{ flex: 1 }}>{refLabel(r.ref_no)} · {r.name}</Txt>
+        <Chip label={STATUS_LABEL[r.status as ReportStatus] ?? r.status} selected />
+      </View>
+      <Txt v="small" color={p.gold}>{KIND_LABEL[r.kind] ?? r.kind}{r.assignee ? ' · assigned' : ''}</Txt>
       {r.note ? <Txt>{r.note}</Txt> : null}
-      <Txt v="small">{new Date(r.created_at).toLocaleDateString()} · {r.ref}</Txt>
-      <Field label="What was done" hint="(optional)" value={note} onChangeText={setNote} />
-      <View style={{ flexDirection: 'row', gap: 10 }}>
+      {r.expected ? <Txt><Txt v="bold">Should be: </Txt>{r.expected}</Txt> : null}
+      {shot && <Button small kind="ghost" icon="image" title="Open screenshot" onPress={() => (Platform.OS === 'web' ? window.open(shot, '_blank', 'noopener') : WebBrowser.openBrowserAsync(shot))} style={{ alignSelf: 'flex-start' }} />}
+      <Txt v="small">{new Date(r.created_at).toLocaleString()} · {r.ref}{detail ? ` · ${detail}` : ''}</Txt>
+      <Field label="Note" hint="(optional; saved in the history)" value={note} onChangeText={setNote} />
+      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        {r.status === 'open' && <Button small kind="ghost" title="Under review" busy={busy} onPress={() => review({ p_status: 'reviewing', p_assign_me: true })} />}
+        {r.status !== 'fixed' && <Button small title="Fixed" busy={busy} onPress={() => review({ p_status: 'fixed' })} />}
+        {r.status === 'fixed' && <Button small title="Released" busy={busy} onPress={() => review({ p_status: 'released' })} />}
+        <Button small kind="ghost" title="Dismiss" busy={busy} onPress={() => review({ p_status: 'dismissed' })} />
         {r.ref.startsWith('lib:x-') && <Button small kind="ghost" title="Remove from library" onPress={async () => {
           const { error } = await sb.rpc('coach_remove_library_item', { item_ref: r.ref });
           if (error) return toast(errText(error), false);
-          await loadLibraryExtras(); await close('resolved');
+          await loadLibraryExtras(); await review({ p_status: 'fixed' });
         }} />}
-        <Button small title="Resolved" onPress={() => close('resolved')} />
-        <Button small kind="ghost" title="Dismiss" onPress={() => close('dismissed')} />
       </View>
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+        <View style={{ flex: 1 }}><Field label="Duplicate of report number" value={dup} onChangeText={(t) => setDup(t.replace(/\D/g, ''))} keyboardType="number-pad" /></View>
+        <Button small kind="ghost" title="Mark duplicate" disabled={!dup} busy={busy} onPress={() => review({ p_duplicate_of: Number(dup) })} />
+      </View>
+      {history === null ? <Button small kind="quiet" title="History" onPress={showHistory} style={{ alignSelf: 'flex-start' }} /> : (
+        <View style={{ gap: 2 }}>
+          {history.map((h, i) => <Txt key={i} v="small">{new Date(h.at).toLocaleString()} · {h.status ? STATUS_LABEL[h.status as ReportStatus] ?? h.status : ''}{h.note ? ` · ${h.note}` : ''}</Txt>)}
+        </View>
+      )}
     </Card>
   );
 }

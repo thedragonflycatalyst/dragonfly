@@ -52,14 +52,10 @@ export function reviewText(r: Review): string {
 export type Pending = { id: string; created_at: string; exercise: Suggested; ai_decision: string; reason: string | null; match_ref: string | null;
   outcome: string; escalated_from: string | null; escalation_note: string | null;
   proposal: { kind: 'alias'; ref: string; names: string[] } | { kind: 'add'; ref: string; row: unknown[] } | null };
-export type Report = { id: string; created_at: string; ref: string; name: string; kind: ReportKind; note: string | null; status: string };
-export type ReportKind = 'redundant' | 'wrong_video' | 'unclear' | 'unsafe' | 'other';
-export const REPORT_KINDS: [ReportKind, string][] = [['redundant', 'Same as another exercise'], ['wrong_video', 'Wrong or bad video'], ['unclear', 'Unclear instructions'], ['unsafe', 'Unsafe or poor form'], ['other', 'Something else']];
-
-export async function reportExercise(ref: string, name: string, kind: ReportKind, note: string) {
-  const { error } = await sb.from('coach_exercise_reports').insert({ ref, name, kind, note: note.trim() || null });
-  if (error) throw error;
-}
+export type Report = { id: string; created_at: string; ref: string; name: string; kind: string; note: string | null; status: string; ref_no: number;
+  variant: string | null; revision: string | null; screen: string | null; app_version: string | null; expected: string | null; screenshot_path: string | null;
+  assignee: string | null; duplicate_of: string | null; updated_at: string };
+export const REPORT_COLS = 'id, created_at, ref, name, kind, note, status, ref_no, variant, revision, screen, app_version, expected, screenshot_path, assignee, duplicate_of, updated_at';
 
 /** Exercises this person has hidden from their lists */
 export async function loadHidden(): Promise<Set<string>> {

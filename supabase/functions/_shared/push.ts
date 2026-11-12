@@ -12,6 +12,11 @@ export function rescheduleAlertText(name: string, oldStart: Date, newStart: Date
   return `${name}, ${from} wants to reschedule to ${to}.`;
 }
 
+const REPORT_KIND: Record<string, string> = { name: 'Wrong name', instructions: 'Instructions', muscles: 'Muscles or equipment', media: 'Image or video',
+  duplicate: 'Duplicate', variations: 'Variations', difficulty: 'Difficulty', other: 'Other', redundant: 'Duplicate', wrong_video: 'Image or video', unclear: 'Instructions', unsafe: 'Unsafe' };
+/** "Goblet Squat · Instructions" (never the tester's words, which may be long or personal) */
+export const exerciseReportText = (name: string, kind: string) => `${name.slice(0, 80)} · ${REPORT_KIND[kind] ?? 'Other'}`;
+
 type ServiceAccount = { project_id: string; client_email: string; private_key: string };
 export const pushConfigured = () => !!Deno.env.get('FCM_SERVICE_ACCOUNT') || apnsConfigured();
 const apnsConfigured = () => !!(Deno.env.get('APNS_KEY') && Deno.env.get('APNS_KEY_ID') && Deno.env.get('APNS_TEAM_ID'));
