@@ -125,7 +125,7 @@ export default function Exercises() {
           {filters > 0 && <Button kind="quiet" title="Clear filters" onPress={() => { setEquipment(null); setCategory(null); }} />}
         </View>
       </Sheet>
-      <ExerciseInfo ex={info ? { name: info.name, ref: info.ref, img: info.images[0], video: info.video } : null} onClose={() => setInfo(null)} />
+      <ExerciseInfo ex={info ? { name: info.name, ref: info.ref, img: info.images[0], video: info.video } : null} onClose={() => setInfo(null)} screen="library" />
       <MyExerciseEditor visible={!!editing} initial={editing && editing !== 'new' ? editing : undefined} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); setTab('mine'); }} />
     </View>
   );

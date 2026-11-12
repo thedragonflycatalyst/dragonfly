@@ -14,7 +14,8 @@ export default function Support() {
         <Card style={{ padding: 0 }}>
           <Row icon="school" title="Quickstart guide" sub="A short tour of the main features" onPress={() => router.push('/guide')} />
           <Row icon="person" title="Account help" sub="Email, password, signing in on other devices" onPress={() => router.push('/account')} />
-          <Row icon="lightbulb" title="Send feedback" sub="Suggest a feature or a design change, or report a problem" last onPress={() => router.push('/feedback?from=/support')} />
+          <Row icon="lightbulb" title="Send feedback" sub="Suggest a feature or a design change, or report a problem" onPress={() => router.push('/feedback?from=/support')} />
+          <Row icon="flag" title="My problem reports" sub="Exercises you reported, and where each one is" last onPress={() => router.push('/my-reports')} />
         </Card>
         <SectionLabel>Common questions</SectionLabel>
         <Card style={{ gap: 14 }}>

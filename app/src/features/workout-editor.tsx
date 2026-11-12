@@ -140,7 +140,7 @@ export function BlocksEditor({ blocks, onChange, weightUnit }: { blocks: Workout
             set(picker.index, { ...old, ex: refOf(picked[0]) });
           } else onChange([...blocks, ...picked.map((e) => newBlockFor(e))]);
         }} />
-      <ExerciseInfo ex={info ? { name: info.ex.name, ref: `${info.ex.src}:${info.ex.id}`, img: info.ex.img, video: info.ex.video } : null} onClose={() => setInfo(null)} />
+      <ExerciseInfo ex={info ? { name: info.ex.name, ref: `${info.ex.src}:${info.ex.id}`, img: info.ex.img, video: info.ex.video } : null} onClose={() => setInfo(null)} screen="workout_editor" />
       {menu !== null && m?.kind === 'exercise' && (
         <ActionMenu visible onClose={() => setMenu(null)} title={m.ex.name} items={[
           { label: 'Move up', icon: 'arrow_upward', hidden: menu === 0, onPress: () => onChange(normalizeGroups(move(blocks, menu, menu - 1))) },

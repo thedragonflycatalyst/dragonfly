@@ -12,13 +12,15 @@ import { coverUrl } from '@/components/cover';
 import { WORKOUT_IMAGES } from '@/lib/art';
 import { exerciseArt } from '@/lib/art-match';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, byRef, EQUIPMENT, groupFamilies, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise, type ListItem } from '@/lib/library';
+import { BODY_PARTS, builtIn, byRef, EQUIPMENT, familyOf, groupFamilies, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise, type ListItem } from '@/lib/library';
 import { errText, type GalleryItem, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
 import { MACHINES } from '@/data/machines';
 import { findMachines, machineMatches, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
-import { escalateSuggestion, REPORT_KINDS, reportExercise, reviewText, suggestExercise, useHidden, type ReportKind, type Review } from './library-extras';
+import { escalateSuggestion, reviewText, suggestExercise, useHidden, type Review } from './library-extras';
+import { ReportProblem } from './report-problem';
+import { revisionOf } from '@/lib/exercise-report';
 import { useAiPhotoConsent } from './ai-photo-consent';
 import { MachineScanner, scanMachinePhoto } from './machine-scan';
 import { hush, readAloud } from './lapis/audio';
@@ -84,7 +86,7 @@ function StoredVideo({ path }: { path: string }) {
 }
 
 /** Exercise details: start and end images, demo video, how-to steps. */
-export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string; img?: string | null; video?: string | null } | null; onClose: () => void }) {
+export function ExerciseInfo({ ex, onClose, screen }: { ex: { name: string; ref?: string; img?: string | null; video?: string | null } | null; onClose: () => void; screen: string }) {
   const p = usePalette();
   const app = useApp();
   const { mine } = useMyExercises(app.mode === 'coach' ? app.trainer?.user_id : undefined);
@@ -121,7 +123,12 @@ export function ExerciseInfo({ ex, onClose }: { ex: { name: string; ref?: string
         </View>
       ))}
       {(full?.steps ?? []).map((s, i) => <Txt key={i} style={{ marginBottom: 8 }}>{full?.mine ? s : `${i + 1}. ${s}`}</Txt>)}
-      {ex?.ref?.startsWith('lib:') && <LibraryActions refId={ex.ref} name={ex.name} />}
+      {ex?.ref && /^(lib|my):/.test(ex.ref) && (
+        <View style={{ borderTopWidth: 1, borderTopColor: p.line, marginTop: 16, paddingTop: 12, gap: 10 }}>
+          <ReportProblem ctx={{ ref: ex.ref, name: full?.name ?? ex.name, variant: full ? familyOf(full).version || null : null, revision: revisionOf(full ?? ex), screen }} />
+          {ex.ref.startsWith('lib:') && <LibraryActions refId={ex.ref} />}
+        </View>
+      )}
     </Sheet>
   );
 }
@@ -147,47 +154,24 @@ function ReadAloud({ ex }: { ex: LibExercise }) {
   );
 }
 
-/** Report a library exercise for review, or hide it from your own lists */
-function LibraryActions({ refId, name }: { refId: string; name: string }) {
+/** Hide a library exercise from your own lists */
+function LibraryActions({ refId }: { refId: string }) {
   const p = usePalette();
   const toast = useToast();
   const [hidden, toggleHidden] = useHidden();
-  const [reporting, setReporting] = useState(false);
-  const [kind, setKind] = useState<ReportKind | null>(null);
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
   const [justHid, setJustHid] = useState(false);
-  useEffect(() => { setReporting(false); setKind(null); setNote(''); setJustHid(false); }, [refId]);
+  useEffect(() => { setJustHid(false); }, [refId]);
   const isHidden = hidden.has(refId);
-  const send = async () => {
-    if (!kind) return toast('Choose what’s wrong', false);
-    setBusy(true);
-    try { await reportExercise(refId, name, kind, note); toast('Thanks, sent for review'); setReporting(false); setKind(null); setNote(''); }
-    catch (e) { toast(errText(e), false); } finally { setBusy(false); }
-  };
   return (
-    <View style={{ borderTopWidth: 1, borderTopColor: p.line, marginTop: 16, paddingTop: 12, gap: 10 }}>
-      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-        <Button small kind="ghost" icon="flag" title="Report a problem" onPress={() => setReporting((r) => !r)} />
-        {!isHidden && <Button small kind="quiet" icon="visibility_off" title="Hide from my lists"
-          onPress={() => toggleHidden(refId, true).then(() => setJustHid(true), (e: unknown) => toast(errText(e), false))} />}
-      </View>
+    <View style={{ gap: 10 }}>
+      {!isHidden && <Button small kind="quiet" icon="visibility_off" title="Hide from my lists" style={{ alignSelf: 'flex-start' }}
+        onPress={() => toggleHidden(refId, true).then(() => setJustHid(true), (e: unknown) => toast(errText(e), false))} />}
       {isHidden && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.soft, borderRadius: R.md, padding: 10 }}>
           <Icon name="visibility_off" size={20} color={p.muted} />
           <Txt v="small" style={{ flex: 1 }}>{justHid ? 'Hidden from your search and swap lists.' : 'You’ve hidden this one.'} Manage hidden exercises in Settings.</Txt>
           <Button small kind="ghost" icon={justHid ? 'undo' : 'visibility'} title={justHid ? 'Undo' : 'Show again'}
             onPress={() => toggleHidden(refId, false).then(() => setJustHid(false), (e: unknown) => toast(errText(e), false))} />
-        </View>
-      )}
-      {reporting && (
-        <View style={{ gap: 8 }}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {REPORT_KINDS.map(([k, l]) => <Chip key={k} label={l} selected={kind === k} onPress={() => setKind(k)} />)}
-          </View>
-          <Field label="Details" hint="(optional)" value={note} onChangeText={setNote} multiline
-            placeholder={kind === 'redundant' ? 'Which exercise is it the same as?' : 'What’s wrong with it?'} />
-          <Button small title="Send report" busy={busy} onPress={send} style={{ alignSelf: 'flex-start' }} />
         </View>
       )}
     </View>
@@ -422,7 +406,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
           }} />
         </View>
       )}
-      <ExerciseInfo ex={info ? { name: info.name, ref: info.ref, img: info.images[0], video: info.video } : null} onClose={() => setInfo(null)} />
+      <ExerciseInfo ex={info ? { name: info.name, ref: info.ref, img: info.images[0], video: info.video } : null} onClose={() => setInfo(null)} screen="picker" />
       <MyExerciseEditor visible={creating} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />
       <MachineScanner visible={scanning} onClose={() => setScanning(false)} onFound={setScanned} />
       {consent.sheet}

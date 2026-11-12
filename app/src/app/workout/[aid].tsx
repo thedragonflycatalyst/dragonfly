@@ -1,9 +1,9 @@
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { Badge } from '@/components/shell';
 import { Button, Card, Empty, Txt, useToast } from '@/components/ui';
-import { ExerciseThumb } from '@/features/exercises';
+import { ExerciseInfo, ExerciseThumb } from '@/features/exercises';
 import { SessionSummary } from '@/features/session-summary';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
@@ -28,6 +28,7 @@ const planned = (b: ExerciseBlock, i: number, unit: string) => {
 /** One scheduled workout: what's planned, Start or Skip, and the log once it's done. */
 export default function AssignmentScreen() {
   const p = usePalette();
+  const [info, setInfo] = useState<ExerciseBlock['ex'] | null>(null);
   const toast = useToast();
   const app = useApp();
   const { aid, done: justDone } = useLocalSearchParams<{ aid: string; done?: string }>();
@@ -111,10 +112,11 @@ export default function AssignmentScreen() {
             const done = log?.entries.find((e) => e.block_id === b.id);
             return (
               <Card key={b.id} style={{ gap: 8 }}>
-                <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                <Pressable onPress={() => setInfo(b.ex)} accessibilityRole="button" accessibilityLabel={`${b.ex.name}: how to do it, or report a problem`}
+                  style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
                   <ExerciseThumb img={b.ex.img} video={b.ex.video} size={52} ex={byRef(`${b.ex.src}:${b.ex.id}`) ?? { name: b.ex.name }} />
                   <Txt v="h3" style={{ flex: 1 }}>{b.ex.name}</Txt>
-                </View>
+                </Pressable>
                 {b.note ? <Txt v="small">{b.note}</Txt> : null}
                 {log
                   ? (done?.sets.length ? <>
@@ -144,6 +146,7 @@ export default function AssignmentScreen() {
           )}
         </View>
       </ScrollView>
+      <ExerciseInfo ex={info ? { name: info.name, ref: `${info.src}:${info.id}`, img: info.img, video: info.video } : null} onClose={() => setInfo(null)} screen="client_workout" />
     </View>
   );
 }
