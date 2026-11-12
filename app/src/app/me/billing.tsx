@@ -28,7 +28,7 @@ export default function MyBilling() {
   const load = useCallback(async () => {
     if (!c) return;
     const [a, k, t] = await Promise.all([
-      sb.from('coach_session_charges').select('*').eq('client_id', c.id).in('status', ['due', 'pending', 'package', 'paid', 'credit']).order('starts_at').limit(60),
+      sb.from('coach_session_charges').select('*').eq('client_id', c.id).in('status', ['due', 'pending', 'package', 'paid', 'credit', 'refunded']).order('starts_at').limit(60),
       sb.from('coach_client_cards').select('brand, last4, exp_month, exp_year').eq('client_id', c.id).maybeSingle(),
       sb.from('coach_trainers').select('session_billing').eq('user_id', c.trainer_id).maybeSingle(),
     ]);

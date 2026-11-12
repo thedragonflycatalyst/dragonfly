@@ -7,6 +7,7 @@
 //   overview  {}                                    trainer → { balance, payouts, subscriptions } live from Stripe (owner only)
 //   cancel_subscription { subscription_id }         trainer → { ok }
 //   refund    { payment_id, amount_cents?, reason? }  trainer → { ok, amount_cents } (policy amount by default; outside it needs a reason)
+//   refund_session { charge_id, reason }            trainer → { ok, amount_cents }  one card-paid session back to the card
 //   connect   {}                                    trainer → { url }  Stripe onboarding for the trainer's own account (Connect, Standard)
 //   connect_status {}                               trainer → { connected, charges_enabled, details_submitted }
 //   save_card { trainer_id }                        client → { url }   Stripe Checkout (setup) to keep a card on file for sessions
@@ -303,6 +304,26 @@ Deno.serve(async (req) => {
           status_reason: reason || (amount < p.amount_cents ? 'Prorated refund under the refund policy' : 'Refunded under the refund policy'),
         }).eq('id', p.id);
         return reply(200, { ok: true, amount_cents: amount, outside_policy: outside });
+      }
+      case 'refund_session': {
+        // One session paid by card goes back to the card (only that session's price, even if the payment covered more)
+        const t = await trainerFor();
+        if (!t || !UUID.test(body.charge_id ?? '')) return reply(400, { error: 'bad_request' });
+        const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : '';
+        if (reason.length < 3) return reply(400, { error: 'reason_required' });
+        const { data: c } = await admin.from('coach_session_charges').select('id, trainer_id, status, amount_cents, payment_id').eq('id', body.charge_id).eq('trainer_id', t).maybeSingle();
+        if (!c || !['paid', 'credit'].includes(c.status) || !c.payment_id) return reply(409, { error: 'not_refundable' });
+        const { data: p } = await admin.from('coach_payments').select('*').eq('id', c.payment_id).maybeSingle();
+        if (!p || p.method !== 'stripe' || !p.stripe_payment_intent) return reply(409, { error: 'not_a_card_payment' });
+        const amount = Math.min(c.amount_cents ?? p.amount_cents, p.amount_cents - (p.refunded_cents ?? 0));
+        if (amount <= 0) return reply(409, { error: 'already_refunded' });
+        // One refund per session, even if the request is retried
+        await stripe('refunds', 'POST', { payment_intent: p.stripe_payment_intent, amount: String(amount) }, `refund-charge-${c.id}`, p.stripe_account);
+        const total = (p.refunded_cents ?? 0) + amount;
+        await admin.from('coach_payments').update({ refunded_cents: total, status: total >= p.amount_cents ? 'refunded' : p.status, status_reason: reason }).eq('id', p.id);
+        const { error } = await admin.rpc('coach_charge_refund_apply', { p_charge: c.id, p_reason: reason, p_by: uid, p_card_done: true });
+        if (error) throw error;
+        return reply(200, { ok: true, amount_cents: amount, payment_id: p.id });
       }
       case 'connect': {
         const t = await trainerFor();
