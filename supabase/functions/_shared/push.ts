@@ -12,6 +12,11 @@ export function rescheduleAlertText(name: string, oldStart: Date, newStart: Date
   return `${name}, ${from} wants to reschedule to ${to}.`;
 }
 
+/** "Susan Forbes moved 3:00 PM to 5:00 PM." (a client's move into an open time; nothing to approve) */
+export function movedAlertText(name: string, oldStart: Date, newStart: Date, tz: string, now = new Date()): string {
+  return rescheduleAlertText(name, oldStart, newStart, tz, now).replace(' wants to reschedule to ', ' moved to ');
+}
+
 type ServiceAccount = { project_id: string; client_email: string; private_key: string };
 export const pushConfigured = () => !!Deno.env.get('FCM_SERVICE_ACCOUNT') || apnsConfigured();
 const apnsConfigured = () => !!(Deno.env.get('APNS_KEY') && Deno.env.get('APNS_KEY_ID') && Deno.env.get('APNS_TEAM_ID'));
