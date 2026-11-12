@@ -1,12 +1,12 @@
 // dragonfly-push: phone notifications for every Dragonfly app (one system: Firebase for Android, Apple for iPhone).
 // POST { action: 'send', user_id, app?, title, body, url?, kind? } + service-role key   any app's server code
-// POST { action: 'reschedule', request_id } + x-cron-secret   called by the database the moment a client asks to move a session
+// POST { action: 'reschedule', request_id } + x-cron-secret   called by the database the moment a client moves (or asks to move) a session
 // POST { action: 'followup', followup_id } + x-cron-secret   a to-do that stays until done (e.g. update ClubAutomation)
 // POST { action: 'test' } + trainer session                   "Send a test alert" in Settings
 // Deploy with --no-verify-jwt (it checks the cron secret or the user's session itself). Android needs FCM_SERVICE_ACCOUNT;
 // iPhone needs APNS_KEY, APNS_KEY_ID and APNS_TEAM_ID.
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { type Device, FOLLOWUP_TITLE, followupBody, pushConfigured, rescheduleAlertText, sendUrgent } from '../_shared/push.ts';
+import { type Device, FOLLOWUP_TITLE, followupBody, movedAlertText, pushConfigured, rescheduleAlertText, sendUrgent } from '../_shared/push.ts';
 
 const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.github.io/dragonfly/').replace(/\/?$/, '/');
 const json = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -33,12 +33,15 @@ Deno.serve(async (req) => {
     if (ok !== true) return json(403, { error: 'forbidden' });
     if (!UUID.test(String(body.request_id ?? ''))) return json(400, { error: 'bad_request' });
     const { data: r } = await admin.from('coach_reschedule_requests').select('trainer_id, client_id, old_start, new_start, status').eq('id', body.request_id).maybeSingle();
-    if (!r || r.status !== 'pending') return json(200, { sent: 0 });
+    if (!r || (r.status !== 'pending' && r.status !== 'moved')) return json(200, { sent: 0 });
     const [{ data: c }, { data: t }] = await Promise.all([
       admin.from('coach_clients').select('name, first_name').eq('id', r.client_id).maybeSingle(),
       admin.from('coach_trainers').select('timezone').eq('user_id', r.trainer_id).maybeSingle(),
     ]);
-    const text = rescheduleAlertText(c?.name || c?.first_name || 'A client', new Date(r.old_start), new Date(r.new_start), t?.timezone || 'America/New_York');
+    const who = c?.name || c?.first_name || 'A client', tz = t?.timezone || 'America/New_York';
+    // Moved by the client into an open time: already done, just let the trainer know
+    if (r.status === 'moved') return json(200, { sent: await send(r.trainer_id, '📅 Session moved', movedAlertText(who, new Date(r.old_start), new Date(r.new_start), tz), `${WEB}calendar`, 'moved') });
+    const text = rescheduleAlertText(who, new Date(r.old_start), new Date(r.new_start), tz);
     return json(200, { sent: await send(r.trainer_id, '🚨 Reschedule request', `${text} Tap to approve or decline.`, `${WEB}reschedule/${body.request_id}`) });
   }
   if (body.action === 'send') {
