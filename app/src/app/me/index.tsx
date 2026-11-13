@@ -4,6 +4,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { Row, SectionLabel } from '@/components/bits';
 import { Badge, Screen } from '@/components/shell';
 import { Button, Card, Empty, Press, Txt, useToast } from '@/components/ui';
+import { RoutineList } from '@/features/routines';
 import { ResumeBanner } from '@/features/resume';
 import { SECTIONS, type SectionKey } from '@/features/common';
 import { useApp } from '@/lib/app-state';
@@ -89,6 +90,8 @@ export default function Me() {
             <Empty emoji="🌿" title="Rest day" body={upcoming.length ? `Next up: ${upcoming[0].title}, ${relDay(upcoming[0].scheduled_on).toLowerCase()}.` : 'Nothing is scheduled yet. Your trainer will add your program here.'} />
           )}
           {missed.length > 0 && <><Txt v="h2" style={{ marginTop: 8 }}>Catch up</Txt>{missed.map((a) => <WorkoutCard key={a.id} a={a} />)}</>}
+          <Txt v="h2" style={{ marginTop: 8 }}>My routines</Txt>
+          <RoutineList clientId={c.id} empty={`Workouts ${coach ?? 'your trainer'} gives you show up here. Start one whenever you train.`} />
           {upcoming.length > 0 && <><Txt v="h2" style={{ marginTop: 8 }}>Coming up</Txt>{upcoming.slice(0, 10).map((a) => <WorkoutCard key={a.id} a={a} />)}</>}
           <Card style={{ padding: 0 }}>
             <Row icon="menu_book" title="Food diary" sub="Log meals, scan barcodes, snap a photo, track water" onPress={() => router.push('/me/food')} />
