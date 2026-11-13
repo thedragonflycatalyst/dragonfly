@@ -7,7 +7,7 @@
 // Deploy with --no-verify-jwt (it checks the cron secret or the user's session itself). Android needs FCM_SERVICE_ACCOUNT;
 // iPhone needs APNS_KEY, APNS_KEY_ID and APNS_TEAM_ID.
 import { createClient } from 'npm:@supabase/supabase-js@2.57.0';
-import { type Device, exerciseReportText, FOLLOWUP_TITLE, followupBody, movedAlertText, pushConfigured, rescheduleAlertText, sendUrgent } from '../_shared/push.ts';
+import { countSets, type Device, workoutResultText, exerciseReportText, FOLLOWUP_TITLE, followupBody, movedAlertText, pushConfigured, rescheduleAlertText, sendUrgent } from '../_shared/push.ts';
 
 const WEB = (Deno.env.get('DRAGONFLY_WEB_URL') ?? 'https://thedragonflycatalyst.github.io/dragonfly/').replace(/\/?$/, '/');
 const json = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -75,6 +75,21 @@ Deno.serve(async (req) => {
     let sent = 0;
     for (const u of to) sent += await send(u, `🐞 Report R-${r.ref_no}`, exerciseReportText(r.name, r.kind), `${WEB}library-review`, 'report');
     return json(200, { sent });
+  }
+  if (body.action === 'workout_submitted') {
+    // A client's workout came in (by tapping Submit, or by itself after 4 hours without activity): the trainer gets the result
+    const { data: ok } = await admin.rpc('coach_cron_ok', { p: req.headers.get('x-cron-secret') ?? '' });
+    if (ok !== true) return json(403, { error: 'forbidden' });
+    if (!UUID.test(String(body.log_id ?? ''))) return json(400, { error: 'bad_request' });
+    const { data: l } = await admin.from('coach_logs').select('client_id, assignment_id, entries, auto_submitted').eq('id', body.log_id).maybeSingle();
+    if (!l) return json(200, { sent: 0 });
+    const [{ data: c }, { data: a }] = await Promise.all([
+      admin.from('coach_clients').select('trainer_id, name, first_name').eq('id', l.client_id).maybeSingle(),
+      l.assignment_id ? admin.from('coach_assignments').select('title, snapshot').eq('id', l.assignment_id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
+    if (!c) return json(200, { sent: 0 });
+    const text = workoutResultText(c.name || c.first_name || 'A client', a?.title ?? 'Workout', countSets(l.entries), a ? countSets(a.snapshot) : null, l.auto_submitted === true);
+    return json(200, { sent: await send(c.trainer_id, l.auto_submitted ? '⏱️ Workout submitted' : '✅ Workout done', text, `${WEB}workout/${l.assignment_id ?? ''}`, 'workout') });
   }
   if (body.action === 'test') {
     const { data: me } = await admin.auth.getUser((req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, ''));

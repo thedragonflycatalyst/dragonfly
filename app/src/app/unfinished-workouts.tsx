@@ -7,6 +7,7 @@ import { ask } from '@/lib/ask';
 import {
   discoverWorkoutDrafts, discardWorkoutDraft, draftProgress, routeForWorkoutDraft,
 } from '@/lib/draft-integrity';
+import { dropLiveWorkout } from '@/features/auto-submit';
 import { storage } from '@/lib/storage';
 import type { Draft } from '@/lib/session';
 import { R, usePalette } from '@/lib/theme';
@@ -37,14 +38,14 @@ export default function UnfinishedWorkouts() {
     [
       { text: 'Keep workout', style: 'cancel' },
       { text: 'Discard draft', style: 'destructive', onPress: () => {
-        try { discardWorkoutDraft(storage, draft.key); refresh(); }
+        try { discardWorkoutDraft(storage, draft.key); void dropLiveWorkout(draft.params).catch(() => {}); refresh(); }
         catch { setError('Unable to discard this draft. Try again.'); }
       } },
     ],
   );
   return (
     <Screen title="Unfinished workouts" kicker="Workout recovery">
-      <Txt v="small">Saved on this device. Resume any workout without losing progress in the others. After 4 hours without activity, a workout saves on its own with what you completed.</Txt>
+      <Txt v="small">Saved on this device. Resume any workout without losing progress in the others. After 4 hours without activity, a workout is submitted as completed with exactly what you checked off, and your trainer gets the result.</Txt>
       {error ? <Txt v="small" color={p.focus}>{error}</Txt> : null}
       {!drafts.length ? (
         <Empty emoji="🏋️" title="No unfinished workouts"

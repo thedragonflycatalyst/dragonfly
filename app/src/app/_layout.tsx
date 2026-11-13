@@ -39,7 +39,7 @@ function Shell() {
   useEffect(() => { noteRoute(path); }, [path]);
   // Crashes queued while signed out (or just before the app closed) go out once someone is signed in
   useEffect(() => { if (user) void flushCrashes(); }, [user]);
-  // Unfinished workouts idle for 4 hours save themselves: on open, on return to the app, and every 5 minutes
+  // Unfinished workouts idle for 4 hours submit themselves: on open, on return to the app, and every 5 minutes
   useEffect(() => {
     if (!ready || !user) return;
     const run = () => { void autoSubmitIdleWorkouts(user.id); };

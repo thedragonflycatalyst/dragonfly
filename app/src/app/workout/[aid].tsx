@@ -122,6 +122,7 @@ export default function AssignmentScreen() {
                   ? (done?.sets.length ? <>
                       {done.swapped_from || (done.ex && done.ex.name !== b.ex.name) ? <Txt v="smallBold" color={p.focus}>Swapped to {done.ex?.name}</Txt> : null}
                       {done.sets.map((s, i) => <Txt key={i}>Set {i + 1}: {setLine(s, done.unit)}</Txt>)}
+                      {b.sets.length > done.sets.length && <Txt v="small" color={p.muted}>{b.sets.length - done.sets.length} of {b.sets.length} sets not done</Txt>}
                       {done.note ? <Txt v="small" style={{ fontStyle: 'italic' }}>“{done.note}”</Txt> : null}
                     </> : <Txt v="small">Not done</Txt>)
                   : b.sets.map((_, i) => <Txt key={i}>Set {i + 1}: {planned(b, i, weightUnit(app.units))}</Txt>)}

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { apnsPayload, exerciseReportText, followupDue, movedAlertText, rescheduleAlertText, urgentMessage } from './push.ts';
+import { apnsPayload, countSets, workoutResultText, exerciseReportText, followupDue, movedAlertText, rescheduleAlertText, urgentMessage } from './push.ts';
 
 const TZ = 'America/New_York';
 Deno.test('iPhone alerts are time-sensitive and open the right page', () => {
@@ -30,4 +30,10 @@ Deno.test('reschedule alert reads like the owner asked: name, old time, new time
 Deno.test('exercise report alerts name the exercise and the category only', () => {
   assert.equal(exerciseReportText('Goblet Squat', 'instructions'), 'Goblet Squat · Instructions');
   assert.equal(exerciseReportText('X', 'mystery'), 'X · Other');
+});
+
+Deno.test('the trainer gets the workout result', () => {
+  assert.equal(countSets([{ sets: [{}, {}] }, { kind: 'superset', blocks: [{ sets: [{}] }] }, { kind: 'timed' }]), 3);
+  assert.equal(workoutResultText('Ana', 'Legs', 2, 4, true), 'Ana: Legs, 2 of 4 sets done. Submitted automatically after 4 hours without activity.');
+  assert.equal(workoutResultText('Ana', 'Legs', 1, null, false), 'Ana: Legs, 1 set done.');
 });
