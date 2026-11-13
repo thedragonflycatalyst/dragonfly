@@ -36,7 +36,7 @@ import { dayKey } from '@/lib/dates';
 import { errText, type Assignment, type Client, type ExerciseBlock, type ExerciseRef, type LapisTimerResult, type LogEntry, type SetLog, type WorkoutBlock } from '@/lib/model';
 import { exKey, ghostSet, historyOf, notesOf, pastSwaps, setLine, type PastLog } from '@/lib/history';
 import { clock, doneOnly, type Draft } from '@/lib/session';
-import { onAutoSubmitted } from '@/features/auto-submit';
+import { dropLiveWorkout, onAutoSubmitted, syncLiveWorkout } from '@/features/auto-submit';
 import { weakSide } from '@/lib/sides';
 import { storage } from '@/lib/storage';
 import { beginWorkoutDraft, writeDraftCore, writeDraftPatch, clearMatchingDraft, workoutDraftSlot, loadWorkoutDraft } from '@/lib/draft-integrity';
@@ -140,6 +140,8 @@ export default function Session() {
   const completedSetEvents = useRef(new Set<string>());
   const [pendingAssignmentId, setPendingAssignmentId] = useState<string | null>(null);
   const saved = useRef(false);
+  const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (liveTimer.current) clearTimeout(liveTimer.current); }, []);
   const [swapping, setSwapping] = useState<number | null>(null);
   const [info, setInfo] = useState<ExerciseRef | null>(null);
 
@@ -239,9 +241,12 @@ export default function Session() {
     // touched: any change counts as activity; 4 hours without one and the workout saves on its own
     const d: Draft = { key, title: src.title, params: aid ? { aid } : { workout: workout! }, client_id: clientId, started, log, timerResults, runnerClocks, timedSetClocks, restClock: restSnapshot, pendingAssignmentId, touched: Date.now() };
     try { writeDraftCore(storage, workoutDraftSlot(key), d); } catch { /* storage full or blocked: keep going without a draft */ }
+    // The server's copy (assigned workouts), so it can submit after 4 idle hours even if this phone is off
+    if (liveTimer.current) clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(() => { if (!saved.current) void syncLiveWorkout(d).catch(() => {}); }, 3000);
   }, [log, timerResults, runnerClocks, timedSetClocks, restSnapshot, pendingAssignmentId, clientId, src, readyKey, key, aid, workout, started]);
 
-  // Saved on its own after 4 hours idle (features/auto-submit) while this screen was open: close up like a normal save
+  // Submitted on its own after 4 hours idle (features/auto-submit) while this screen was open: close up like a normal save
   useEffect(() => onAutoSubmitted((k, assignmentId) => {
     if (k !== key || saved.current) return;
     saved.current = true;
@@ -249,7 +254,7 @@ export default function Session() {
     hush();
     void clearWorkoutRestReminder(sessionId);
     void clearWorkoutLinkedReminders(sessionId, Object.keys(linkedTimers));
-    toast('This workout was saved automatically after 4 hours without activity');
+    toast('This workout was submitted automatically after 4 hours without activity');
     router.replace({ pathname: '/workout/[aid]', params: { aid: assignmentId, done: '1' } });
   }), [key, sessionId, linkedTimers, rest, toast]);
 
@@ -410,6 +415,7 @@ export default function Session() {
         if (existing.error || !existing.data) throw error;
       }
       saved.current = true;
+      if (liveTimer.current) clearTimeout(liveTimer.current);
       rest.skip();
       hush();
       // Cleanup is scoped to this workout. Late native notifications must
@@ -641,6 +647,8 @@ export default function Session() {
               void clearWorkoutRestReminder(sessionId);
               void clearWorkoutLinkedReminders(sessionId, Object.keys(linkedTimers));
               clearDraft();
+              if (liveTimer.current) clearTimeout(liveTimer.current);
+              void dropLiveWorkout(aid ? { aid } : {}).catch(() => {});
               router.back();
             } }])} />
         </View>

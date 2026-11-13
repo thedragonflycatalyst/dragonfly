@@ -1,5 +1,7 @@
-// Saves unfinished workouts that have sat 4 hours without activity (owner 2026-11-12). Runs when the app opens, comes
-// back to the foreground, and every few minutes while it's open. The same safeguards as tapping Save: the assignment id
+// Unfinished workouts submit themselves as completed after 4 hours without activity (owner 2026-11-12), with exactly what
+// was checked off. The server does it for assigned workouts even with the app closed (coach_workout_live, kept up to date
+// by syncLiveWorkout below); this runner covers the rest (a trainer's own workout, or a phone that was offline). It runs
+// when the app opens, comes back to the foreground, and every few minutes while it's open. The same safeguards as tapping Save: the assignment id
 // is written to the draft before anything is sent, so a retry after a lost connection never makes a second workout or
 // log. An open workout screen hears about it (onAutoSubmitted) and moves to the finished workout.
 import * as Crypto from 'expo-crypto';
@@ -48,13 +50,13 @@ async function submit(d: Draft, userId: string): Promise<string | null> {
   if (!assignmentId) return null;
   const { error } = await sb.from('coach_logs').insert({
     assignment_id: assignmentId, client_id: d.client_id, user_id: userId, duration_seconds: autoDurationSeconds(d),
-    entries: doneOnly(d.log), timer_results: d.timerResults ?? [], note: AUTO_NOTE, source,
+    entries: doneOnly(d.log), timer_results: d.timerResults ?? [], note: AUTO_NOTE, source, auto_submitted: true,
   });
   if (error && error.code !== '23505') return null;     // 23505: already saved (another device, or a lost reply)
   return assignmentId;
 }
 
-/** Looks for workouts idle 4+ hours and saves them. Returns how many were saved. */
+/** Looks for workouts idle 4+ hours and submits them. Returns how many were submitted. */
 export async function autoSubmitIdleWorkouts(userId: string | null | undefined, now = Date.now()): Promise<number> {
   if (!userId || running) return 0;
   running = true;
@@ -80,4 +82,18 @@ export async function autoSubmitIdleWorkouts(userId: string | null | undefined, 
 /** The one pre-v2 draft slot, if it holds this workout */
 function parseLegacy(key: string) {
   try { return (JSON.parse(storage.getItem('dragonfly.session') ?? 'null') as { key?: string } | null)?.key === key; } catch { return false; }
+}
+
+/** Keeps the server's live copy of an assigned workout in step (only checked-off sets), so it can submit even if this
+ * phone is off. Debounced by the caller. Failures are fine: the next change, or this phone's own runner, catches up. */
+export async function syncLiveWorkout(d: Draft): Promise<void> {
+  const aid = d.params.aid;
+  if (!aid || !d.client_id) return;
+  await sb.from('coach_workout_live').upsert({
+    assignment_id: aid, client_id: d.client_id, started_at: new Date(d.started).toISOString(), entries: doneOnly(d.log), timer_results: d.timerResults ?? [],
+  }, { onConflict: 'assignment_id' });
+}
+/** A discarded workout must not submit itself later */
+export async function dropLiveWorkout(params: Record<string, string>): Promise<void> {
+  if (params.aid) await sb.from('coach_workout_live').delete().eq('assignment_id', params.aid);
 }

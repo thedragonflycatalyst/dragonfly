@@ -21,6 +21,22 @@ export function movedAlertText(name: string, oldStart: Date, newStart: Date, tz:
   return rescheduleAlertText(name, oldStart, newStart, tz, now).replace(' wants to reschedule to ', ' moved to ');
 }
 
+/** Sets in a workout: planned ones in an assignment's blocks, or the checked-off ones in a log's entries */
+export function countSets(blocks: unknown): number {
+  if (!Array.isArray(blocks)) return 0;
+  let n = 0;
+  for (const b of blocks as { sets?: unknown[]; blocks?: unknown[]; kind?: string }[]) {
+    if (Array.isArray(b?.sets)) n += b.sets.length;
+    if (Array.isArray(b?.blocks)) n += countSets(b.blocks);           // supersets and circuits hold their own blocks
+  }
+  return n;
+}
+/** "Ana Lopez: Legs, 6 of 9 sets done. Submitted automatically after 4 hours without activity." */
+export function workoutResultText(name: string, title: string, done: number, planned: number | null, auto: boolean): string {
+  const sets = planned ? `${done} of ${planned} sets done` : `${done} set${done === 1 ? '' : 's'} done`;
+  return `${name}: ${title}, ${sets}.${auto ? ' Submitted automatically after 4 hours without activity.' : ''}`;
+}
+
 type ServiceAccount = { project_id: string; client_email: string; private_key: string };
 export const pushConfigured = () => !!Deno.env.get('FCM_SERVICE_ACCOUNT') || apnsConfigured();
 const apnsConfigured = () => !!(Deno.env.get('APNS_KEY') && Deno.env.get('APNS_KEY_ID') && Deno.env.get('APNS_TEAM_ID'));
