@@ -52,7 +52,7 @@ export default function Session() {
   const p = usePalette();
   const toast = useToast();
   const app = useApp();
-  const { aid, workout } = useLocalSearchParams<{ aid?: string; workout?: string }>();
+  const { aid, workout, client: clientParam } = useLocalSearchParams<{ aid?: string; workout?: string; client?: string }>();
   const screenFocused = useIsFocused();
   const key = aid ? `a:${aid}` : `w:${workout}`;
   const currentRouteKey = useRef(key);
@@ -203,7 +203,8 @@ export default function Session() {
         setActiveSetTimerKey(null);
         setPendingAssignmentId(null);
         setStarted(Date.now());
-        setClientId(s.assignment?.client_id ?? null);
+        // The client is chosen before the workout opens (Start workout → pick the client) and can't change after
+        setClientId(s.assignment?.client_id ?? clientParam ?? null);
       }
       if (cancelled) return;
       if (s) {
@@ -440,15 +441,20 @@ export default function Session() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 160, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
         <View style={{ width: '100%', maxWidth: MAX_W, gap: 12 }}>
           {isTrainer && !src.assignment && (
-            <Card style={{ gap: 8 }}>
-              <Txt v="bold">Who are you training?</Txt>
-              {pendingAssignmentId ? <Txt v="small" color={p.muted}>This workout is already associated with a client. The client cannot change while a save is being retried.</Txt> : null}
-              {clients.length === 0 ? <Txt v="small">You need an active client to log a session.</Txt> : (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {clients.map((c) => <Chip key={c.id} label={c.name} selected={clientId === c.id} onPress={() => { if (!pendingAssignmentId) setClientId(c.id); }} />)}
-                </View>
-              )}
-            </Card>
+            clientId ? (
+              <Txt v="smallBold" color={p.focus}>Training {clients.find((c) => c.id === clientId)?.name ?? 'your client'}</Txt>
+            ) : (
+              // Only for a workout opened without a client (older links): pick once, then it's fixed
+              <Card style={{ gap: 8 }}>
+                <Txt v="bold">Who are you training?</Txt>
+                {clients.length === 0 ? <Txt v="small">You need an active client to log a session.</Txt> : (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {clients.map((c) => <Chip key={c.id} label={c.name} onPress={() => ask(`Training ${c.name}?`, 'The client can’t be changed once the workout starts.', [
+                      { text: 'Cancel', style: 'cancel' }, { text: 'Start', onPress: () => setClientId(c.id) }])} />)}
+                  </View>
+                )}
+              </Card>
+            )
           )}
           {src.assignment?.trainer_note ? <Card><Txt v="smallBold" color={p.focus}>From your trainer</Txt><Txt>{src.assignment.trainer_note}</Txt></Card> : null}
           {src.blocks.filter((b) => b.kind === 'timed').map((b) => {

@@ -1,9 +1,9 @@
+import { StartForClient } from '@/features/routines';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { Segmented } from '@/components/bits';
 import { Button, Card, Chip, Empty, Field, Txt, useToast } from '@/components/ui';
-import { AssignWorkout } from '@/features/assign';
 import { BlocksEditor } from '@/features/workout-editor';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
@@ -14,7 +14,7 @@ import { estimateMinutes, exerciseCount } from '@/lib/workouts';
 import { CoverPicker } from '@/features/cover-picker';
 import { MAX_W, R, usePalette } from '@/lib/theme';
 
-/** Workout builder: exercises and sets, details, and Start / Assign. Saves automatically. */
+/** Workout builder: exercises and sets, details, and Start. Saves automatically; assign it from the Workouts list. */
 export default function WorkoutScreen() {
   const p = usePalette();
   const toast = useToast();
@@ -22,9 +22,9 @@ export default function WorkoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [w, setW] = useState<Workout | null | undefined>(undefined);
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [starting, setStarting] = useState(false);
   const [tab, setTab] = useState<'exercises' | 'details'>('exercises');
   const [saved, setSaved] = useState<'saved' | 'saving' | 'error'>('saved');
-  const [assigning, setAssigning] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const latest = useRef<Workout | null>(null);
 
@@ -90,11 +90,10 @@ export default function WorkoutScreen() {
         </View>
       </ScrollView>
       <View style={{ position: 'absolute', bottom: 20, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 10 }} pointerEvents="box-none">
-        <Button kind="ghost" title="Assign" icon="calendar_month" style={{ backgroundColor: p.surface }} onPress={async () => { await persist(); setAssigning(true); }} />
         <Button kind="accent" title="Start workout" icon="play_arrow" disabled={!w.blocks.some((b) => b.kind === 'exercise' || b.kind === 'timed')}
-          onPress={async () => { await persist(); router.push({ pathname: '/session', params: { workout: w.id } }); }} />
+          onPress={async () => { await persist(); setStarting(true); }} />
       </View>
-      <AssignWorkout workout={latest.current ?? w} visible={assigning} onClose={() => setAssigning(false)} />
+      <StartForClient workout={starting ? { id: w.id, name: w.name } : null} onClose={() => setStarting(false)} />
     </View>
   );
 }

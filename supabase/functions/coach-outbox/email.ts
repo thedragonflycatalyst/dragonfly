@@ -6,7 +6,7 @@ export function emailConfigured(): boolean {
 
 const SUBJECT: Record<string, string> = {
   reminder: 'Session reminder', slot_offer: 'A training spot opened up', survey: 'Quick question from your trainer',
-  testimonial_ask: 'Would you share your experience?', referral_ask: 'Know someone who’d enjoy training?', group_invite: 'Group session invite', note: 'A message from your trainer',
+  testimonial_ask: 'Would you share your experience?', referral_ask: 'Know someone who’d enjoy training?', group_invite: 'Group session invite', workout_reminder: 'Workout reminder', note: 'A message from your trainer',
 };
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 

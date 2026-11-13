@@ -7,7 +7,7 @@ import { Screen } from '@/components/shell';
 import { ActionMenu, Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Empty, Field, Icon, Txt, useToast } from '@/components/ui';
 import { TEMPLATES, type Template } from '@/data/templates';
-import { AssignWorkout } from '@/features/assign';
+import { AssignRoutine, StartForClient } from '@/features/routines';
 import { ask } from '@/lib/ask';
 import { useApp } from '@/lib/app-state';
 import { errText, type Folder, type Program, type Workout } from '@/lib/model';
@@ -38,6 +38,7 @@ export default function WorkoutsTab() {
   const [creating, setCreating] = useState<'workout' | 'program' | null>(null);
   const [menu, setMenu] = useState<Workout | null>(null);
   const [assign, setAssign] = useState<Workout | null>(null);
+  const [starting, setStarting] = useState<Workout | null>(null);
   const [moving, setMoving] = useState<Workout | null>(null);
   const [renaming, setRenaming] = useState<{ w: Workout; name: string } | null>(null);
   const [newFolder, setNewFolder] = useState('');
@@ -106,6 +107,7 @@ export default function WorkoutsTab() {
                     <Txt v="bold" numberOfLines={2}>{w.name}</Txt>
                     <Txt v="small">{exerciseCount(w.blocks)} exercises · about {estimateMinutes(w.blocks)} min{w.folder_id ? ` · ${folders.find((f) => f.id === w.folder_id)?.name ?? ''}` : ''}</Txt>
                   </View>
+                  <Button small kind="ghost" icon="person_add" title="Assign" onPress={() => setAssign(w)} />
                   <Pressable accessibilityRole="button" accessibilityLabel={`More options for ${w.name}`} onPress={() => setMenu(w)} hitSlop={10}><Icon name="more_horiz" size={26} /></Pressable>
                 </Pressable>
               ))}
@@ -178,17 +180,18 @@ export default function WorkoutsTab() {
           router.push({ pathname: '/programs/[id]', params: { id: data.id } });
         }} />
       {menu && <ActionMenu visible onClose={() => setMenu(null)} title={menu.name} items={[
-        { label: 'Assign to clients', icon: 'calendar_month', onPress: () => setAssign(menu) },
-        { label: 'Start workout', icon: 'play_arrow', onPress: () => router.push({ pathname: '/session', params: { workout: menu.id } }) },
+        { label: 'Assign to clients', icon: 'person_add', onPress: () => setAssign(menu) },
+        { label: 'Start workout', icon: 'play_arrow', onPress: () => setStarting(menu) },
         { label: 'Rename', icon: 'edit', onPress: () => setRenaming({ w: menu, name: menu.name }) },
         { label: 'Duplicate', icon: 'content_copy', onPress: () => createFrom(`${menu.name} (copy)`, menu) },
         { label: 'Move to folder', icon: 'drive_file_move', onPress: () => setMoving(menu) },
         { label: 'Send a copy to a trainer', icon: 'send', hidden: !canSendToTrainers(app), onPress: () => setSending({ kind: 'workout', id: menu.id, name: menu.name }) },
-        { label: 'Delete', icon: 'delete', danger: true, onPress: () => ask(`Delete ${menu.name}?`, 'Workouts already assigned to clients stay on their calendars.', [
+        { label: 'Delete', icon: 'delete', danger: true, onPress: () => ask(`Delete ${menu.name}?`, 'Clients keep what they already did; it comes off their routines.', [
           { text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { const { error } = await sb.from('coach_workouts').delete().eq('id', menu.id); if (error) toast(errText(error), false); load(); } }]) },
       ]} />}
       <CopyToTrainer item={sending} onClose={() => setSending(null)} />
-      <AssignWorkout workout={assign} visible={!!assign} onClose={() => { setAssign(null); load(); }} />
+      <StartForClient workout={starting} onClose={() => setStarting(null)} />
+      <AssignRoutine workout={assign} visible={!!assign} onClose={() => { setAssign(null); load(); }} />
       <Sheet visible={!!moving} onClose={() => setMoving(null)} title="Move to folder">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {[{ id: null as string | null, name: 'No folder' }, ...folders].map((f) => (

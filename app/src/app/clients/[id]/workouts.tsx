@@ -5,6 +5,7 @@ import { Row, Segmented } from '@/components/bits';
 import { Badge } from '@/components/shell';
 import { Button, Card, Empty, Txt } from '@/components/ui';
 import { AssignToClient } from '@/features/assign';
+import { RoutineList } from '@/features/routines';
 import { useClientRecord } from '@/features/common';
 import { dayKey, fmtShort, fromKey, relDay } from '@/lib/dates';
 import type { Assignment } from '@/lib/model';
@@ -19,6 +20,7 @@ export default function ClientWorkouts() {
   const [items, setItems] = useState<Assignment[] | null>(null);
   const [view, setView] = useState<'upcoming' | 'past'>('upcoming');
   const [assigning, setAssigning] = useState(false);
+  const [routinesKey, setRoutinesKey] = useState(0);
 
   const load = useCallback(async () => {
     const { data } = await sb.from('coach_assignments').select('*').eq('client_id', id).order('scheduled_on', { ascending: false }).limit(300);
@@ -41,10 +43,13 @@ export default function ClientWorkouts() {
             <Segmented value={view} onChange={setView} options={[['upcoming', 'Upcoming'], ['past', 'Past']]} />
             {client && <Button title="Assign" icon="add" onPress={() => setAssigning(true)} />}
           </View>
+          <Txt v="h3">Routines</Txt>
+          <RoutineList key={routinesKey} clientId={id} trainer empty="No routines yet. Tap Assign to add a saved workout; they start it whenever they train." />
+          <Txt v="h3" style={{ marginTop: 8 }}>Workouts by date</Txt>
           {due > 0 && <Txt v="small">Completed {doneCount} of {due} workouts due so far ({Math.round((doneCount / due) * 100)}%).</Txt>}
           {items === null ? <ActivityIndicator color={p.ink} style={{ marginTop: 30 }} /> : list.length === 0 ? (
             <Empty emoji={view === 'upcoming' ? '🗓️' : '📒'} title={view === 'upcoming' ? 'Nothing scheduled' : 'No history yet'}
-              body={view === 'upcoming' ? 'Assign a workout or a whole program and it shows up on their calendar.' : 'Finished and skipped workouts show up here.'} />
+              body={view === 'upcoming' ? 'Programs put workouts on dates. Routines (above) are started whenever they train.' : 'Finished and skipped workouts show up here.'} />
           ) : (
             <Card style={{ padding: 0 }}>
               {list.map((a, i) => (
@@ -56,7 +61,7 @@ export default function ClientWorkouts() {
           )}
         </View>
       </ScrollView>
-      {client && <AssignToClient client={client} visible={assigning} onClose={() => setAssigning(false)} onDone={load} />}
+      {client && <AssignToClient client={client} visible={assigning} onClose={() => setAssigning(false)} onDone={() => { load(); setRoutinesKey((k) => k + 1); }} />}
     </View>
   );
 }
