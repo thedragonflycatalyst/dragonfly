@@ -46,7 +46,7 @@ export default function RestTimerSettings() {
 
       <SectionLabel>Cues</SectionLabel>
       <Card>
-        <Toggle label="Say “Rest”" sub="When you tick a set" value={l.sayRest} onChange={(v) => setPrefs({ sayRest: v })} />
+        <Toggle label="Say “Rest”" sub="When you tick a set (off: just the bell when it’s time to go back to work)" value={l.sayRest} onChange={(v) => setPrefs({ sayRest: v })} />
         <Toggle label="Halfway" sub="Say “Halfway” on longer rests and timed sets" value={l.halfway} onChange={(v) => setPrefs({ halfway: v })} />
         <Toggle label="3, 2, 1 countdown" value={l.countdown} onChange={(v) => setPrefs({ countdown: v })} />
         <Toggle label="Bell" sub="When rest ends and timed sets start and stop" value={l.bellOn} onChange={(v) => setPrefs({ bellOn: v })} />

@@ -1,0 +1,7 @@
+{
+  "name": "rest-notification",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Android: the workout rest countdown in the notification shade (a live chronometer that stays after it ends)",
+  "main": "index.ts"
+}

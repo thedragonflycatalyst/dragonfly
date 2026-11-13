@@ -34,8 +34,8 @@ export type LapisPrefs = {
   voiceOn: boolean; sayRest: boolean; countdown: boolean; bellOn: boolean; halfway: boolean; autoRest: boolean; defaultRest: number; keepAwake: boolean;
 };
 export const DEFAULTS: LapisPrefs = {
-  voice: 'en-IE-ConnorNeural', music: 'duck', voiceLevel: 1, voiceSpeed: 1, haptics: true, bell: 'ring2',
-  voiceOn: true, sayRest: true, countdown: true, bellOn: true, halfway: false, autoRest: true, defaultRest: 60, keepAwake: true,
+  voice: 'en-IE-ConnorNeural', music: 'mix', voiceLevel: 1, voiceSpeed: 1, haptics: true, bell: 'ring2',
+  voiceOn: true, sayRest: false, countdown: true, bellOn: true, halfway: false, autoRest: true, defaultRest: 60, keepAwake: true,
 };
 const SHARED = SHARED_PREF_KEYS;
 
@@ -74,6 +74,7 @@ const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 const KEY = (u: string) => `lapis.prefs.${u}`;
 const PENDING_KEY = (u: string) => `lapis.prefs.pending.${u}`;
+const MIGRATED_KEY = (u: string) => `lapis.prefs.migrated-2026-11-13.${u}`;
 
 export const getPrefs = () => current;
 
@@ -96,6 +97,12 @@ export async function loadPrefs(userId: string) {
     }
     if (uid === userId && pendingByUser.has(userId)) void flushShared(userId);
   } catch { /* offline: this device's copy is fine */ }
+  // Owner 2026-11-13: music keeps playing at full volume under the cues, and no "Rest" when a rest starts.
+  // Applied once to existing settings (after that, whatever the person picks stands).
+  if (uid === userId && !recall<boolean>(MIGRATED_KEY(userId), false)) {
+    store(MIGRATED_KEY(userId), true);
+    if (current.music !== 'mix' || current.sayRest) void setPrefs({ music: 'mix', sayRest: false });
+  }
 }
 
 /** Shared changes are applied atomically on the server without replacing timers/sessions/history.

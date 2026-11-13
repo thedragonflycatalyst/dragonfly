@@ -29,9 +29,10 @@ export function announcementForPhase(
     if (sayNext && sayExercise && phase.round != null) {
       const nextRound = phase.round + 1;
       const name = timer.slots[nextRound - 1]?.exercise?.trim();
-      if (name) return { ring: false, speech: `Rest. Next up: ${name}` };
+      if (name) return { ring: false, speech: `Next up: ${name}` };
     }
-    return { ring: false, speech: 'Rest' };
+    // Owner 2026-11-13: no "Rest" at the start of every rest; the bell when work starts is the cue
+    return { ring: false, speech: null };
   }
   if (phase.kind === 'prepare') return { ring: false, speech: 'Prepare' };
   if (phase.kind === 'warmup') return { ring: false, speech: 'Warmup' };

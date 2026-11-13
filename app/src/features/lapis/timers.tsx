@@ -7,12 +7,15 @@ import { clock } from '@/lib/session';
 import { F, R, usePalette } from '@/lib/theme';
 import { bell, bellThenSay, buzz, hush, say } from './audio';
 import { getPrefs } from './prefs';
+import { clearRestNotification, showRestCountdown, showRestFinished } from '../../../modules/rest-notification';
+import { recall, store } from '@/lib/supabase';
 import { canScheduleWorkoutNotification } from './workout-session-lease';
 import { addRestSeconds, createRestClock, pauseRestClock, restRemaining, restoreRestClock, resumeRestClock, type RestClock } from './rest-clock';
 import { elapsedTimedSet, pauseTimedSet, resetTimedSet, restoreTimedSetClock, resumeTimedSet, type TimedSetClock } from './timed-set-clock';
 
 /* ---------- background rest notifications, scoped to current workout ---------- */
 let backstopQueue: Promise<void> = Promise.resolve();
+const REST_CHANNEL = 'rest-bell';
 async function backstop(sessionId: string, at: number | null, body = 'Rest is over. Next set!') {
   const task = async () => {
     if (Platform.OS === 'web') return;
@@ -27,20 +30,23 @@ async function backstop(sessionId: string, at: number | null, body = 'Rest is ov
         }
       }
       if (at === null || !canScheduleWorkoutNotification(sessionId)) return;
-      const secs = Math.round((at - Date.now()) / 1000) + 2;
-      if (secs < 2) return;
+      if (at - Date.now() < 1500) return;
       if (Platform.OS === 'android') {
-        await N.setNotificationChannelAsync('rest', {
-          name: 'Rest timer', importance: N.AndroidImportance.HIGH,
-          sound: 'bell_ring2.wav', vibrationPattern: [0, 250, 120, 250],
+        // A new channel id: Android keeps a channel's sound forever, and phones that made "rest" before it had the
+        // bell would stay silent. This one always rings the bell and vibrates, and shows on the lock screen.
+        await N.setNotificationChannelAsync(REST_CHANNEL, {
+          name: 'Rest timer: back to work', importance: N.AndroidImportance.MAX,
+          sound: 'bell_ring2.wav', vibrationPattern: [0, 250, 120, 250], enableVibrate: true,
+          lockscreenVisibility: N.AndroidNotificationVisibility.PUBLIC,
         });
       }
       if (!canScheduleWorkoutNotification(sessionId)) return;
       const id = await N.scheduleNotificationAsync({
-        content: { title: 'Dragonfly', body, sound: 'bell_ring2.wav',
+        content: { title: 'Back to work', body, sound: 'bell_ring2.wav', interruptionLevel: 'timeSensitive',
           data: { kind: 'rest', lapisSessionId: sessionId } },
-        trigger: { type: N.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          seconds: secs, ...(Platform.OS === 'android' ? { channelId: 'rest' } : {}) },
+        // alarmClock: Android delivers it on the second, never deferred for battery saving (needs "Alarms & reminders")
+        trigger: { type: N.SchedulableTriggerInputTypes.DATE, date: at + 1000, delivery: 'alarmClock',
+          ...(Platform.OS === 'android' ? { channelId: REST_CHANNEL } : {}) },
       });
       if (!canScheduleWorkoutNotification(sessionId))
         await N.cancelScheduledNotificationAsync(id).catch(() => {});
@@ -49,6 +55,22 @@ async function backstop(sessionId: string, at: number | null, body = 'Rest is ov
   const next = backstopQueue.catch(() => {}).then(task);
   backstopQueue = next;
   await next;
+}
+/** The first rest asks (once) for notifications, so the bell can ring with the app in the background.
+ * On Android 14+ it also opens "Alarms & reminders" once, so the bell rings on time instead of minutes late. */
+let asked = false;
+async function ensureRestAlerts() {
+  if (Platform.OS === 'web' || asked) return;
+  asked = true;
+  try {
+    const N = await import('expo-notifications');
+    const perm = await N.getPermissionsAsync();
+    if (!perm.granted && perm.canAskAgain) await N.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true } });
+    if (Platform.OS === 'android' && !recall<boolean>('lapis.exactAlarmAsked', false)) {
+      const exact = await N.getExactAlarmPermissionsAsync();
+      if (!exact.granted && exact.canAskAgain) { store('lapis.exactAlarmAsked', true); await N.requestExactAlarmPermissionsAsync(); }
+    }
+  } catch { /* the in-app timer still works */ }
 }
 export async function clearOtherWorkoutRestReminders(sessionId: string) {
   const task = async () => {
@@ -113,8 +135,10 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
       if (!canScheduleWorkoutNotification(sessionId)) return;
       const latest = restRef.current;
       if (state === 'active') {
+        // The in-app timer takes over again; the scheduled alert is only for while the app is away
         void backstop(sessionId, null);
         if (latest && latest.pausedLeft === null && latest.until <= Date.now()) {
+          showRestFinished('Back to work', latest.label ? `Rest is over. ${latest.label}` : 'Rest is over. Next set!');
           // OS may have suspended JS through the deadline. Dismiss an
           // overdue rest without replaying its bell or advancing a set.
           fired.current.add('end');
@@ -143,6 +167,7 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
       f.add('end');
       void backstop(sessionId, null);
       void bell();
+      showRestFinished('Back to work', rest.label ? `Rest is over. ${rest.label}` : 'Rest is over. Next set!');
       const nextKey = rest.nextSetKey;
       update(null);
       if (nextKey) nextRef.current?.(nextKey);
@@ -165,18 +190,23 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
     update(next);
     buzz();
     if (getPrefs().sayRest) void say('Rest');
-    if (AppState.currentState !== 'active') void backstop(sessionId, next.until);
+    void ensureRestAlerts();
+    void backstop(sessionId, next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+    showRestCountdown(next.until, 'Rest', next.label ? `Next: ${next.label}` : 'Back to work when it hits zero');
   };
   const add = (seconds: number) => {
     if (!canScheduleWorkoutNotification(sessionId)) return;
     const next = addRestSeconds(restRef.current, seconds, Date.now());
     for (const key of ['3', '2', '1', 'half']) fired.current.delete(key);
     update(next);
-    if (next?.pausedLeft === null && AppState.currentState !== 'active')
+    if (next?.pausedLeft === null) {
       void backstop(sessionId, next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+      showRestCountdown(next.until, 'Rest', next.label ? `Next: ${next.label}` : 'Back to work when it hits zero');
+    }
   };
   const pause = () => {
     void backstop(sessionId, null);
+    clearRestNotification();
     const next = pauseRestClock(restRef.current, Date.now());
     if (next !== restRef.current) update(next);
   };
@@ -185,10 +215,12 @@ export function useRest(sessionId: string, onNextSet?: (key: string) => void, on
     const next = resumeRestClock(restRef.current, Date.now());
     if (next === restRef.current) return;
     update(next);
-    if (next && AppState.currentState !== 'active')
+    if (next) {
       void backstop(sessionId, next.until, next.label ? `Rest is over. ${next.label}` : undefined);
+      showRestCountdown(next.until, 'Rest', next.label ? `Next: ${next.label}` : 'Back to work when it hits zero');
+    }
   };
-  const skip = () => { void backstop(sessionId, null); update(null); };
+  const skip = () => { void backstop(sessionId, null); clearRestNotification(); update(null); };
   return { rest: stateSessionId === sessionId ? rest : null, left, start, add, pause, resume, skip, restore };
 }
 
@@ -398,5 +430,6 @@ export function SetTimer({
  * The serialized queue makes an earlier in-flight schedule finish first.
  */
 export async function clearWorkoutRestReminder(sessionId: string): Promise<void> {
+  clearRestNotification();
   await backstop(sessionId, null);
 }

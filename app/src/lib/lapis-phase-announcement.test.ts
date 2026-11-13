@@ -26,8 +26,8 @@ test('rest announcement can identify next Lapis round exercise', () => {
   const rest: LapisPhase = { kind: 'rest', name: 'Rest', seconds: 30,
     startAt: 63, endAt: 93, round: 1, cycle: 1 };
   assert.deepEqual(announcementForPhase(rest, timer),
-    { ring: false, speech: 'Rest. Next up: TRX squat' });
+    { ring: false, speech: 'Next up: TRX squat' });
   assert.deepEqual(announcementForPhase(rest, {
     ...timer, voice: { announceNext: false },
-  }), { ring: false, speech: 'Rest' });
+  }), { ring: false, speech: null });
 });
