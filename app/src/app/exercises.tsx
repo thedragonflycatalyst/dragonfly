@@ -1,12 +1,12 @@
 import { router, Stack } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, TextInput, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Segmented } from '@/components/bits';
 import { Sheet } from '@/components/sheet';
 import { Button, Chip, Icon, Txt, useToast } from '@/components/ui';
 import { ExerciseInfo, ExerciseThumb, MyExerciseEditor, toLib } from '@/features/exercises';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, CATEGORIES, EQUIPMENT, search, titleCase, type LibExercise } from '@/lib/library';
+import { BODY_PARTS, builtIn, CATEGORIES, EQUIPMENT, patternGroups, search, titleCase, type LibExercise } from '@/lib/library';
 import { errText, type MyExercise } from '@/lib/model';
 import { sb } from '@/lib/supabase';
 import { F, MAX_W, R, usePalette } from '@/lib/theme';
@@ -22,6 +22,8 @@ export default function Exercises() {
   const [tab, setTab] = useState<'library' | 'mine'>('library');
   const [q, setQ] = useState('');
   const [part, setPart] = useState<string | null>(null);
+  const [pattern, setPattern] = useState<string | null>(null);
+  const [by, setBy] = useState<'part' | 'pattern'>('part');
   const [equipment, setEquipment] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [sort, setSort] = useState<Sort>('az');
@@ -40,10 +42,11 @@ export default function Exercises() {
   useEffect(() => { load(); }, [load]);
 
   const list = useMemo(() => {
-    const rows = search(tab === 'mine' ? mine.map(toLib) : builtIn(), { q, part, equipment, category });
+    const rows = search(tab === 'mine' ? mine.map(toLib) : builtIn(), { q, part, equipment, category, pattern });
     const sorted = q.trim() ? rows : [...rows].sort((a, b) => a.name.localeCompare(b.name));
     return (sort === 'za' && !q.trim() ? sorted.reverse() : sorted).slice(0, 400);
-  }, [tab, mine, q, part, equipment, category, sort]);
+  }, [tab, mine, q, part, equipment, category, pattern, sort]);
+  const groups = useMemo(() => patternGroups(builtIn()), []);
   const filters = [equipment, category].filter(Boolean).length;
   const isPicked = (e: LibExercise) => picked.some((x) => x.ref === e.ref);
 
@@ -73,9 +76,26 @@ export default function Exercises() {
             <Icon name="filter_list" color={filters ? p.bg : p.ink} />
           </Pressable>
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {BODY_PARTS.map((b) => <Chip key={b.key} label={b.label} selected={part === b.key} onPress={() => setPart(part === b.key ? null : b.key)} />)}
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <Chip label="Body part" selected={by === 'part'} onPress={() => setBy('part')} />
+          <Chip label={pattern ? `Movement: ${pattern}` : 'Movement'} selected={by === 'pattern'} onPress={() => setBy('pattern')} />
+          {(part || pattern) && <Chip label="Clear ✕" onPress={() => { setPart(null); setPattern(null); }} />}
         </View>
+        {by === 'part' ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {BODY_PARTS.map((b) => <Chip key={b.key} label={b.label} selected={part === b.key} onPress={() => setPart(part === b.key ? null : b.key)} />)}
+          </View>
+        ) : (
+          // Movement patterns, by group, in one swipeable row each
+          <View style={{ gap: 6 }}>
+            {groups.map((g) => (
+              <ScrollView key={g.label} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
+                <Txt v="smallBold" style={{ marginRight: 2 }}>{g.label}</Txt>
+                {g.patterns.map((x) => <Chip key={x} label={x} selected={pattern === x} onPress={() => setPattern(pattern === x ? null : x)} />)}
+              </ScrollView>
+            ))}
+          </View>
+        )}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Txt v="smallBold">{q.trim() ? 'Best matches' : sort === 'az' ? 'A to Z' : 'Z to A'} · {list.length}{list.length === 400 ? '+' : ''}</Txt>
           {selecting && picked.length > 0 && <Button small kind="quiet" title="Clear" onPress={() => setPicked([])} />}
