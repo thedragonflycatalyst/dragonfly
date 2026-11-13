@@ -115,7 +115,25 @@ export function alternativesFor(ex: LibExercise, mine: LibExercise[] = [], n = 6
   return [...chosen, ...similar].slice(0, n);
 }
 
-export type Filter = { q?: string; part?: string | null; equipment?: string | null; category?: string | null };
+export type Filter = { q?: string; part?: string | null; equipment?: string | null; category?: string | null; pattern?: string | null };
+
+/** Movement patterns, grouped the way trainers think about them. Patterns not listed here still show under "Other". */
+export const PATTERN_GROUPS: { label: string; patterns: string[] }[] = [
+  { label: 'Lower body', patterns: ['Squat', 'Hinge', 'Lunge / single leg', 'Hip abduction / adduction', 'Hip flexion / extension', 'Knee flexion', 'Knee extension', 'Calf / ankle'] },
+  { label: 'Push', patterns: ['Horizontal push', 'Vertical push', 'Chest fly', 'Elbow extension'] },
+  { label: 'Pull', patterns: ['Horizontal pull', 'Vertical pull', 'Elbow flexion', 'Wrist and grip'] },
+  { label: 'Shoulders and neck', patterns: ['Shoulder isolation', 'Neck'] },
+  { label: 'Core', patterns: ['Core flexion', 'Anti-extension', 'Anti-rotation', 'Anti-lateral flexion', 'Rotation', 'Lateral flexion', 'Spinal extension', 'Isometric hold'] },
+  { label: 'Power and conditioning', patterns: ['Jump / land', 'Throw', 'Olympic lift', 'Carry', 'Locomotion', 'Full-body conditioning', 'Cardio machine', 'Get-up'] },
+  { label: 'Mobility', patterns: ['Stretch', 'Mobility drill'] },
+];
+/** The groups with only patterns that some exercise uses, plus "Other" for any pattern not grouped yet */
+export function patternGroups(all: LibExercise[]): { label: string; patterns: string[] }[] {
+  const used = new Set(all.map((e) => e.pattern).filter((x): x is string => !!x));
+  const grouped = new Set(PATTERN_GROUPS.flatMap((g) => g.patterns));
+  const other = [...used].filter((x) => !grouped.has(x)).sort();
+  return [...PATTERN_GROUPS.map((g) => ({ label: g.label, patterns: g.patterns.filter((x) => used.has(x)) })), { label: 'Other', patterns: other }].filter((g) => g.patterns.length);
+}
 
 /** Search: every word must match the name, another name it goes by, or its equipment or muscles.
  *  Exact and name-start matches rank first, then matches on another name. */
@@ -126,8 +144,9 @@ export function search(all: LibExercise[], f: Filter): LibExercise[] {
     if (part && !worksAny(e, part.muscles)) return false;
     if (f.equipment && !uses(e, f.equipment)) return false;
     if (f.category && !same(e.category, f.category)) return false;
+    if (f.pattern && e.pattern !== f.pattern) return false;
     if (!words.length) return true;
-    const hay = low(`${e.name} ${(e.aliases ?? []).join(' ')} ${e.equipment} ${e.primary.join(' ')}`);
+    const hay = low(`${e.name} ${(e.aliases ?? []).join(' ')} ${e.equipment} ${e.primary.join(' ')} ${e.pattern ?? ''}`);
     return words.every((w) => hay.includes(w));
   });
   if (!words.length) return hits;
@@ -204,3 +223,12 @@ export function groupFamilies(list: LibExercise[]): ListItem[] {
     return g.members.length > 1 && versions.size > 1 ? [{ kind: 'family', key: k, name: g.name, members: g.members } as ListItem] : g.members.map((m): ListItem => ({ kind: 'one', e: m.e }));
   }).flat();
 }
+
+/** The YouTube video id in a link, or null */
+export function youTubeId(url: string | null | undefined): string | null {
+  return (url ?? '').match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1] ?? null;
+}
+/** Plays inside the app (privacy-enhanced YouTube, no related videos from other channels) */
+export const youTubeEmbed = (id: string) => `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1`;
+/** Opens the video where it was published */
+export const youTubeWatch = (id: string) => `https://www.youtube.com/watch?v=${id}`;

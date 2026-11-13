@@ -1,7 +1,6 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Segmented } from '@/components/bits';
@@ -12,13 +11,14 @@ import { coverUrl } from '@/components/cover';
 import { WORKOUT_IMAGES } from '@/lib/art';
 import { exerciseArt } from '@/lib/art-match';
 import { useApp } from '@/lib/app-state';
-import { BODY_PARTS, builtIn, byRef, EQUIPMENT, familyOf, groupFamilies, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise, type ListItem } from '@/lib/library';
+import { BODY_PARTS, builtIn, byRef, EQUIPMENT, familyOf, groupFamilies, patternGroups, isLink, MUSCLES, MY_CATEGORIES, search, titleCase, youTubeThumb, type LibExercise, type ListItem } from '@/lib/library';
 import { errText, type GalleryItem, type MyExercise, type SetMetric, type Workout } from '@/lib/model';
 import { MACHINES } from '@/data/machines';
 import { findMachines, machineMatches, type MachineRead } from '@/lib/machine-match';
 import { sb } from '@/lib/supabase';
 import { F, R, usePalette } from '@/lib/theme';
 import { escalateSuggestion, reviewText, suggestExercise, useHidden, type Review } from './library-extras';
+import { DemoVideo } from './demo-video';
 import { ReportProblem } from './report-problem';
 import { revisionOf } from '@/lib/exercise-report';
 import { useAiPhotoConsent } from './ai-photo-consent';
@@ -96,8 +96,7 @@ export function ExerciseInfo({ ex, onClose, screen }: { ex: { name: string; ref?
   return (
     <Sheet visible={!!ex} onClose={onClose} title={ex?.name ?? ''}>
       {video && !isLink(video) && <StoredVideo path={video} />}
-      {video && isLink(video) && <Button title="Watch the demo video" icon="play_arrow" style={{ alignSelf: 'flex-start', marginBottom: 12 }}
-        onPress={() => (Platform.OS === 'web' ? window.open(video, '_blank', 'noopener') : WebBrowser.openBrowserAsync(video))} />}
+      {video && isLink(video) && <DemoVideo url={video} name={ex?.name ?? ''} />}
       {images.length > 0 && !youTubeThumb(video) && (
         <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>
           {images.map((src, i) => (
@@ -206,7 +205,7 @@ function AnyImage({ src, label }: { src: string; label: string }) {
   return <Image source={url ? { uri: url } : null} style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: R.sm, backgroundColor: p.soft }} contentFit="cover" accessibilityLabel={label} />;
 }
 
-type Tab = 'search' | 'part' | 'equipment' | 'recent' | 'favorites' | 'mine' | 'hidden';
+type Tab = 'search' | 'part' | 'pattern' | 'equipment' | 'recent' | 'favorites' | 'mine' | 'hidden';
 
 /** Exercise search: by name, body part, equipment, recently used, favorites, or the trainer's own. Pick one or many. */
 export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add exercises' }: {
@@ -221,6 +220,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
   const [q, setQ] = useState('');
   const [part, setPart] = useState<string | null>(null);
   const [equip, setEquip] = useState<string | null>(null);
+  const [pattern, setPattern] = useState<string | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [favs, setFavs] = useState<Set<string>>(new Set());
   const [recent, setRecent] = useState<string[]>([]);
@@ -255,12 +255,12 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
     if (tab === 'recent') return recent.map((r) => byRef(r, mine)).filter(Boolean).filter((e) => search([e!], { q })[0]) as LibExercise[];
     if (tab === 'favorites') return search(all.filter((e) => favs.has(e.ref)), { q });
     if (tab === 'mine') return search(mine, { q });
-    return search(all, { q, part: tab === 'part' ? part : null, equipment: tab === 'equipment' ? equip : null }).slice(0, 300);
-  }, [tab, q, part, equip, all, mine, favs, recent, fromScan, hidden]);
-  // Search and body-part lists fold equipment versions of a move into one line (tap it to see them)
+    return search(all, { q, part: tab === 'part' ? part : null, equipment: tab === 'equipment' ? equip : null, pattern: tab === 'pattern' ? pattern : null }).slice(0, 300);
+  }, [tab, q, part, equip, pattern, all, mine, favs, recent, fromScan, hidden]);
+  // Search, body-part and movement lists fold equipment versions of a move into one line (tap it to see them)
   const items = useMemo((): ListItem[] => {
     const shown = tab === 'hidden' ? list : list.filter((e) => !hidden.has(e.ref));
-    return !fromScan && (tab === 'search' || tab === 'part') ? groupFamilies(shown) : shown.map((e) => ({ kind: 'one', e }));
+    return !fromScan && (tab === 'search' || tab === 'part' || tab === 'pattern') ? groupFamilies(shown) : shown.map((e) => ({ kind: 'one', e }));
   }, [list, hidden, fromScan, tab]);
 
   const toggleFav = async (e: LibExercise) => {
@@ -305,7 +305,8 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
       </View>
     );
   };
-  const showFilterChips = !scanned && ((tab === 'part' && !part) || (tab === 'equipment' && !equip));
+  const showFilterChips = !scanned && !q.trim() && ((tab === 'part' && !part) || (tab === 'pattern' && !pattern) || (tab === 'equipment' && !equip));
+  const groups = useMemo(() => patternGroups(all), [all]);
   /** Scan a machine: the live scanner on phones, a photo on the web */
   const consent = useAiPhotoConsent();
   const scan = async () => {
@@ -319,7 +320,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
     <Sheet visible={visible} onClose={onClose} title={title} full>
       <View style={{ paddingHorizontal: 16, gap: 10 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {([['search', 'Search'], ['part', 'Body part'], ['equipment', 'Equipment'], ['recent', 'Recent'], ['favorites', 'Favorites'], ['mine', 'My exercises'], ...(hidden.size ? [['hidden', `Hidden (${hidden.size})`]] : [])] as [Tab, string][])
+          {([['search', 'Search'], ['part', 'Body part'], ['pattern', 'Movement'], ['equipment', 'Equipment'], ['recent', 'Recent'], ['favorites', 'Favorites'], ['mine', 'My exercises'], ...(hidden.size ? [['hidden', `Hidden (${hidden.size})`]] : [])] as [Tab, string][])
             .map(([k, l]) => <Chip key={k} label={l} selected={!scanned && tab === k} onPress={() => { setScanned(null); setTab(k); }} />)}
         </ScrollView>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.surface, borderWidth: 1.5, borderColor: p.line, borderRadius: R.pill, paddingHorizontal: 14, height: 46 }}>
@@ -355,6 +356,7 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
           <Txt v="small">Also done on it (not in the library yet): {fromScan.extra.join(', ')}</Txt>
         )}
         {tab === 'part' && part && <Chip label={`${BODY_PARTS.find((b) => b.key === part)?.label} ✕`} selected onPress={() => setPart(null)} />}
+        {tab === 'pattern' && pattern && <Chip label={`${pattern} ✕`} selected onPress={() => setPattern(null)} />}
         {tab === 'equipment' && equip && <Chip label={`${titleCase(equip)} ✕`} selected onPress={() => setEquip(null)} />}
         {tab === 'mine' && <Button small kind="ghost" icon="add" title="Create an exercise" style={{ alignSelf: 'flex-start' }} onPress={() => setCreating(true)} />}
       </View>
@@ -363,7 +365,14 @@ export function ExercisePicker({ visible, onClose, onPick, single, title = 'Add 
         <ScrollView contentContainerStyle={{ padding: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {tab === 'part'
             ? BODY_PARTS.map((b) => <Chip key={b.key} label={b.label} onPress={() => setPart(b.key)} />)
-            : EQUIPMENT.map((e) => <Chip key={e} label={titleCase(e)} onPress={() => setEquip(e)} />)}
+            : tab === 'pattern'
+              ? groups.map((g) => (
+                  <View key={g.label} style={{ width: '100%', gap: 8, marginBottom: 6 }}>
+                    <Txt v="smallBold">{g.label}</Txt>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{g.patterns.map((x) => <Chip key={x} label={x} onPress={() => setPattern(x)} />)}</View>
+                  </View>
+                ))
+              : EQUIPMENT.map((e) => <Chip key={e} label={titleCase(e)} onPress={() => setEquip(e)} />)}
         </ScrollView>
       ) : (
         <FlatList data={items} keyExtractor={(it) => (it.kind === 'one' ? it.e.ref : `fam:${it.key}`)} keyboardShouldPersistTaps="handled" initialNumToRender={14}

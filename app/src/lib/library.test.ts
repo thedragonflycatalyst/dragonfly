@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { alternativesFor, builtIn, byRef, familyOf, groupFamilies, search, setLibraryExtras, similarTo, titleCase, youTubeThumb } from './library.ts';
+import { alternativesFor, builtIn, byRef, familyOf, groupFamilies, patternGroups, search, setLibraryExtras, similarTo, titleCase, youTubeEmbed, youTubeId, youTubeThumb, youTubeWatch } from './library.ts';
 import { defaultMetric } from './workouts.ts';
 
 test('library loads every Coach exercise once, with full details', () => {
@@ -108,4 +108,25 @@ test('equipment versions of a move fold into one line', () => {
   assert.ok(items.some((i) => i.kind === 'one' && i.e.name === 'Behind-the-Neck Push Press'), 'different moves stay separate');
   const all = items.flatMap((i) => (i.kind === 'one' ? [i.e] : i.members.map((m) => m.e)));
   assert.equal(all.length, search(builtIn(), { q: 'push press' }).length, 'nothing is lost');
+});
+
+test('movement pattern filter and groups', () => {
+  const all = builtIn();
+  const jumps = search(all, { pattern: 'Jump / land' });
+  assert.ok(jumps.length > 20 && jumps.every((e) => e.pattern === 'Jump / land'));
+  assert.ok(search(all, { pattern: 'Jump / land', q: 'skater' }).some((e) => e.name === 'Skater Jump'));
+  assert.ok(search(all, { q: 'hinge' }).some((e) => e.pattern === 'Hinge'), 'typing a pattern finds its exercises');
+  const groups = patternGroups(all);
+  const listed = groups.flatMap((g) => g.patterns);
+  const used = new Set(all.map((e) => e.pattern).filter(Boolean));
+  assert.equal(listed.length, used.size, 'every pattern in the library is offered exactly once');
+  assert.ok(groups.every((g) => g.patterns.length > 0));
+});
+
+test('YouTube demos play in the app and open at the source', () => {
+  assert.equal(youTubeId('https://www.youtube.com/watch?v=abcdefghijk&t=3'), 'abcdefghijk');
+  assert.equal(youTubeId('https://youtu.be/abcdefghijk'), 'abcdefghijk');
+  assert.equal(youTubeId('https://vimeo.com/1'), null);
+  assert.match(youTubeEmbed('abcdefghijk'), /^https:\/\/www\.youtube-nocookie\.com\/embed\/abcdefghijk\?autoplay=1&playsinline=1/);
+  assert.equal(youTubeWatch('abcdefghijk'), 'https://www.youtube.com/watch?v=abcdefghijk');
 });
